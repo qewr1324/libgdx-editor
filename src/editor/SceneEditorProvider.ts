@@ -3,6 +3,7 @@ import { createEmptyScene, type GameObject, type Scene } from "../types/scene.js
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { getWebviewHtml } from "./webviewHtml.js";
 import { AssetManager } from "./assetManager.js";
+import { HistoryManager } from "./historyManager.js";
 
 export type ObjectSelectionHandler = (objectIds: string[], scene: Scene) => void;
 export type SceneChangeHandler = (scene: Scene) => void;
@@ -21,6 +22,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	private currentDocument: vscode.TextDocument | null = null;
 	private isDirty = false;
 	private autoSaveTimer: NodeJS.Timeout | null = null;
+	private history: HistoryManager = new HistoryManager();
 
 	constructor(private readonly context: vscode.ExtensionContext) {
 		SceneEditorProvider.instances.add(this);
@@ -79,13 +81,15 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		return null;
 	}
 
-	public static updateObject(obj: GameObject): void {
+	public static updateObject(obj: GameObject, historyLabel = "update object"): void {
 		for (const inst of SceneEditorProvider.instances) {
 			if (!inst.currentScene) continue;
 			const updated = inst.updateObjectInScene(inst.currentScene, obj);
 			inst.currentScene = updated;
 			inst.markDirty();
+			inst.history.push(updated, historyLabel);
 			inst.broadcastUpdate(updated);
+			inst.broadcastHistoryState();
 		}
 	}
 
@@ -95,7 +99,9 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			const updated = inst.deleteObjectFromScene(inst.currentScene, objectId);
 			inst.currentScene = updated;
 			inst.markDirty();
+			inst.history.push(updated, "delete object");
 			inst.broadcastUpdate(updated);
+			inst.broadcastHistoryState();
 		}
 	}
 
@@ -109,7 +115,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		}
 	}
 
-	public static updateSceneField(field: string, value: unknown): void {
+	public static updateSceneField(field: string, value: unknown, historyLabel = "update scene"): void {
 		for (const inst of SceneEditorProvider.instances) {
 			if (!inst.currentScene) continue;
 			const updated = structuredClone(inst.currentScene) as Scene;
@@ -122,7 +128,9 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			}
 			inst.currentScene = updated;
 			inst.markDirty();
+			inst.history.push(updated, historyLabel);
 			inst.broadcastUpdate(updated);
+			inst.broadcastHistoryState();
 		}
 	}
 
@@ -146,6 +154,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			const updated = inst.addObjectToScene(scene, newObj);
 			inst.currentScene = updated;
 			inst.markDirty();
+			inst.history.push(updated, "add texture");
 
 			if (inst.currentDocument) {
 				const textures = await AssetManager.loadTexturesAsDataUrls(inst.currentDocument.uri, updated);
@@ -153,6 +162,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			}
 
 			inst.broadcastUpdate(updated);
+			inst.broadcastHistoryState();
 			return true;
 		}
 		return false;
@@ -182,9 +192,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 			inst.currentScene = updated;
 			inst.markDirty();
+			inst.history.push(updated, "duplicate");
 			inst.broadcastUpdate(updated);
+			inst.broadcastHistoryState();
 
-			// انتخاب آبجکت‌های جدید
 			setTimeout(() => {
 				try {
 					inst.activeWebview?.postMessage({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
@@ -192,6 +203,36 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					// ignore
 				}
 			}, 50);
+		}
+	}
+
+	public static undo(): void {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const scene = inst.history.undo();
+			if (!scene) continue;
+			inst.currentScene = scene;
+			inst.markDirty();
+			inst.broadcastUpdate(scene);
+			inst.broadcastHistoryState();
+			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+				handler(scene);
+			}
+		}
+	}
+
+	public static redo(): void {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const scene = inst.history.redo();
+			if (!scene) continue;
+			inst.currentScene = scene;
+			inst.markDirty();
+			inst.broadcastUpdate(scene);
+			inst.broadcastHistoryState();
+			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+				handler(scene);
+			}
 		}
 	}
 
@@ -223,11 +264,14 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		const sendScene = async () => {
 			const scene = this.parseDocument(document);
 			this.currentScene = scene;
+			this.history.reset(scene);
 			const msg: ExtensionToWebviewMessage = { type: "load", scene };
 			webviewPanel.webview.postMessage(msg);
 
 			const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
 			webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+			this.broadcastHistoryState();
 
 			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 				handler(scene);
@@ -275,7 +319,9 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					const updated = this.addObjectToScene(this.currentScene, newObj);
 					this.currentScene = updated;
 					this.markDirty();
+					this.history.push(updated, `add ${msg.objectType}`);
 					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.broadcastHistoryState();
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
@@ -294,6 +340,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					const updated = this.updateObjectInScene(this.currentScene, msg.object);
 					this.currentScene = updated;
 					this.markDirty();
+					this.history.push(updated, msg.historyLabel ?? "update object");
+					this.broadcastHistoryState();
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
@@ -307,13 +355,15 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					}
 					this.currentScene = updated;
 					this.markDirty();
+					this.history.push(updated, msg.historyLabel ?? "update objects");
+					this.broadcastHistoryState();
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
 					break;
 				}
 				case "updateSceneField": {
-					SceneEditorProvider.updateSceneField(msg.field, msg.value);
+					SceneEditorProvider.updateSceneField(msg.field, msg.value, msg.historyLabel ?? `update ${msg.field}`);
 					break;
 				}
 				case "deleteObject": {
@@ -321,7 +371,9 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					const updated = this.deleteObjectFromScene(this.currentScene, msg.objectId);
 					this.currentScene = updated;
 					this.markDirty();
+					this.history.push(updated, "delete object");
 					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.broadcastHistoryState();
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
@@ -335,7 +387,9 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					}
 					this.currentScene = updated;
 					this.markDirty();
+					this.history.push(updated, "delete objects");
 					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.broadcastHistoryState();
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
@@ -350,6 +404,14 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					for (const handler of SceneEditorProvider.openSceneSettingsHandlers) {
 						handler(scene);
 					}
+					break;
+				}
+				case "undo": {
+					SceneEditorProvider.undo();
+					break;
+				}
+				case "redo": {
+					SceneEditorProvider.redo();
 					break;
 				}
 			}
@@ -385,6 +447,18 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		}
 		for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 			handler(scene);
+		}
+	}
+
+	private broadcastHistoryState(): void {
+		try {
+			this.activeWebview?.postMessage({
+				type: "historyState",
+				canUndo: this.history.canUndo(),
+				canRedo: this.history.canRedo(),
+			} satisfies ExtensionToWebviewMessage);
+		} catch {
+			// ignore
 		}
 	}
 
@@ -458,11 +532,14 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			const updated = this.addObjectToScene(this.currentScene, newObj);
 			this.currentScene = updated;
 			this.markDirty();
+			this.history.push(updated, "import texture");
 
 			this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 
 			const textures = await AssetManager.loadTexturesAsDataUrls(this.currentDocument.uri, updated);
 			this.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+			this.broadcastHistoryState();
 
 			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 				handler(updated);

@@ -32,10 +32,10 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
 	inspector.setHandlers({
-		onUpdateObject: (obj) => SceneEditorProvider.updateObject(obj),
+		onUpdateObject: (obj, historyLabel) => SceneEditorProvider.updateObject(obj, historyLabel ?? "inspector edit"),
 		onDeleteObject: (objectId) => SceneEditorProvider.deleteObject(objectId),
 		onFocusObject: (objectId) => SceneEditorProvider.focusObject(objectId),
-		onUpdateSceneField: (field, value) => SceneEditorProvider.updateSceneField(field, value),
+		onUpdateSceneField: (field, value, historyLabel) => SceneEditorProvider.updateSceneField(field, value, historyLabel ?? `scene: ${field}`),
 	});
 
 	context.subscriptions.push(

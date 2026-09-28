@@ -11,14 +11,14 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private selectedIds: string[] = [];
 	private sceneMode = false;
 
-	private onUpdateObject: ((object: GameObject) => void) | null = null;
+	private onUpdateObject: ((object: GameObject, historyLabel?: string) => void) | null = null;
 	private onDeleteObject: ((objectId: string) => void) | null = null;
 	private onFocusObject: ((objectId: string) => void) | null = null;
-	private onUpdateSceneField: ((field: string, value: unknown) => void) | null = null;
+	private onUpdateSceneField: ((field: string, value: unknown, historyLabel?: string) => void) | null = null;
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
-	public setHandlers(handlers: { onUpdateObject: (object: GameObject) => void; onDeleteObject: (objectId: string) => void; onFocusObject: (objectId: string) => void; onUpdateSceneField: (field: string, value: unknown) => void }): void {
+	public setHandlers(handlers: { onUpdateObject: (object: GameObject, historyLabel?: string) => void; onDeleteObject: (objectId: string) => void; onFocusObject: (objectId: string) => void; onUpdateSceneField: (field: string, value: unknown, historyLabel?: string) => void }): void {
 		this.onUpdateObject = handlers.onUpdateObject;
 		this.onDeleteObject = handlers.onDeleteObject;
 		this.onFocusObject = handlers.onFocusObject;
@@ -43,12 +43,12 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 				case "updateObjectField": {
 					const updated = this.applyFieldUpdate(msg.objectId, msg.field, msg.value);
 					if (updated && this.onUpdateObject) {
-						this.onUpdateObject(updated);
+						this.onUpdateObject(updated, `inspector: ${msg.field}`);
 					}
 					break;
 				}
 				case "updateSceneField":
-					this.onUpdateSceneField?.(msg.field, msg.value);
+					this.onUpdateSceneField?.(msg.field, msg.value, `scene: ${msg.field}`);
 					break;
 				case "deleteObject":
 					this.onDeleteObject?.(msg.objectId);

@@ -123,7 +123,7 @@ function setupToolbar() {
 				if (scene) {
 					scene.snapToGrid = !scene.snapToGrid;
 					target.classList.toggle("active", scene.snapToGrid);
-					vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: scene.snapToGrid });
+					vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: scene.snapToGrid, historyLabel: "toggle snap" });
 				}
 				break;
 			case "save":
@@ -146,6 +146,12 @@ function setupToolbar() {
 				updateToolbarInfo("Saved ✓");
 				setTimeout(() => updateToolbarInfo(""), 1500);
 			}
+		} else if (mod && e.key === "z" && !e.shiftKey) {
+			e.preventDefault();
+			vscode.postMessage({ type: "undo" });
+		} else if (mod && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+			e.preventDefault();
+			vscode.postMessage({ type: "redo" });
 		} else if (mod && e.key === "c") {
 			e.preventDefault();
 			copySelection();
@@ -204,20 +210,17 @@ function copySelection() {
 
 function pasteClipboard() {
 	if (clipboard.length === 0) return;
-	// هر پیست با آفست بیشتر
 	const offsetX = 20;
 	const offsetY = 20;
 	for (const obj of clipboard) {
 		obj.transform.x += offsetX;
 		obj.transform.y += offsetY;
 	}
-	// درخواست افزودن از extension
 	for (const obj of clipboard) {
-		// پیام updateObject برای افزودن آبجکت جدید (با id جدید)
 		const clone = structuredClone(obj) as GameObject;
 		clone.id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 		clone.name = `${obj.name}_copy`;
-		vscode.postMessage({ type: "updateObject", object: clone });
+		vscode.postMessage({ type: "updateObject", object: clone, historyLabel: "paste" });
 	}
 	updateToolbarInfo(`Pasted ${clipboard.length} object(s)`);
 	setTimeout(() => updateToolbarInfo(""), 1500);
@@ -245,6 +248,9 @@ function setupContextMenu() {
 		<div class="context-menu-item" data-action="copy">📋 Copy (Ctrl+C)</div>
 		<div class="context-menu-item" data-action="paste">📥 Paste (Ctrl+V)</div>
 		<div class="context-menu-item" data-action="duplicate">📑 Duplicate (Ctrl+D)</div>
+		<div class="context-menu-separator"></div>
+		<div class="context-menu-item" data-action="undo">↶ Undo (Ctrl+Z)</div>
+		<div class="context-menu-item" data-action="redo">↷ Redo (Ctrl+Y)</div>
 		<div class="context-menu-separator"></div>
 		<div class="context-menu-item" data-action="delete">🗑️ Delete (Del)</div>
 	`;
@@ -313,6 +319,12 @@ function setupContextMenu() {
 			case "duplicate":
 				duplicateSelection();
 				break;
+			case "undo":
+				vscode.postMessage({ type: "undo" });
+				break;
+			case "redo":
+				vscode.postMessage({ type: "redo" });
+				break;
 			case "delete":
 				if (selectedIds.length > 0) {
 					vscode.postMessage({ type: "deleteObjects", objectIds: selectedIds });
@@ -370,7 +382,6 @@ function setupRulers() {
 
 	drawRulers();
 	window.addEventListener("resize", drawRulers);
-	// هر ۱۰۰ms رفرش کن (وقتی pan/zoom تغییر می‌کند)
 	setInterval(drawRulers, 100);
 }
 
@@ -379,34 +390,32 @@ function drawRulers() {
 
 	const dpr = window.devicePixelRatio || 1;
 
-	// افقی
 	const hw = window.innerWidth;
 	const hh = 20;
 	rulerH.width = hw * dpr;
 	rulerH.height = hh * dpr;
 	const ctxH = rulerH.getContext("2d")!;
+	ctxH.setTransform(1, 0, 0, 1, 0, 0);
 	ctxH.scale(dpr, dpr);
 	ctxH.clearRect(0, 0, hw, hh);
 
-	// عمودی
 	const vw = 20;
 	const vh = window.innerHeight;
 	rulerV.width = vw * dpr;
 	rulerV.height = vh * dpr;
 	const ctxV = rulerV.getContext("2d")!;
+	ctxV.setTransform(1, 0, 0, 1, 0, 0);
 	ctxV.scale(dpr, dpr);
 	ctxV.clearRect(0, 0, vw, vh);
 
 	const textColor = getComputedStyle(document.body).color || "#888";
 	const scale = viewport.scale.x;
 
-	// محاسبه فاصله برچسب بر اساس scale
 	let step = 100;
 	if (scene?.gridSize) step = scene.gridSize;
 	while (step * scale < 40) step *= 2;
 	while (step * scale > 200) step /= 2;
 
-	// خطوط افقی
 	const worldLeft = viewport.toWorld(20, 0).x;
 	const worldRight = viewport.toWorld(hw, 0).x;
 	const startX = Math.floor(worldLeft / step) * step;
@@ -426,7 +435,6 @@ function drawRulers() {
 		ctxH.fillText(String(wx), sx + 2, 10);
 	}
 
-	// خطوط عمودی
 	const worldTop = viewport.toWorld(0, 20).y;
 	const worldBottom = viewport.toWorld(0, vh).y;
 	const startY = Math.floor(worldTop / step) * step;
@@ -442,7 +450,6 @@ function drawRulers() {
 		ctxV.moveTo(vw - 6, sy);
 		ctxV.lineTo(vw, sy);
 		ctxV.stroke();
-		// متن را ۹۰ درجه بچرخان
 		ctxV.save();
 		ctxV.translate(10, sy + 2);
 		ctxV.rotate(-Math.PI / 2);
@@ -674,7 +681,7 @@ function startDrag(e: any, primaryObj: GameObject) {
 			if (obj) updated.push(structuredClone(obj) as GameObject);
 		}
 		if (updated.length > 0) {
-			vscode.postMessage({ type: "updateObjects", objects: updated });
+			vscode.postMessage({ type: "updateObjects", objects: updated, historyLabel: "move" });
 		}
 	};
 
@@ -778,7 +785,6 @@ function drawResizeHandles(obj: GameObject, t: GameObject["transform"]) {
 }
 
 function drawRotateHandle(obj: GameObject, t: GameObject["transform"]) {
-	// نقطه چرخش بالای کادر انتخاب
 	const top = -t.height * t.originY;
 	const centerY = top - 25;
 
@@ -787,13 +793,11 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]) {
 	handle.fill({ color: 0x4aff9b });
 	handle.stroke({ width: 2, color: 0x1a1a1a, alpha: 0.7 });
 
-	// خط اتصال
 	const line = new Graphics();
 	line.moveTo(0, top);
 	line.lineTo(0, centerY);
 	line.stroke({ width: 1, color: 0x4aff9b, alpha: 0.5 });
 
-	// کانتینر برای اعمال rotation و scale
 	const rotateContainer = new Container();
 	rotateContainer.x = t.x;
 	rotateContainer.y = t.y;
@@ -903,7 +907,11 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 		app.stage.off("pointerup", onUp);
 		app.stage.off("pointerupoutside", onUp);
 
-		vscode.postMessage({ type: "updateObject", object: structuredClone(obj) as GameObject });
+		vscode.postMessage({
+			type: "updateObject",
+			object: structuredClone(obj) as GameObject,
+			historyLabel: "resize",
+		});
 	};
 
 	app.stage.on("pointermove", onMove);
@@ -918,24 +926,36 @@ function startRotate(e: any, obj: GameObject) {
 	const t = obj.transform;
 	const centerWorld = { x: t.x, y: t.y };
 
+	// زاویه اولیه ماوس نسبت به مرکز
+	const startWorld = viewport.toWorld(e.global.x, e.global.y);
+	const startAngle = Math.atan2(startWorld.y - centerWorld.y, startWorld.x - centerWorld.x);
+	const startRotation = t.rotation;
+
 	const onMove = (moveEvent: any) => {
 		if (!isRotating || !viewport) return;
 
-		// موقعیت ماوس در world
 		const world = viewport.toWorld(moveEvent.global.x, moveEvent.global.y);
-		// زاویه نسبت به مرکز
-		const dx = world.x - centerWorld.x;
-		const dy = world.y - centerWorld.y;
-		let angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
-		// چون نقطه چرخش بالای آبجکت است، ۹۰ درجه اضافه می‌کنیم
-		angleDeg += 90;
+		const currentAngle = Math.atan2(world.y - centerWorld.y, world.x - centerWorld.x);
 
-		// Shift → snap به ۱۵ درجه
+		// delta = اختلاف زاویه فعلی و اولیه
+		let deltaDeg = ((currentAngle - startAngle) * 180) / Math.PI;
+
+		// نرمال‌سازی delta به بازه -180 تا 180
+		if (deltaDeg > 180) deltaDeg -= 360;
+		if (deltaDeg < -180) deltaDeg += 360;
+
+		// زاویه نهایی = زاویه اولیه آبجکت + delta
+		let newRotation = startRotation + deltaDeg;
+
+		// Shift → snap
 		if (moveEvent.shiftKey) {
-			angleDeg = Math.round(angleDeg / 15) * 15;
+			newRotation = Math.round(newRotation / 15) * 15;
 		}
 
-		obj.transform.rotation = angleDeg;
+		// نرمال‌سازی به 0-360
+		newRotation = ((newRotation % 360) + 360) % 360;
+
+		obj.transform.rotation = Math.round(newRotation * 100) / 100;
 
 		rerenderObject(obj);
 		drawSelectionOutlines();
@@ -947,7 +967,11 @@ function startRotate(e: any, obj: GameObject) {
 		app.stage.off("pointerup", onUp);
 		app.stage.off("pointerupoutside", onUp);
 
-		vscode.postMessage({ type: "updateObject", object: structuredClone(obj) as GameObject });
+		vscode.postMessage({
+			type: "updateObject",
+			object: structuredClone(obj) as GameObject,
+			historyLabel: "rotate",
+		});
 	};
 
 	app.stage.on("pointermove", onMove);
@@ -1011,6 +1035,10 @@ window.addEventListener("message", async (event) => {
 			if (scene) renderScene(scene);
 			break;
 		}
+		case "historyState":
+			// می‌توانی در toolbar نشان دهی
+			console.log("History state:", msg.canUndo, msg.canRedo);
+			break;
 		case "selectFromOutliner":
 			if (msg.objectId) {
 				selectObjects([msg.objectId], msg.objectId);
