@@ -17,10 +17,25 @@ const vscode = acquireVsCodeApi();
 let scene: Scene | null = null;
 let selectedIds: string[] = [];
 let primarySelectedId: string | null = null;
-let isDraggingObject = false;
-let isResizing = false;
-let isRotating = false;
 let clipboard: GameObject[] = [];
+
+type InteractionMode = "idle" | "drag" | "resize" | "rotate";
+let interactionMode: InteractionMode = "idle";
+
+// data برای interaction فعلی
+interface InteractionData {
+	startGlobalX: number;
+	startGlobalY: number;
+	startTransforms: Map<string, { x: number; y: number; w: number; h: number; r: number }>;
+	primaryObj: GameObject;
+	resizeHandle?: HandleType;
+	rotateStartAngle?: number;
+	rotateStartRotation?: number;
+	rotateCenter?: { x: number; y: number };
+	rotateRadius?: number;
+}
+
+let currentInteraction: InteractionData | null = null;
 
 const textureCache = new Map<string, Texture>();
 
@@ -31,7 +46,7 @@ let viewport: Viewport;
 let gridLayer: Container;
 let contentLayer: Container;
 let selectionLayer: Container;
-let gizmoLayer: Container; // برای نمایش‌های زنده (زاویه، ابعاد، مختصات)
+let gizmoLayer: Container;
 const objectSprites = new Map<string, Container>();
 
 // ---------- Ruler & Cursor state ----------
@@ -78,6 +93,47 @@ async function initPixi() {
 	setupContextMenu();
 	setupRulers();
 	setupMouseTracker();
+	setupGlobalInteractionListeners();
+}
+
+// ---------- Global Interaction Listeners (یک بار برای همیشه) ----------
+function setupGlobalInteractionListeners() {
+	// pointermove روی window — نه روی app.stage
+	window.addEventListener("pointermove", (e) => {
+		if (interactionMode === "idle" || !currentInteraction || !viewport || !scene) return;
+
+		const globalX = e.clientX - app.canvas.getBoundingClientRect().left;
+		const globalY = e.clientY - app.canvas.getBoundingClientRect().top;
+
+		switch (interactionMode) {
+			case "drag":
+				handleDragMove(e, globalX, globalY);
+				break;
+			case "resize":
+				handleResizeMove(e, globalX, globalY);
+				break;
+			case "rotate":
+				handleRotateMove(e, globalX, globalY);
+				break;
+		}
+	});
+
+	window.addEventListener("pointerup", () => {
+		if (interactionMode === "idle") return;
+		finishInteraction();
+	});
+
+	window.addEventListener("pointercancel", () => {
+		if (interactionMode === "idle") return;
+		finishInteraction();
+	});
+
+	window.addEventListener("blur", () => {
+		// اگر کاربر پنجره را ترک کرد، interaction را تمام کن
+		if (interactionMode !== "idle") {
+			finishInteraction();
+		}
+	});
 }
 
 // ---------- Toolbar ----------
@@ -549,6 +605,8 @@ function renderObject(obj: GameObject, layerLocked = false) {
 			const sprite = new Sprite(cached);
 			sprite.width = t.width;
 			sprite.height = t.height;
+			// ⭐ مهم: sprite را غیرفعال کن تا کلیک به container برسد
+			sprite.eventMode = "none";
 			container.addChild(sprite);
 			rendered = true;
 		}
@@ -560,12 +618,14 @@ function renderObject(obj: GameObject, layerLocked = false) {
 			const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0xff4a4a;
 			g.circle(t.width / 2, t.height / 2, Math.min(t.width, t.height) / 2);
 			g.fill({ color, alpha: 1 });
+			g.eventMode = "none";
 			container.addChild(g);
 		} else if (obj.type === "text") {
 			const txt = new Text({
 				text: obj.name,
 				style: new TextStyle({ fill: obj.color || "#ffffff", fontSize: 16 }),
 			});
+			txt.eventMode = "none";
 			container.addChild(txt);
 		} else {
 			const g = new Graphics();
@@ -573,9 +633,13 @@ function renderObject(obj: GameObject, layerLocked = false) {
 			g.rect(0, 0, t.width, t.height);
 			g.fill({ color, alpha: 1 });
 			g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
+			g.eventMode = "none";
 			container.addChild(g);
 		}
 	}
+
+	// ⭐ مهم: یک hitArea مستطیلی صریح روی container تنظیم کن
+	container.hitArea = new Rectangle(0, 0, t.width, t.height);
 
 	container.x = t.x;
 	container.y = t.y;
@@ -610,7 +674,7 @@ function renderObject(obj: GameObject, layerLocked = false) {
 				}
 			}
 
-			startDrag(e, obj);
+			beginDrag(e, obj);
 		});
 	}
 
@@ -618,86 +682,258 @@ function renderObject(obj: GameObject, layerLocked = false) {
 	objectSprites.set(obj.id, container);
 }
 
-// ---------- Drag (with live coordinates) ----------
-function startDrag(e: any, primaryObj: GameObject) {
-	isDraggingObject = true;
-
-	const startPos = e.global.clone();
-	const startTransforms = new Map<string, { x: number; y: number }>();
+// ---------- Interaction: begin ----------
+function beginDrag(e: any, primaryObj: GameObject) {
+	const data: InteractionData = {
+		startGlobalX: e.clientX - app.canvas.getBoundingClientRect().left,
+		startGlobalY: e.clientY - app.canvas.getBoundingClientRect().top,
+		startTransforms: new Map(),
+		primaryObj,
+	};
 
 	for (const id of selectedIds) {
 		const o = scene ? findObject(scene, id) : null;
 		if (o) {
-			startTransforms.set(id, { x: o.transform.x, y: o.transform.y });
+			data.startTransforms.set(id, { x: o.transform.x, y: o.transform.y, w: o.transform.width, h: o.transform.height, r: o.transform.rotation });
 		}
 	}
-	if (startTransforms.size === 0) {
-		startTransforms.set(primaryObj.id, { x: primaryObj.transform.x, y: primaryObj.transform.y });
+	if (data.startTransforms.size === 0) {
+		data.startTransforms.set(primaryObj.id, { x: primaryObj.transform.x, y: primaryObj.transform.y, w: primaryObj.transform.width, h: primaryObj.transform.height, r: primaryObj.transform.rotation });
 	}
 
-	const onMove = (moveEvent: any) => {
-		if (!isDraggingObject || !viewport || !scene) return;
-		const dx = (moveEvent.global.x - startPos.x) / viewport.scale.x;
-		const dy = (moveEvent.global.y - startPos.y) / viewport.scale.y;
+	currentInteraction = data;
+	interactionMode = "drag";
+}
 
-		const primaryStart = startTransforms.get(primaryObj.id)!;
-		let newPrimaryX = primaryStart.x + dx;
-		let newPrimaryY = primaryStart.y + dy;
-
-		if (scene.snapToGrid) {
-			const g = scene.gridSize || 32;
-			newPrimaryX = Math.round(newPrimaryX / g) * g;
-			newPrimaryY = Math.round(newPrimaryY / g) * g;
-		}
-
-		const snapDX = newPrimaryX - (primaryStart.x + dx);
-		const snapDY = newPrimaryY - (primaryStart.y + dy);
-
-		for (const [id, start] of startTransforms) {
-			const obj = scene ? findObject(scene, id) : null;
-			if (!obj) continue;
-			const newX = Math.round(start.x + dx + snapDX);
-			const newY = Math.round(start.y + dy + snapDY);
-			obj.transform.x = newX;
-			obj.transform.y = newY;
-
-			const c = objectSprites.get(id);
-			if (c) {
-				c.x = newX;
-				c.y = newY;
-			}
-		}
-
-		drawSelectionOutlines();
-		drawDragGuides(primaryObj);
+function beginResize(e: any, obj: GameObject, handle: HandleType) {
+	const data: InteractionData = {
+		startGlobalX: e.clientX - app.canvas.getBoundingClientRect().left,
+		startGlobalY: e.clientY - app.canvas.getBoundingClientRect().top,
+		startTransforms: new Map(),
+		primaryObj: obj,
+		resizeHandle: handle,
 	};
 
-	const onUp = () => {
-		isDraggingObject = false;
-		clearGizmo();
-		app.stage.off("pointermove", onMove);
-		app.stage.off("pointerup", onUp);
-		app.stage.off("pointerupoutside", onUp);
+	data.startTransforms.set(obj.id, { x: obj.transform.x, y: obj.transform.y, w: obj.transform.width, h: obj.transform.height, r: obj.transform.rotation });
 
-		if (!scene) return;
+	currentInteraction = data;
+	interactionMode = "resize";
+}
+
+function beginRotate(e: any, obj: GameObject) {
+	const startGlobalX = e.clientX - app.canvas.getBoundingClientRect().left;
+	const startGlobalY = e.clientY - app.canvas.getBoundingClientRect().top;
+
+	if (!viewport) return;
+	const startWorld = viewport.toWorld(startGlobalX, startGlobalY);
+	const startAngle = Math.atan2(startWorld.y - obj.transform.y, startWorld.x - obj.transform.x);
+
+	const data: InteractionData = {
+		startGlobalX,
+		startGlobalY,
+		startTransforms: new Map(),
+		primaryObj: obj,
+		rotateStartAngle: startAngle,
+		rotateStartRotation: obj.transform.rotation,
+		rotateCenter: { x: obj.transform.x, y: obj.transform.y },
+		rotateRadius: Math.max(obj.transform.width, obj.transform.height) / 2 + 40,
+	};
+
+	currentInteraction = data;
+	interactionMode = "rotate";
+}
+
+// ---------- Interaction: move handlers ----------
+function handleDragMove(_e: PointerEvent, globalX: number, globalY: number) {
+	if (!currentInteraction || !viewport || !scene) return;
+	const data = currentInteraction;
+
+	const dx = (globalX - data.startGlobalX) / viewport.scale.x;
+	const dy = (globalY - data.startGlobalY) / viewport.scale.y;
+
+	const primaryStart = data.startTransforms.get(data.primaryObj.id)!;
+	let newPrimaryX = primaryStart.x + dx;
+	let newPrimaryY = primaryStart.y + dy;
+
+	if (scene.snapToGrid) {
+		const g = scene.gridSize || 32;
+		newPrimaryX = Math.round(newPrimaryX / g) * g;
+		newPrimaryY = Math.round(newPrimaryY / g) * g;
+	}
+
+	const snapDX = newPrimaryX - (primaryStart.x + dx);
+	const snapDY = newPrimaryY - (primaryStart.y + dy);
+
+	for (const [id, start] of data.startTransforms) {
+		const obj = scene ? findObject(scene, id) : null;
+		if (!obj) continue;
+		const newX = Math.round(start.x + dx + snapDX);
+		const newY = Math.round(start.y + dy + snapDY);
+		obj.transform.x = newX;
+		obj.transform.y = newY;
+
+		const c = objectSprites.get(id);
+		if (c) {
+			c.x = newX;
+			c.y = newY;
+		}
+	}
+
+	drawSelectionOutlines();
+	drawDragGuides(data.primaryObj);
+}
+
+function handleResizeMove(e: PointerEvent, globalX: number, globalY: number) {
+	if (!currentInteraction || !viewport || !scene) return;
+	const data = currentInteraction;
+	const obj = data.primaryObj;
+	const handle = data.resizeHandle!;
+	const startTransform = data.startTransforms.get(obj.id)!;
+
+	const dx = (globalX - data.startGlobalX) / viewport.scale.x;
+	const dy = (globalY - data.startGlobalY) / viewport.scale.y;
+
+	const shift = e.shiftKey;
+	const alt = e.altKey;
+
+	let newW = startTransform.w;
+	let newH = startTransform.h;
+	let newX = startTransform.x;
+	let newY = startTransform.y;
+
+	const isLeft = handle === "w" || handle === "nw" || handle === "sw";
+	const isRight = handle === "e" || handle === "ne" || handle === "se";
+	const isTop = handle === "n" || handle === "nw" || handle === "ne";
+	const isBottom = handle === "s" || handle === "sw" || handle === "se";
+	const isHorizontal = isLeft || isRight;
+	const isVertical = isTop || isBottom;
+
+	if (alt) {
+		if (isHorizontal) {
+			newW = Math.max(1, startTransform.w + (isRight ? dx * 2 : -dx * 2));
+		}
+		if (isVertical) {
+			newH = Math.max(1, startTransform.h + (isBottom ? dy * 2 : -dy * 2));
+		}
+	} else {
+		if (isRight) {
+			newW = Math.max(1, startTransform.w + dx);
+			newX = startTransform.x + dx / 2;
+		} else if (isLeft) {
+			newW = Math.max(1, startTransform.w - dx);
+			newX = startTransform.x + dx / 2;
+		}
+
+		if (isBottom) {
+			newH = Math.max(1, startTransform.h + dy);
+			newY = startTransform.y + dy / 2;
+		} else if (isTop) {
+			newH = Math.max(1, startTransform.h - dy);
+			newY = startTransform.y + dy / 2;
+		}
+
+		if (!isHorizontal) newX = startTransform.x;
+		if (!isVertical) newY = startTransform.y;
+	}
+
+	if (shift && isHorizontal && isVertical) {
+		const aspect = startTransform.w / startTransform.h;
+		if (newW / newH > aspect) {
+			newW = newH * aspect;
+		} else {
+			newH = newW / aspect;
+		}
+	}
+
+	if (scene.snapToGrid) {
+		const g = scene.gridSize || 32;
+		newW = Math.round(newW / g) * g;
+		newH = Math.round(newH / g) * g;
+	}
+
+	obj.transform.width = Math.round(newW);
+	obj.transform.height = Math.round(newH);
+	obj.transform.x = Math.round(newX);
+	obj.transform.y = Math.round(newY);
+
+	rerenderObject(obj);
+	drawSelectionOutlines();
+	drawResizeLabel(obj);
+}
+
+function handleRotateMove(e: PointerEvent, globalX: number, globalY: number) {
+	if (!currentInteraction || !viewport) return;
+	const data = currentInteraction;
+	const obj = data.primaryObj;
+	if (data.rotateStartAngle === undefined || data.rotateStartRotation === undefined || !data.rotateCenter || data.rotateRadius === undefined) return;
+
+	const world = viewport.toWorld(globalX, globalY);
+	const center = data.rotateCenter;
+	const currentAngle = Math.atan2(world.y - center.y, world.x - center.x);
+
+	let deltaDeg = ((currentAngle - data.rotateStartAngle) * 180) / Math.PI;
+	if (deltaDeg > 180) deltaDeg -= 360;
+	if (deltaDeg < -180) deltaDeg += 360;
+
+	let newRotation = data.rotateStartRotation + deltaDeg;
+
+	if (e.altKey) {
+		newRotation = Math.round(newRotation / 90) * 90;
+	} else if (e.shiftKey) {
+		newRotation = Math.round(newRotation / 15) * 15;
+	}
+
+	newRotation = ((newRotation % 360) + 360) % 360;
+
+	obj.transform.rotation = Math.round(newRotation * 100) / 100;
+
+	rerenderObject(obj);
+	drawSelectionOutlines();
+	drawRotateGizmo(obj, center, data.rotateRadius, world, e.shiftKey, e.altKey);
+}
+
+// ---------- Interaction: finish ----------
+function finishInteraction() {
+	if (!currentInteraction) {
+		interactionMode = "idle";
+		return;
+	}
+
+	const data = currentInteraction;
+	const mode = interactionMode;
+
+	// reset state
+	interactionMode = "idle";
+	currentInteraction = null;
+	clearGizmo();
+
+	if (!scene) return;
+
+	if (mode === "drag") {
 		const updated: GameObject[] = [];
-		for (const id of startTransforms.keys()) {
+		for (const id of data.startTransforms.keys()) {
 			const obj = findObject(scene, id);
 			if (obj) updated.push(structuredClone(obj) as GameObject);
 		}
 		if (updated.length > 0) {
 			vscode.postMessage({ type: "updateObjects", objects: updated, historyLabel: "move" });
 		}
-	};
-
-	app.stage.on("pointermove", onMove);
-	app.stage.on("pointerup", onUp);
-	app.stage.on("pointerupoutside", onUp);
+	} else if (mode === "resize") {
+		vscode.postMessage({
+			type: "updateObject",
+			object: structuredClone(data.primaryObj) as GameObject,
+			historyLabel: "resize",
+		});
+	} else if (mode === "rotate") {
+		vscode.postMessage({
+			type: "updateObject",
+			object: structuredClone(data.primaryObj) as GameObject,
+			historyLabel: "rotate",
+		});
+	}
 }
 
-/**
- * راهنماهای خط‌چین برای موقعیت فعلی + نمایش مختصات.
- */
+// ---------- Drag guides ----------
 function drawDragGuides(obj: GameObject) {
 	clearGizmo();
 	const t = obj.transform;
@@ -707,19 +943,16 @@ function drawDragGuides(obj: GameObject) {
 	const gapLen = 4;
 	const offset = 30;
 
-	// خط افقی به سمت چپ (به محور Y)
 	const hLine = new Graphics();
 	drawDashedLine(hLine, t.x, t.y, t.x - offset, t.y, dashLen, gapLen);
 	hLine.stroke({ width: 1, color: guideColor, alpha: 0.7 });
 	gizmoLayer.addChild(hLine);
 
-	// خط عمودی به سمت بالا (به محور X)
 	const vLine = new Graphics();
 	drawDashedLine(vLine, t.x, t.y, t.x, t.y - offset, dashLen, gapLen);
 	vLine.stroke({ width: 1, color: guideColor, alpha: 0.7 });
 	gizmoLayer.addChild(vLine);
 
-	// برچسب مختصات
 	const label = new Text({
 		text: `${Math.round(t.x)}, ${Math.round(t.y)}`,
 		style: new TextStyle({
@@ -827,17 +1060,14 @@ function drawResizeHandles(obj: GameObject, t: GameObject["transform"]) {
 		{ type: "w", x: left, y: (top + bottom) / 2, cursor: "ew-resize" },
 	];
 
-	// گوشه‌های قطری را کمی بزرگ‌تر نشان بده
 	for (const pos of positions) {
 		const isCorner = pos.type === "nw" || pos.type === "ne" || pos.type === "se" || pos.type === "sw";
 		const size = isCorner ? hw + 2 : hw;
 
 		const handle = new Graphics();
 		if (isCorner) {
-			// گوشه‌ها: مربع
 			handle.rect(-size / 2, -size / 2, size, size);
 		} else {
-			// لبه‌ها: دایره کوچک
 			handle.circle(0, 0, size / 2);
 		}
 		handle.fill({ color: 0xffaa00 });
@@ -851,7 +1081,7 @@ function drawResizeHandles(obj: GameObject, t: GameObject["transform"]) {
 
 		handle.on("pointerdown", (e) => {
 			e.stopPropagation();
-			startResize(e, obj, pos.type);
+			beginResize(e, obj, pos.type);
 		});
 
 		selectionLayer.addChild(handle);
@@ -867,7 +1097,6 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]) {
 	handle.fill({ color: 0x4aff9b });
 	handle.stroke({ width: 2, color: 0x1a1a1a, alpha: 0.7 });
 
-	// فلش کوچک داخل دایره
 	const arrow = new Graphics();
 	arrow.moveTo(-3, 0);
 	arrow.lineTo(3, 0);
@@ -897,126 +1126,18 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]) {
 
 	lineContainer.on("pointerdown", (e) => {
 		e.stopPropagation();
-		startRotate(e, obj);
+		beginRotate(e, obj);
 	});
 
 	rotateContainer.addChild(lineContainer);
 	selectionLayer.addChild(rotateContainer);
 }
 
-// ---------- Resize (advanced) ----------
-function startResize(e: any, obj: GameObject, handle: HandleType) {
-	isResizing = true;
-
-	const startPos = e.global.clone();
-	const startTransform = { ...obj.transform };
-
-	const onMove = (moveEvent: any) => {
-		if (!isResizing || !viewport || !scene) return;
-
-		const dx = (moveEvent.global.x - startPos.x) / viewport.scale.x;
-		const dy = (moveEvent.global.y - startPos.y) / viewport.scale.y;
-
-		const shift = moveEvent.shiftKey; // حفظ نسبت
-		const alt = moveEvent.altKey; // از مرکز
-
-		// نقطه مقابل (لنگر) را ثابت نگه دار
-		let newW = startTransform.width;
-		let newH = startTransform.height;
-		let newX = startTransform.x;
-		let newY = startTransform.y;
-
-		// جهت تغییرات
-		const isLeft = handle === "w" || handle === "nw" || handle === "sw";
-		const isRight = handle === "e" || handle === "ne" || handle === "se";
-		const isTop = handle === "n" || handle === "nw" || handle === "ne";
-		const isBottom = handle === "s" || handle === "sw" || handle === "se";
-		const isHorizontal = isLeft || isRight;
-		const isVertical = isTop || isBottom;
-
-		if (alt) {
-			// از مرکز: هر دو طرف تغییر می‌کند
-			if (isHorizontal) {
-				newW = Math.max(1, startTransform.width + (isRight ? dx * 2 : -dx * 2));
-			}
-			if (isVertical) {
-				newH = Math.max(1, startTransform.height + (isBottom ? dy * 2 : -dy * 2));
-			}
-			// x و y ثابت می‌مانند (از مرکز)
-		} else {
-			// از گوشه مقابل: لنگر ثابت
-			if (isRight) {
-				newW = Math.max(1, startTransform.width + dx);
-				// x ثابت می‌ماند (چون origin در وسط است، نصف تغییر x جابجا می‌شود)
-				newX = startTransform.x + dx / 2;
-			} else if (isLeft) {
-				newW = Math.max(1, startTransform.width - dx);
-				newX = startTransform.x + dx / 2;
-			}
-
-			if (isBottom) {
-				newH = Math.max(1, startTransform.height + dy);
-				newY = startTransform.y + dy / 2;
-			} else if (isTop) {
-				newH = Math.max(1, startTransform.height - dy);
-				newY = startTransform.y + dy / 2;
-			}
-
-			// اگر افقی نیست، x ثابت
-			if (!isHorizontal) newX = startTransform.x;
-			// اگر عمودی نیست، y ثابت
-			if (!isVertical) newY = startTransform.y;
-		}
-
-		// Shift → حفظ نسبت ابعاد
-		if (shift && isHorizontal && isVertical) {
-			const aspect = startTransform.width / startTransform.height;
-			if (newW / newH > aspect) {
-				newW = newH * aspect;
-			} else {
-				newH = newW / aspect;
-			}
-		}
-
-		// Snap به grid
-		if (scene.snapToGrid) {
-			const g = scene.gridSize || 32;
-			newW = Math.round(newW / g) * g;
-			newH = Math.round(newH / g) * g;
-		}
-
-		obj.transform.width = Math.round(newW);
-		obj.transform.height = Math.round(newH);
-		obj.transform.x = Math.round(newX);
-		obj.transform.y = Math.round(newY);
-
-		rerenderObject(obj);
-		drawSelectionOutlines();
-		drawResizeLabel(obj);
-	};
-
-	const onUp = () => {
-		isResizing = false;
-		clearGizmo();
-		app.stage.off("pointermove", onMove);
-		app.stage.off("pointerup", onUp);
-		app.stage.off("pointerupoutside", onUp);
-
-		vscode.postMessage({
-			type: "updateObject",
-			object: structuredClone(obj) as GameObject,
-			historyLabel: "resize",
-		});
-	};
-
-	app.stage.on("pointermove", onMove);
-	app.stage.on("pointerup", onUp);
-	app.stage.on("pointerupoutside", onUp);
+// ---------- Gizmo helpers ----------
+function clearGizmo() {
+	gizmoLayer.removeChildren();
 }
 
-/**
- * برچسب زنده ابعاد.
- */
 function drawResizeLabel(obj: GameObject) {
 	clearGizmo();
 	const t = obj.transform;
@@ -1034,93 +1155,21 @@ function drawResizeLabel(obj: GameObject) {
 	gizmoLayer.addChild(label);
 }
 
-// ---------- Rotate (advanced) ----------
-function startRotate(e: any, obj: GameObject) {
-	isRotating = true;
-
-	const t = obj.transform;
-	const centerWorld = { x: t.x, y: t.y };
-
-	// زاویه اولیه ماوس نسبت به مرکز
-	const startWorld = viewport.toWorld(e.global.x, e.global.y);
-	const startAngle = Math.atan2(startWorld.y - centerWorld.y, startWorld.x - centerWorld.x);
-	const startRotation = t.rotation;
-
-	// دایره راهنما
-	const guideRadius = Math.max(t.width, t.height) / 2 + 40;
-
-	const onMove = (moveEvent: any) => {
-		if (!isRotating || !viewport) return;
-
-		const world = viewport.toWorld(moveEvent.global.x, moveEvent.global.y);
-		const currentAngle = Math.atan2(world.y - centerWorld.y, world.x - centerWorld.x);
-
-		let deltaDeg = ((currentAngle - startAngle) * 180) / Math.PI;
-
-		if (deltaDeg > 180) deltaDeg -= 360;
-		if (deltaDeg < -180) deltaDeg += 360;
-
-		let newRotation = startRotation + deltaDeg;
-
-		// Snap
-		if (moveEvent.altKey) {
-			// Alt → ۹۰ درجه
-			newRotation = Math.round(newRotation / 90) * 90;
-		} else if (moveEvent.shiftKey) {
-			// Shift → ۱۵ درجه
-			newRotation = Math.round(newRotation / 15) * 15;
-		}
-
-		newRotation = ((newRotation % 360) + 360) % 360;
-
-		obj.transform.rotation = Math.round(newRotation * 100) / 100;
-
-		rerenderObject(obj);
-		drawSelectionOutlines();
-		drawRotateGizmo(obj, centerWorld, guideRadius, world, moveEvent.shiftKey, moveEvent.altKey);
-	};
-
-	const onUp = () => {
-		isRotating = false;
-		clearGizmo();
-		app.stage.off("pointermove", onMove);
-		app.stage.off("pointerup", onUp);
-		app.stage.off("pointerupoutside", onUp);
-
-		vscode.postMessage({
-			type: "updateObject",
-			object: structuredClone(obj) as GameObject,
-			historyLabel: "rotate",
-		});
-	};
-
-	app.stage.on("pointermove", onMove);
-	app.stage.on("pointerup", onUp);
-	app.stage.on("pointerupoutside", onUp);
-}
-
-/**
- * دایره راهنما + خط از مرکز به ماوس + برچسب زاویه.
- */
 function drawRotateGizmo(obj: GameObject, center: { x: number; y: number }, radius: number, mouseWorld: { x: number; y: number }, shift: boolean, alt: boolean) {
 	clearGizmo();
 
-	// دایره راهنما
 	const circle = new Graphics();
 	circle.circle(center.x, center.y, radius);
 	circle.stroke({ width: 1, color: 0x4aff9b, alpha: 0.4 });
 	gizmoLayer.addChild(circle);
 
-	// خط از مرکز به ماوس
 	const line = new Graphics();
 	line.moveTo(center.x, center.y);
 	line.lineTo(mouseWorld.x, mouseWorld.y);
 	line.stroke({ width: 1, color: 0x4aff9b, alpha: 0.6 });
 	gizmoLayer.addChild(line);
 
-	// خط از مرکز به سمت زاویه قفل‌شده
 	const angleRad = (obj.transform.rotation * Math.PI) / 180;
-	// چون نقطه چرخش بالای آبجکت است، ۹۰ درجه کم می‌کنیم
 	const visualAngle = angleRad - Math.PI / 2;
 	const endX = center.x + Math.cos(visualAngle) * radius;
 	const endY = center.y + Math.sin(visualAngle) * radius;
@@ -1131,7 +1180,6 @@ function drawRotateGizmo(obj: GameObject, center: { x: number; y: number }, radi
 	snapLine.stroke({ width: 2, color: 0xffaa00, alpha: 0.8 });
 	gizmoLayer.addChild(snapLine);
 
-	// برچسب زاویه
 	let labelText = `${Math.round(obj.transform.rotation)}°`;
 	if (alt) labelText += " [90°]";
 	else if (shift) labelText += " [15°]";
@@ -1150,7 +1198,6 @@ function drawRotateGizmo(obj: GameObject, center: { x: number; y: number }, radi
 	label.y = mouseWorld.y - 18;
 	gizmoLayer.addChild(label);
 
-	// نشانگر نقطه شروع (خط مبنا)
 	const baseLine = new Graphics();
 	baseLine.moveTo(center.x, center.y);
 	baseLine.lineTo(center.x, center.y - radius);
@@ -1158,11 +1205,7 @@ function drawRotateGizmo(obj: GameObject, center: { x: number; y: number }, radi
 	gizmoLayer.addChild(baseLine);
 }
 
-// ---------- Gizmo helpers ----------
-function clearGizmo() {
-	gizmoLayer.removeChildren();
-}
-
+// ---------- Utils ----------
 function rerenderObject(obj: GameObject) {
 	const old = objectSprites.get(obj.id);
 	if (old) {
@@ -1187,7 +1230,7 @@ function setupDeselect() {
 	app.stage.eventMode = "static";
 	app.stage.hitArea = new Rectangle(0, 0, window.innerWidth, window.innerHeight);
 	app.stage.on("pointerdown", () => {
-		if (!isDraggingObject && !isResizing && !isRotating) {
+		if (interactionMode === "idle") {
 			selectObjects([]);
 		}
 	});
