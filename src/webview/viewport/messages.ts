@@ -35,7 +35,8 @@ function applyEffectiveTheme(): void {
 	if (themeName === lastAppliedThemeName) return;
 	lastAppliedThemeName = themeName;
 	console.log("[Viewport] applying theme:", themeName);
-	applyTheme(themeName);
+	// ✅ force=true تا مطمئن شویم اعمال می‌شود — باگ ۶ رفع شد
+	applyTheme(themeName, true);
 }
 
 export function setupMessages(): void {

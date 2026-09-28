@@ -41,9 +41,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		for (const inst of instances) {
 			const instance = inst as unknown as SceneEditorProvider;
 			try {
-				const hasWebview = instance.activeWebview !== null;
-				console.log("[SceneEditorProvider] posting to webview:", hasWebview, "for doc:", instance.currentDocument?.uri.fsPath);
-				instance.activeWebview?.postMessage({
+				const msg: ExtensionToWebviewMessage = {
 					type: "configUpdated",
 					config: {
 						version: config.version,
@@ -53,7 +51,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 						showGrid: config.showGrid,
 						defaultGridSize: config.defaultGridSize,
 					},
-				} satisfies ExtensionToWebviewMessage);
+				};
+				instance.postToWebview(msg);
 			} catch (err) {
 				console.error("[SceneEditorProvider] postMessage failed:", err);
 			}
@@ -100,7 +99,9 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		await importTextureDialogOp();
 	}
 
-	private activeWebview: vscode.Webview | null = null;
+	// ---------- Instance state ----------
+	/** همه وب‌ویوهای باز این instance (پشتیبانی چند tab) */
+	private webviews = new Set<vscode.Webview>();
 	private currentScene: Scene | null = null;
 	private currentDocument: vscode.TextDocument | null = null;
 	private isDirty = false;
@@ -133,8 +134,19 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 	}
 
 	public postToWebview(msg: unknown): void {
+		for (const webview of this.webviews) {
+			try {
+				webview.postMessage(msg);
+			} catch {
+				// ignore
+			}
+		}
+	}
+
+	/** ارسال پیام فقط به یک وب‌ویو مشخص (برای پیام‌های per-webview مثل load) */
+	public postToSpecificWebview(webview: vscode.Webview, msg: unknown): void {
 		try {
-			this.activeWebview?.postMessage(msg);
+			webview.postMessage(msg);
 		} catch {
 			// ignore
 		}
@@ -156,6 +168,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 			this.isDirty = false;
 		} catch (err) {
 			console.error("Auto-save failed:", err);
+		} finally {
+			// ✅ همیشه ریست شود — باگ ۱ رفع شد
 			this.isProgrammaticChange = false;
 		}
 	}
@@ -184,8 +198,15 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		return this.history.canRedo();
 	}
 
+	/**
+	 * آپدیت scene را به همه وب‌ویوهای همین instance می‌فرستد و اگر فعال باشد،
+	 * به Inspector هم اطلاع می‌دهد. (باگ ۵ رفع شد)
+	 */
 	public broadcastUpdate(scene: Scene): void {
+		// به همه وب‌ویوهای این instance
 		this.postToWebview({ type: "update", scene } satisfies ExtensionToWebviewMessage);
+
+		// به Inspector / Layers (فقط اگر فعال باشیم)
 		if (this.isActive()) {
 			SceneRegistry.emitSceneChange(scene);
 		}
@@ -219,7 +240,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 
 		webviewPanel.webview.html = getWebviewHtml(webviewPanel.webview, this.context.extensionUri, "viewport");
 
-		this.activeWebview = webviewPanel.webview;
+		// ✅ پشتیبانی از چند وب‌ویو (باگ ۱۲ رفع شد)
+		this.webviews.add(webviewPanel.webview);
 		this.currentDocument = document;
 
 		SceneRegistry.setActiveInstance(this);
@@ -259,14 +281,12 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		webviewPanel.onDidDispose(() => {
 			changeSub.dispose();
 			viewStateSub.dispose();
-			if (this.autoSaveTimer) {
+			this.webviews.delete(webviewPanel.webview);
+			if (this.webviews.size === 0 && this.autoSaveTimer) {
 				clearTimeout(this.autoSaveTimer);
 				this.autoSaveTimer = null;
 			}
 			SceneRegistry.removeInstance(this);
-			if (this.activeWebview === webviewPanel.webview) {
-				this.activeWebview = null;
-			}
 			if (this.currentDocument === document) {
 				this.currentDocument = null;
 			}

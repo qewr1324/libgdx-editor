@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
 import type { GameObject, Scene } from "../types/scene.js";
 import { getWebviewHtml } from "../editor/webviewHtml.js";
-import type { ExtensionToInspectorMessage, LibGdxEditorConfigMessage } from "../protocol/messages.js";
+import type { ExtensionToInspectorMessage } from "../protocol/messages.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
+import { ConfigManager } from "../config/config-manager.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -55,7 +56,7 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 
 		webviewView.webview.html = getWebviewHtml(webviewView.webview, this.extensionUri, "inspector");
 
-		webviewView.webview.onDidReceiveMessage((msg) => {
+		webviewView.webview.onDidReceiveMessage(async (msg) => {
 			switch (msg.type) {
 				case "inspectorReady":
 					this.pushSelectionToWebview();
@@ -76,6 +77,28 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 				case "focusObject":
 					this.onFocusObject?.(msg.objectId);
 					break;
+				case "updateConfig": {
+					console.log("[InspectorProvider] updateConfig:", msg.key, "=", msg.value);
+					const config = ConfigManager.getInstance();
+					await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
+					break;
+				}
+				case "requestConfig": {
+					console.log("[InspectorProvider] requestConfig");
+					const config = ConfigManager.getInstance().get();
+					this.view?.webview.postMessage({
+						type: "configLoaded",
+						config: {
+							version: config.version,
+							defaultTheme: config.defaultTheme,
+							autoSaveDelayMs: config.autoSaveDelayMs,
+							showRulers: config.showRulers,
+							showGrid: config.showGrid,
+							defaultGridSize: config.defaultGridSize,
+						},
+					} satisfies ExtensionToInspectorMessage);
+					break;
+				}
 			}
 		});
 
@@ -85,6 +108,7 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	setSelection(objectIds: string[], scene: Scene): void {
 		this.selectedIds = objectIds;
 		this.currentScene = scene;
+		// ✅ فقط اگر انتخاب واقعی داریم از sceneMode خارج شو — باگ ۲۳ رفع شد
 		if (objectIds.length > 0) {
 			this.sceneMode = false;
 		}

@@ -17,6 +17,8 @@ export function parseDocument(document: vscode.TextDocument): Scene {
 
 export function migrateScene(parsed: Scene): Scene {
 	if (!parsed.theme) parsed.theme = "win98";
+	// ✅ migrate themeOverride — باگ ۲۶ رفع شد
+	if (parsed.themeOverride === undefined) parsed.themeOverride = null;
 	if (!parsed.camera) parsed.camera = { x: 0, y: 0, zoom: 1 };
 	if (typeof parsed.snapToGrid !== "boolean") parsed.snapToGrid = false;
 	if (typeof parsed.snapToObjects !== "boolean") parsed.snapToObjects = false;

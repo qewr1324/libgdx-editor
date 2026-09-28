@@ -37,8 +37,10 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 		return;
 	}
 
+	// ✅ مقایسه با پوشه assets صحیح — باگ ۱۱ رفع شد
 	const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
-	const assetsDir = vscode.Uri.joinPath(sceneDir, "assets");
+	const assetsDirName = AssetManager.getAssetsDirName(sceneUri);
+	const assetsDir = vscode.Uri.joinPath(sceneDir, assetsDirName);
 	if (sourceUri.fsPath.startsWith(assetsDir.fsPath)) {
 		const relative = path.relative(sceneDir.fsPath, sourceUri.fsPath).replace(/\\/g, "/");
 		vscode.window.showInformationMessage(`Texture already in assets: ${relative}`);

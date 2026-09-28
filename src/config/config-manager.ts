@@ -16,6 +16,11 @@ export class ConfigManager {
 		return ConfigManager.instance;
 	}
 
+	/** ✅ برای تست یا reload — باگ ۲۰ رفع شد */
+	public static resetInstance(): void {
+		ConfigManager.instance = null;
+	}
+
 	public async load(): Promise<LibGdxEditorConfig> {
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 		if (!workspaceFolder) {

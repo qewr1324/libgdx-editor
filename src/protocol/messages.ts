@@ -25,6 +25,7 @@ export type WebviewToExtensionMessage =
 	| { type: "requestImportTexture" }
 	| { type: "openSceneSettings" }
 	| { type: "duplicateObjects"; objectIds: string[]; offsetX: number; offsetY: number }
+	| { type: "pasteObjects"; objects: GameObject[]; historyLabel?: string }
 	| { type: "undo" }
 	| { type: "redo" }
 	| { type: "updateConfig"; key: string; value: unknown }

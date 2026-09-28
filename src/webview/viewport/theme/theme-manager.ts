@@ -11,11 +11,11 @@ export function getCurrentTheme(): Theme {
 	return getTheme(currentThemeName);
 }
 
-export function applyTheme(name: string): void {
+export function applyTheme(name: string, force = false): void {
 	const theme = getTheme(name);
 
-	// اگر همان تم قبلی است و style وجود دارد، هیچ کاری نکن
-	if (theme.name === currentThemeName && document.getElementById("viewport-theme")) {
+	// اگر تم عوض نشده و force نیست، هیچ کاری نکن
+	if (!force && theme.name === currentThemeName && document.getElementById("viewport-theme")) {
 		return;
 	}
 
@@ -35,6 +35,8 @@ export function applyTheme(name: string): void {
 
 	document.documentElement.style.colorScheme = theme.name === "win98" ? "light" : "dark";
 
+	// رویداد theme-changed را fire کن
+	console.log("[theme-manager] dispatching theme-changed:", theme.name);
 	window.dispatchEvent(new CustomEvent("theme-changed", { detail: { theme } }));
 }
 

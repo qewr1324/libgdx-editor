@@ -4,6 +4,7 @@ import { InspectorProvider } from "./views/InspectorProvider.js";
 import { newSceneCommand } from "./commands/newScene.js";
 import { importTextureCommand, cleanupAssetsCommand } from "./commands/importTexture.js";
 import { ConfigManager } from "./config/config-manager.js";
+import { SceneRegistry } from "./editor/scene-registry.js";
 
 export async function activate(context: vscode.ExtensionContext) {
 	console.log("LibGDX Editor activated");
@@ -32,6 +33,17 @@ export async function activate(context: vscode.ExtensionContext) {
 		SceneEditorProvider.onDidRequestSceneSettings((scene) => {
 			inspector.showSceneSettings(scene);
 			void vscode.commands.executeCommand("libgdx-editor.inspector.focus");
+		}),
+	);
+
+	// ✅ رویداد تغییر instance فعال — باگ ۷ رفع شد
+	context.subscriptions.push(
+		SceneRegistry.onDidChangeActiveInstance((instance) => {
+			if (!instance) return;
+			const scene = instance.getScene();
+			if (scene) {
+				inspector.setScene(scene);
+			}
 		}),
 	);
 
@@ -71,7 +83,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand("libgdx-editor.openEditor", async () => {
 			const uri = await vscode.window.showOpenDialog({
 				canSelectMany: false,
-				filters: { "LibGDX Scene": ["lgdx.json"] },
+				filters: { "LibGDX Scene": ["json"] },
 				title: "Open LibGDX Scene",
 			});
 			if (uri && uri[0]) {

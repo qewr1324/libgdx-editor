@@ -2,6 +2,8 @@ import type * as vscode from "vscode";
 import type { Scene } from "../types/scene.js";
 import type { ObjectSelectionHandler, OpenSceneSettingsHandler, SceneChangeHandler, SceneHost } from "./scene-types.js";
 
+export type ActiveInstanceChangeHandler = (instance: SceneHost | null) => void;
+
 export class SceneRegistry {
 	private static instances = new Set<SceneHost>();
 	private static activeInstance: SceneHost | null = null;
@@ -9,6 +11,7 @@ export class SceneRegistry {
 	private static selectionHandlers = new Set<ObjectSelectionHandler>();
 	private static sceneChangeHandlers = new Set<SceneChangeHandler>();
 	private static openSceneSettingsHandlers = new Set<OpenSceneSettingsHandler>();
+	private static activeChangeHandlers = new Set<ActiveInstanceChangeHandler>();
 
 	// ---------- Instances ----------
 	public static addInstance(instance: SceneHost): void {
@@ -20,6 +23,7 @@ export class SceneRegistry {
 		if (SceneRegistry.activeInstance === instance) {
 			const remaining = Array.from(SceneRegistry.instances);
 			SceneRegistry.activeInstance = remaining.length > 0 ? remaining[0] : null;
+			SceneRegistry.emitActiveChange(SceneRegistry.activeInstance);
 		}
 	}
 
@@ -34,6 +38,8 @@ export class SceneRegistry {
 	public static setActiveInstance(instance: SceneHost | null): void {
 		if (SceneRegistry.activeInstance === instance) return;
 		SceneRegistry.activeInstance = instance;
+		// ✅ notify — باگ ۷ رفع شد
+		SceneRegistry.emitActiveChange(instance);
 	}
 
 	public static isActive(instance: SceneHost): boolean {
@@ -62,6 +68,13 @@ export class SceneRegistry {
 		};
 	}
 
+	public static onDidChangeActiveInstance(handler: ActiveInstanceChangeHandler): vscode.Disposable {
+		SceneRegistry.activeChangeHandlers.add(handler);
+		return {
+			dispose: () => SceneRegistry.activeChangeHandlers.delete(handler),
+		};
+	}
+
 	public static emitSelection(objectIds: string[], scene: Scene): void {
 		for (const handler of SceneRegistry.selectionHandlers) {
 			handler(objectIds, scene);
@@ -77,6 +90,16 @@ export class SceneRegistry {
 	public static emitSceneSettings(scene: Scene): void {
 		for (const handler of SceneRegistry.openSceneSettingsHandlers) {
 			handler(scene);
+		}
+	}
+
+	private static emitActiveChange(instance: SceneHost | null): void {
+		for (const handler of SceneRegistry.activeChangeHandlers) {
+			try {
+				handler(instance);
+			} catch (err) {
+				console.error("[SceneRegistry] activeChange handler error:", err);
+			}
 		}
 	}
 }

@@ -26,7 +26,8 @@ export async function newSceneCommand(context: vscode.ExtensionContext, uriFromC
 		const chosen = await vscode.window.showSaveDialog({
 			title: "Save new LibGDX Scene",
 			defaultUri: vscode.Uri.joinPath(root, `${name}.lgdx.json`),
-			filters: { "LibGDX Scene": ["lgdx.json"] },
+			// ✅ فیلتر درست — باگ ۱۰ رفع شد
+			filters: { "LibGDX Scene": ["json"] },
 		});
 		if (!chosen) return;
 		targetUri = chosen;
@@ -34,7 +35,7 @@ export async function newSceneCommand(context: vscode.ExtensionContext, uriFromC
 		const chosen = await vscode.window.showSaveDialog({
 			title: "Save new LibGDX Scene",
 			defaultUri: vscode.Uri.file(`${name}.lgdx.json`),
-			filters: { "LibGDX Scene": ["lgdx.json"] },
+			filters: { "LibGDX Scene": ["json"] },
 		});
 		if (!chosen) return;
 		targetUri = chosen;

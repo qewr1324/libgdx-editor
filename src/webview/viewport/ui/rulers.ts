@@ -43,7 +43,14 @@ export function setupRulers(): void {
 
 	drawRulers();
 	window.addEventListener("resize", drawRulers);
-	setInterval(drawRulers, 100);
+
+	// ✅ به جای setInterval، فقط وقتی viewport حرکت/زوم کرد رسم کن — باگ ۱۴ رفع شد
+	if (viewport) {
+		viewport.on("moved", drawRulers);
+		viewport.on("zoomed", drawRulers);
+		viewport.on("moved-end", drawRulers);
+		viewport.on("zoomed-end", drawRulers);
+	}
 
 	// وقتی تم عوض شد، دوباره رسم کن
 	window.addEventListener("theme-changed", () => {

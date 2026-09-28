@@ -40,9 +40,13 @@ export class HistoryManager {
 			label,
 		});
 
-		// حداکثر
+		// حداکثر — با اصلاح currentIndex (باگ ۸ رفع شد)
 		if (this.snapshots.length > HistoryManager.MAX_HISTORY) {
 			this.snapshots.shift();
+			// یک snapshot از ابتدا حذف شد، پس index فعلی یک واحد کم می‌شود
+			if (this.currentIndex > 0) {
+				this.currentIndex--;
+			}
 		}
 
 		this.currentIndex = this.snapshots.length - 1;

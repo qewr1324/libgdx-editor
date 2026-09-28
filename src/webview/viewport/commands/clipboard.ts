@@ -20,17 +20,23 @@ export function pasteClipboard(): void {
 	if (clipboard.length === 0) return;
 	const offsetX = 20;
 	const offsetY = 20;
-	for (const obj of clipboard) {
-		obj.transform.x += offsetX;
-		obj.transform.y += offsetY;
-	}
+
+	// ✅ clipboard را mutate نکن — باگ ۹ رفع شد
+	// آبجکت‌های clone شده با id جدید و offset بساز
+	const clones: GameObject[] = [];
 	for (const obj of clipboard) {
 		const clone = structuredClone(obj) as GameObject;
 		clone.id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 		clone.name = `${obj.name}_copy`;
-		vscode.postMessage({ type: "updateObject", object: clone, historyLabel: "paste" });
+		clone.transform.x += offsetX;
+		clone.transform.y += offsetY;
+		clones.push(clone);
 	}
-	updateToolbarInfo(`Pasted ${clipboard.length} object(s)`);
+
+	// یک پیام واحد برای افزودن همه clone ها
+	vscode.postMessage({ type: "pasteObjects", objects: clones, historyLabel: "paste" });
+
+	updateToolbarInfo(`Pasted ${clones.length} object(s)`);
 	setTimeout(() => updateToolbarInfo(""), 1500);
 }
 

@@ -3,11 +3,31 @@ import { scene, setScene } from "../state.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
 import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
 
+let currentToolbar: HTMLDivElement | null = null;
+let keyboardShortcutsInstalled = false;
+
 export function setupToolbar(): void {
+	buildToolbar();
+	installKeyboardShortcutsOnce();
+
+	// اگر تم عوض شد، Toolbar را دوباره بساز
+	window.addEventListener("theme-changed", () => {
+		rebuildToolbar();
+	});
+}
+
+function installKeyboardShortcutsOnce(): void {
+	if (keyboardShortcutsInstalled) return;
+	keyboardShortcutsInstalled = true;
+	setupKeyboardShortcuts();
+	setupHistoryKeyboardShortcuts();
+}
+
+function buildToolbar(): HTMLDivElement {
 	const toolbar = document.createElement("div");
 	toolbar.id = "toolbar";
-	toolbar.style.top = "24px";
-	toolbar.style.left = "24px";
+	toolbar.style.top = "22px";
+	toolbar.style.left = "22px";
 	toolbar.innerHTML = `
 		<button data-action="add-sprite" title="Add Sprite">➕ Sprite</button>
 		<button data-action="add-shape" title="Add Shape">⭕ Shape</button>
@@ -20,7 +40,6 @@ export function setupToolbar(): void {
 		<button data-action="save" title="Save (Ctrl+S)">💾 Save</button>
 		<span id="toolbar-info"></span>
 	`;
-	document.body.appendChild(toolbar);
 
 	toolbar.addEventListener("click", (e) => {
 		const target = e.target as HTMLButtonElement;
@@ -52,11 +71,31 @@ export function setupToolbar(): void {
 		}
 	});
 
-	// راه‌اندازی Undo/Redo از ماژول جدا
-	setupHistoryKeyboardShortcuts();
+	document.body.appendChild(toolbar);
+	currentToolbar = toolbar;
 
-	// سایر shortcut ها
-	setupKeyboardShortcuts();
+	// اگر snapToGrid فعال است، دکمه را active کن
+	if (scene?.snapToGrid) {
+		const snapBtn = toolbar.querySelector('[data-action="snap-grid"]');
+		snapBtn?.classList.add("active");
+	}
+
+	return toolbar;
+}
+
+function rebuildToolbar(): void {
+	const wasActive = currentToolbar?.querySelector('[data-action="snap-grid"]')?.classList.contains("active") ?? false;
+
+	if (currentToolbar && currentToolbar.parentNode) {
+		currentToolbar.parentNode.removeChild(currentToolbar);
+	}
+	const newToolbar = buildToolbar();
+
+	// وضعیت active را برگردان
+	if (wasActive) {
+		const snapBtn = newToolbar.querySelector('[data-action="snap-grid"]');
+		snapBtn?.classList.add("active");
+	}
 }
 
 export function updateToolbarInfo(text: string): void {

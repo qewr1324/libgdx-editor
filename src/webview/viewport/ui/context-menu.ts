@@ -3,7 +3,17 @@ import { vscode } from "../types.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
 import { HISTORY_MENU_ITEMS, handleHistoryMenuAction } from "../history/history-ui.js";
 
+let currentMenu: HTMLDivElement | null = null;
+
 export function setupContextMenu(): void {
+	buildContextMenu();
+
+	window.addEventListener("theme-changed", () => {
+		rebuildContextMenu();
+	});
+}
+
+function buildContextMenu(): HTMLDivElement {
 	const menu = document.createElement("div");
 	menu.id = "context-menu";
 	menu.innerHTML = `
@@ -24,6 +34,7 @@ export function setupContextMenu(): void {
 	`;
 	menu.style.display = "none";
 	document.body.appendChild(menu);
+	currentMenu = menu;
 
 	let contextWorldX = 0;
 	let contextWorldY = 0;
@@ -62,11 +73,19 @@ export function setupContextMenu(): void {
 		menu.style.display = "none";
 		if (!action) return;
 
-		// اول Undo/Redo را چک کن (از ماژول جدا)
 		if (handleHistoryMenuAction(action)) return;
 
 		handleMenuAction(action, contextWorldX, contextWorldY);
 	});
+
+	return menu;
+}
+
+function rebuildContextMenu(): void {
+	if (currentMenu && currentMenu.parentNode) {
+		currentMenu.parentNode.removeChild(currentMenu);
+	}
+	buildContextMenu();
 }
 
 function handleMenuAction(action: string, worldX: number, worldY: number): void {

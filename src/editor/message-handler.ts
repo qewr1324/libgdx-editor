@@ -6,7 +6,7 @@ import { ConfigManager } from "../config/config-manager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument } from "./scene-parser.js";
-import { addObjectToScene, createObjectAt, deleteObjectFromScene, updateObjectInScene } from "./scene-mutations.js";
+import { addObjectToScene, createObjectAt, deleteObjectFromScene, updateObjectInScene, updateObjectsInScene } from "./scene-mutations.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp } from "./scene-ops/objectOps.js";
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
@@ -77,10 +77,8 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "updateObjects": {
 			const current = ctx.host.getScene();
 			if (!current) break;
-			let updated = current;
-			for (const obj of msg.objects) {
-				updated = updateObjectInScene(updated, obj);
-			}
+			// ✅ batch update — باگ ۲۱ رفع شد
+			const updated = updateObjectsInScene(current, msg.objects);
 			ctx.host.setScene(updated);
 			ctx.host.markDirty();
 			ctx.host.pushHistory(updated, msg.historyLabel ?? "update objects");
@@ -131,6 +129,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "requestConfig": {
 			console.log("[message-handler] requestConfig");
 			const config = ConfigManager.getInstance().get();
+			// فقط به همین وب‌ویو
 			ctx.webviewPanel.webview.postMessage({
 				type: "configLoaded",
 				config: {
@@ -144,6 +143,20 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			} satisfies ExtensionToWebviewMessage);
 			break;
 		}
+		case "pasteObjects": {
+			const current = ctx.host.getScene();
+			if (!current) break;
+			let updated = current;
+			for (const obj of msg.objects) {
+				updated = addObjectToScene(updated, obj);
+			}
+			ctx.host.setScene(updated);
+			ctx.host.markDirty();
+			ctx.host.pushHistory(updated, msg.historyLabel ?? "paste");
+			ctx.host.broadcastUpdate(updated);
+			ctx.host.broadcastHistoryState();
+			break;
+		}
 	}
 }
 
@@ -152,6 +165,7 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	ctx.host.setScene(scene);
 	ctx.host.resetHistory(scene);
 
+	// ✅ فقط به همین وب‌ویو (نه broadcast)
 	ctx.webviewPanel.webview.postMessage({ type: "load", scene } satisfies ExtensionToWebviewMessage);
 
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, scene);
@@ -207,6 +221,9 @@ async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Pr
 function handleSceneChanged(msg: { scene: Scene }, ctx: MessageHandlerContext): void {
 	ctx.host.setScene(msg.scene);
 	ctx.host.markDirty();
+	// ✅ pushHistory — باگ ۴ رفع شد
+	ctx.host.pushHistory(msg.scene, "scene changed");
+	ctx.host.broadcastHistoryState();
 	if (ctx.host.isActive()) {
 		SceneRegistry.emitSceneChange(msg.scene);
 	}

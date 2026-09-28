@@ -61,6 +61,26 @@ export function updateObjectInScene(scene: Scene, updated: GameObject): Scene {
 	return newScene;
 }
 
+/**
+ * آپدیت چند آبجکت به صورت batch — فقط یک structuredClone.
+ * (باگ ۲۱ رفع شد)
+ */
+export function updateObjectsInScene(scene: Scene, objects: GameObject[]): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	const map = new Map<string, GameObject>();
+	for (const o of objects) map.set(o.id, o);
+
+	for (const layer of newScene.layers) {
+		for (let i = 0; i < layer.objects.length; i++) {
+			const replacement = map.get(layer.objects[i].id);
+			if (replacement) {
+				layer.objects[i] = replacement;
+			}
+		}
+	}
+	return newScene;
+}
+
 export function deleteObjectFromScene(scene: Scene, id: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
 	for (const layer of newScene.layers) {

@@ -27,7 +27,7 @@ function applyEffectiveTheme(): void {
 	if (themeName === lastAppliedTheme) return;
 	lastAppliedTheme = themeName;
 	console.log("[Inspector] applying theme:", themeName);
-	applyTheme(themeName);
+	applyTheme(themeName, true);
 }
 
 function render(force = false): void {
