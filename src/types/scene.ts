@@ -32,7 +32,14 @@ export interface Layer {
 	name: string;
 	zIndex: number;
 	visible: boolean;
+	locked?: boolean;
 	objects: GameObject[];
+}
+
+export interface Camera {
+	x: number;
+	y: number;
+	zoom: number;
 }
 
 export interface Scene {
@@ -41,6 +48,9 @@ export interface Scene {
 	worldSize: { width: number; height: number };
 	backgroundColor: string;
 	gridSize: number;
+	snapToGrid: boolean;
+	snapToObjects: boolean;
+	camera: Camera;
 	layers: Layer[];
 }
 
@@ -51,11 +61,15 @@ export function createEmptyScene(name = "untitled"): Scene {
 		worldSize: { width: 1920, height: 1080 },
 		backgroundColor: "#1a1a1a",
 		gridSize: 32,
+		snapToGrid: false,
+		snapToObjects: false,
+		camera: { x: 0, y: 0, zoom: 1 },
 		layers: [
 			{
 				name: "default",
 				zIndex: 0,
 				visible: true,
+				locked: false,
 				objects: [],
 			},
 		],

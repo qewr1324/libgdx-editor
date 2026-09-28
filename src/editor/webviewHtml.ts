@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-export type WebviewKind = "viewport" | "inspector";
+export type WebviewKind = "viewport" | "inspector" | "layers";
 
 export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, kind: WebviewKind): string {
 	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "dist", "webview", `${kind}.js`));
@@ -31,6 +31,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			cursor: pointer; font-family: inherit; font-size: inherit;
 		}
 		#toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+		#toolbar button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 		#toolbar-info { margin-left: 8px; color: var(--vscode-descriptionForeground); font-size: 11px; }
 	`;
 
@@ -106,9 +107,63 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			font-family: monospace !important; font-size: 11px !important;
 			resize: vertical;
 		}
+		.checkbox-row { display: flex; gap: 6px; align-items: center; }
+		.checkbox-row input[type="checkbox"] { width: auto; }
+		.texture-row {
+			display: flex; gap: 6px; align-items: center;
+			font-family: monospace; font-size: 11px;
+			color: var(--vscode-descriptionForeground);
+			word-break: break-all;
+		}
 	`;
 
-	const css = kind === "inspector" ? inspectorCss : "";
+	const layersCss = `
+		#app { overflow-y: auto; }
+		.layers-panel { padding: 6px; }
+		.layer-item {
+			display: flex; align-items: center; gap: 4px;
+			padding: 6px 8px; margin-bottom: 3px;
+			background: var(--vscode-editorWidget-background);
+			border-radius: 4px;
+			border-left: 3px solid transparent;
+			cursor: pointer;
+			font-size: 12px;
+		}
+		.layer-item:hover { background: var(--vscode-list-hoverBackground); }
+		.layer-item.selected {
+			border-left-color: var(--vscode-focusBorder);
+			background: var(--vscode-list-activeSelectionBackground);
+			color: var(--vscode-list-activeSelectionForeground);
+		}
+		.layer-item.hidden { opacity: 0.5; }
+		.layer-name { flex: 1; cursor: text; }
+		.layer-name input {
+			background: transparent; color: inherit; border: 1px solid var(--vscode-focusBorder);
+			padding: 2px 4px; font-family: inherit; font-size: inherit;
+			width: 100%; box-sizing: border-box;
+		}
+		.layer-icon {
+			background: transparent; border: none; cursor: pointer;
+			font-size: 12px; padding: 2px; border-radius: 3px;
+			color: var(--vscode-foreground); opacity: 0.7;
+		}
+		.layer-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+		.toolbar-inline {
+			display: flex; gap: 6px; padding: 6px; margin-bottom: 6px;
+			border-bottom: 1px solid var(--vscode-panel-border);
+		}
+		.toolbar-inline button {
+			background: var(--vscode-button-secondaryBackground);
+			color: var(--vscode-button-secondaryForeground);
+			border: none; padding: 4px 8px; border-radius: 4px;
+			cursor: pointer; font-family: inherit; font-size: 11px;
+		}
+		.toolbar-inline button:hover { background: var(--vscode-button-secondaryHoverBackground); }
+	`;
+
+	let css = "";
+	if (kind === "inspector") css = inspectorCss;
+	else if (kind === "layers") css = layersCss;
 
 	return `<!DOCTYPE html>
 <html lang="en">

@@ -1,6 +1,6 @@
 import "pixi.js/unsafe-eval";
 
-import { Application, Container, Graphics, Rectangle, Text, TextStyle } from "pixi.js";
+import { Application, Assets, Container, Graphics, Rectangle, Sprite, Text, TextStyle, Texture } from "pixi.js";
 import { Viewport } from "pixi-viewport";
 import type { GameObject, Scene } from "../../types/scene.js";
 
@@ -16,9 +16,11 @@ const vscode = acquireVsCodeApi();
 // ---------- State ----------
 let scene: Scene | null = null;
 let selectedIds: string[] = [];
-let primarySelectedId: string | null = null; // آخرین انتخاب‌شده (برای Inspector)
+let primarySelectedId: string | null = null;
 let isDraggingObject = false;
 let isResizing = false;
+
+const textureCache = new Map<string, Texture>();
 
 // ---------- Pixi setup ----------
 const app = new Application();
@@ -27,6 +29,7 @@ let viewport: Viewport;
 let gridLayer: Container;
 let contentLayer: Container;
 let selectionLayer: Container;
+let snapGuideLayer: Container;
 const objectSprites = new Map<string, Container>();
 
 async function initPixi() {
@@ -55,9 +58,11 @@ async function initPixi() {
 	gridLayer = new Container();
 	contentLayer = new Container();
 	selectionLayer = new Container();
+	snapGuideLayer = new Container();
 
 	viewport.addChild(gridLayer);
 	viewport.addChild(contentLayer);
+	viewport.addChild(snapGuideLayer);
 	viewport.addChild(selectionLayer);
 
 	viewport.on("zoomed", () => redrawGrid());
@@ -73,7 +78,10 @@ function setupToolbar() {
 		<button data-action="add-sprite" title="Add Sprite">➕ Sprite</button>
 		<button data-action="add-shape" title="Add Shape">⭕ Shape</button>
 		<button data-action="add-text" title="Add Text">🔤 Text</button>
+		<button data-action="add-texture" title="Add Texture from file">🖼️ Texture</button>
 		<button data-action="delete" title="Delete Selected">🗑️ Delete</button>
+		<button data-action="snap-grid" title="Snap to Grid" class="">▦ Grid</button>
+		<button data-action="snap-objects" title="Snap to Objects" class="">🧲 Objects</button>
 		<button data-action="save" title="Save (Ctrl+S)">💾 Save</button>
 		<span id="toolbar-info"></span>
 	`;
@@ -94,10 +102,27 @@ function setupToolbar() {
 			case "add-text":
 				addObject("text");
 				break;
+			case "add-texture":
+				addTexture();
+				break;
 			case "delete":
 				if (selectedIds.length > 0) {
 					vscode.postMessage({ type: "deleteObjects", objectIds: selectedIds });
 					selectObjects([]);
+				}
+				break;
+			case "snap-grid":
+				if (scene) {
+					scene.snapToGrid = !scene.snapToGrid;
+					target.classList.toggle("active", scene.snapToGrid);
+					vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: scene.snapToGrid });
+				}
+				break;
+			case "snap-objects":
+				if (scene) {
+					scene.snapToObjects = !scene.snapToObjects;
+					target.classList.toggle("active", scene.snapToObjects);
+					vscode.postMessage({ type: "updateSceneField", field: "snapToObjects", value: scene.snapToObjects });
 				}
 				break;
 			case "save":
@@ -145,6 +170,16 @@ function addObject(type: GameObject["type"]) {
 	});
 }
 
+function addTexture() {
+	if (!viewport) return;
+	const center = viewport.center;
+	vscode.postMessage({
+		type: "requestAddTexture",
+		x: Math.round(center.x),
+		y: Math.round(center.y),
+	});
+}
+
 // ---------- Grid ----------
 function redrawGrid() {
 	if (!scene) return;
@@ -173,7 +208,15 @@ function redrawGrid() {
 	gridLayer.addChild(border);
 }
 
-// ---------- Render objects ----------
+// ---------- Textures ----------
+async function loadTexture(path: string, dataUrl: string): Promise<Texture> {
+	if (textureCache.has(path)) return textureCache.get(path)!;
+	const texture = await Assets.load<Texture>(dataUrl);
+	textureCache.set(path, texture);
+	return texture;
+}
+
+// ---------- Render ----------
 function renderScene(newScene: Scene) {
 	scene = newScene;
 	app.renderer.background.color = newScene.backgroundColor || "#1a1a1a";
@@ -186,7 +229,7 @@ function renderScene(newScene: Scene) {
 	for (const layer of newScene.layers) {
 		if (!layer.visible) continue;
 		for (const obj of layer.objects) {
-			renderObject(obj);
+			renderObject(obj, layer.locked ?? false);
 		}
 	}
 
@@ -195,20 +238,31 @@ function renderScene(newScene: Scene) {
 	}
 }
 
-function renderObject(obj: GameObject) {
+function renderObject(obj: GameObject, layerLocked = false) {
 	const container = new Container();
 	const t = obj.transform;
 
-	const g = new Graphics();
-	const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
-
-	if (obj.type === "sprite") {
+	if (obj.type === "sprite" && obj.texture && textureCache.has(obj.texture)) {
+		// از texture استفاده کن
+		const texture = textureCache.get(obj.texture)!;
+		const sprite = new Sprite(texture);
+		sprite.width = t.width;
+		sprite.height = t.height;
+		container.addChild(sprite);
+	} else if (obj.type === "sprite") {
+		// fallback: rect رنگی
+		const g = new Graphics();
+		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
 		g.rect(0, 0, t.width, t.height);
 		g.fill({ color, alpha: 1 });
 		g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
+		container.addChild(g);
 	} else if (obj.type === "shape") {
+		const g = new Graphics();
+		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0xff4a4a;
 		g.circle(t.width / 2, t.height / 2, Math.min(t.width, t.height) / 2);
 		g.fill({ color, alpha: 1 });
+		container.addChild(g);
 	} else if (obj.type === "text") {
 		const txt = new Text({
 			text: obj.name,
@@ -216,12 +270,11 @@ function renderObject(obj: GameObject) {
 		});
 		container.addChild(txt);
 	} else {
+		const g = new Graphics();
+		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x9b59b6;
 		g.rect(0, 0, t.width, t.height);
 		g.fill({ color, alpha: 0.3 });
 		g.stroke({ width: 1, color, alpha: 1 });
-	}
-
-	if (obj.type !== "text") {
 		container.addChild(g);
 	}
 
@@ -232,67 +285,93 @@ function renderObject(obj: GameObject) {
 	container.pivot.set(t.width * t.originX, t.height * t.originY);
 
 	container.eventMode = "static";
-	container.cursor = "pointer";
+	container.cursor = layerLocked ? "not-allowed" : "pointer";
 
-	container.on("pointerdown", (e) => {
-		e.stopPropagation();
+	if (!layerLocked) {
+		container.on("pointerdown", (e) => {
+			e.stopPropagation();
 
-		const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
+			const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
 
-		if (isMulti) {
-			// toggle
-			const idx = selectedIds.indexOf(obj.id);
-			if (idx !== -1) {
-				selectedIds = selectedIds.filter((id) => id !== obj.id);
-				if (primarySelectedId === obj.id) {
-					primarySelectedId = selectedIds[selectedIds.length - 1] ?? null;
+			if (isMulti) {
+				const idx = selectedIds.indexOf(obj.id);
+				if (idx !== -1) {
+					selectedIds = selectedIds.filter((id) => id !== obj.id);
+					if (primarySelectedId === obj.id) {
+						primarySelectedId = selectedIds[selectedIds.length - 1] ?? null;
+					}
+				} else {
+					selectedIds = [...selectedIds, obj.id];
+					primarySelectedId = obj.id;
 				}
+				selectObjects(selectedIds, primarySelectedId);
 			} else {
-				selectedIds = [...selectedIds, obj.id];
-				primarySelectedId = obj.id;
+				if (!selectedIds.includes(obj.id)) {
+					selectObjects([obj.id], obj.id);
+				}
 			}
-			selectObjects(selectedIds, primarySelectedId);
-		} else {
-			if (!selectedIds.includes(obj.id)) {
-				selectObjects([obj.id], obj.id);
-			}
-		}
 
-		// شروع درگ
-		startDrag(e, obj);
-	});
+			startDrag(e, obj);
+		});
+	}
 
 	contentLayer.addChild(container);
 	objectSprites.set(obj.id, container);
 }
 
-// ---------- Drag ----------
+// ---------- Drag with Snapping ----------
 function startDrag(e: any, primaryObj: GameObject) {
 	isDraggingObject = true;
 
 	const startPos = e.global.clone();
-	const startTransforms = new Map<string, { x: number; y: number }>();
+	const startTransforms = new Map<string, { x: number; y: number; width: number; height: number }>();
 
 	for (const id of selectedIds) {
 		const o = scene ? findObject(scene, id) : null;
 		if (o) {
-			startTransforms.set(id, { x: o.transform.x, y: o.transform.y });
+			startTransforms.set(id, { x: o.transform.x, y: o.transform.y, width: o.transform.width, height: o.transform.height });
 		}
 	}
 	if (startTransforms.size === 0) {
-		startTransforms.set(primaryObj.id, { x: primaryObj.transform.x, y: primaryObj.transform.y });
+		startTransforms.set(primaryObj.id, { x: primaryObj.transform.x, y: primaryObj.transform.y, width: primaryObj.transform.width, height: primaryObj.transform.height });
 	}
 
 	const onMove = (moveEvent: any) => {
-		if (!isDraggingObject || !viewport) return;
+		if (!isDraggingObject || !viewport || !scene) return;
 		const dx = (moveEvent.global.x - startPos.x) / viewport.scale.x;
 		const dy = (moveEvent.global.y - startPos.y) / viewport.scale.y;
+
+		let snapDX = 0;
+		let snapDY = 0;
+
+		// snapping را بر اساس primaryObject حساب کن
+		const primaryStart = startTransforms.get(primaryObj.id)!;
+		let newPrimaryX = primaryStart.x + dx;
+		let newPrimaryY = primaryStart.y + dy;
+
+		if (scene.snapToGrid) {
+			const g = scene.gridSize || 32;
+			newPrimaryX = Math.round(newPrimaryX / g) * g;
+			newPrimaryY = Math.round(newPrimaryY / g) * g;
+		}
+
+		if (scene.snapToObjects) {
+			const snap = findSnapTarget(primaryObj.id, newPrimaryX, newPrimaryY, primaryStart.width, primaryStart.height);
+			newPrimaryX += snap.dx;
+			newPrimaryY += snap.dy;
+			drawSnapGuides(snap.guides);
+		} else {
+			clearSnapGuides();
+		}
+
+		snapDX = newPrimaryX - (primaryStart.x + dx);
+		snapDY = newPrimaryY - (primaryStart.y + dy);
 
 		for (const [id, start] of startTransforms) {
 			const obj = scene ? findObject(scene, id) : null;
 			if (!obj) continue;
-			const newX = Math.round(start.x + dx);
-			const newY = Math.round(start.y + dy);
+			const newX = Math.round(start.x + dx + snapDX);
+			const newY = Math.round(start.y + dy + snapDY);
 			obj.transform.x = newX;
 			obj.transform.y = newY;
 
@@ -308,6 +387,7 @@ function startDrag(e: any, primaryObj: GameObject) {
 
 	const onUp = () => {
 		isDraggingObject = false;
+		clearSnapGuides();
 		app.stage.off("pointermove", onMove);
 		app.stage.off("pointerup", onUp);
 		app.stage.off("pointerupoutside", onUp);
@@ -328,6 +408,113 @@ function startDrag(e: any, primaryObj: GameObject) {
 	app.stage.on("pointerupoutside", onUp);
 }
 
+// ---------- Snap to Objects ----------
+interface SnapGuide {
+	orientation: "h" | "v";
+	position: number;
+	from: number;
+	to: number;
+}
+
+function findSnapTarget(excludeId: string, x: number, y: number, w: number, h: number): { dx: number; dy: number; guides: SnapGuide[] } {
+	const threshold = 8;
+	if (!scene) return { dx: 0, dy: 0, guides: [] };
+
+	const left = x - w / 2;
+	const right = x + w / 2;
+	const top = y - h / 2;
+	const bottom = y + h / 2;
+	const centerX = x;
+	const centerY = y;
+
+	let bestDX = 0;
+	let bestDY = 0;
+	let bestDistX = threshold + 1;
+	let bestDistY = threshold + 1;
+	let bestGuideX: SnapGuide | null = null;
+	let bestGuideY: SnapGuide | null = null;
+
+	for (const layer of scene.layers) {
+		if (!layer.visible) continue;
+		for (const obj of layer.objects) {
+			if (obj.id === excludeId) continue;
+			const t = obj.transform;
+			const oLeft = t.x - t.width * t.originX;
+			const oRight = oLeft + t.width;
+			const oTop = t.y - t.height * t.originY;
+			const oBottom = oTop + t.height;
+			const oCenterX = t.x;
+			const oCenterY = t.y;
+
+			// X snaps
+			const candidatesX = [
+				{ d: oLeft - left, guide: oLeft },
+				{ d: oRight - right, guide: oRight },
+				{ d: oCenterX - centerX, guide: oCenterX },
+				{ d: oLeft - right, guide: oLeft },
+				{ d: oRight - left, guide: oRight },
+			];
+			for (const c of candidatesX) {
+				const abs = Math.abs(c.d);
+				if (abs < bestDistX) {
+					bestDistX = abs;
+					bestDX = c.d;
+					bestGuideX = { orientation: "v", position: c.guide, from: Math.min(top, oTop), to: Math.max(bottom, oBottom) };
+				}
+			}
+
+			// Y snaps
+			const candidatesY = [
+				{ d: oTop - top, guide: oTop },
+				{ d: oBottom - bottom, guide: oBottom },
+				{ d: oCenterY - centerY, guide: oCenterY },
+				{ d: oTop - bottom, guide: oTop },
+				{ d: oBottom - top, guide: oBottom },
+			];
+			for (const c of candidatesY) {
+				const abs = Math.abs(c.d);
+				if (abs < bestDistY) {
+					bestDistY = abs;
+					bestDY = c.d;
+					bestGuideY = { orientation: "h", position: c.guide, from: Math.min(left, oLeft), to: Math.max(right, oRight) };
+				}
+			}
+		}
+	}
+
+	const guides: SnapGuide[] = [];
+	if (bestDistX <= threshold && bestGuideX) guides.push(bestGuideX);
+	if (bestDistY <= threshold && bestGuideY) guides.push(bestGuideY);
+
+	return {
+		dx: bestDistX <= threshold ? bestDX : 0,
+		dy: bestDistY <= threshold ? bestDY : 0,
+		guides,
+	};
+}
+
+function drawSnapGuides(guides: SnapGuide[]) {
+	clearSnapGuides();
+	if (guides.length === 0) return;
+
+	for (const g of guides) {
+		const line = new Graphics();
+		if (g.orientation === "v") {
+			line.moveTo(g.position, g.from - 50);
+			line.lineTo(g.position, g.to + 50);
+		} else {
+			line.moveTo(g.from - 50, g.position);
+			line.lineTo(g.to + 50, g.position);
+		}
+		line.stroke({ width: 1, color: 0xff00ff, alpha: 0.9 });
+		snapGuideLayer.addChild(line);
+	}
+}
+
+function clearSnapGuides() {
+	snapGuideLayer.removeChildren();
+}
+
 // ---------- Selection ----------
 function selectObjects(ids: string[], primaryId?: string | null) {
 	selectedIds = ids;
@@ -344,11 +531,10 @@ function selectObjects(ids: string[], primaryId?: string | null) {
 		updateToolbarInfo(`${ids.length} objects selected`);
 	}
 
-	// به extension پیام بفرست
 	vscode.postMessage({ type: "selectObjects", objectIds: ids });
 }
 
-// ---------- Selection Outlines + Resize Handles ----------
+// ---------- Selection Outlines + Resize ----------
 function drawSelectionOutlines() {
 	selectionLayer.removeChildren();
 	if (selectedIds.length === 0 || !scene) return;
@@ -367,11 +553,9 @@ function drawSelectionOutlines() {
 		outline.scale.set(t.scaleX, t.scaleY);
 		selectionLayer.addChild(outline);
 
-		// فقط برای تک‌انتخاب، ۸ نقطه resize نشان بده
 		if (selectedIds.length === 1) {
 			drawResizeHandles(obj, t);
 		} else {
-			// برای چند انتخاب، فقط نقطه کوچک
 			const dot = new Graphics();
 			dot.circle(0, 0, 4);
 			dot.fill({ color: 0xffaa00 });
@@ -386,8 +570,6 @@ type HandleType = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
 function drawResizeHandles(obj: GameObject, t: GameObject["transform"]) {
 	const hw = 8;
-	const halfW = t.width;
-	const halfH = t.height;
 
 	const left = -t.width * t.originX;
 	const right = t.width * (1 - t.originX);
@@ -411,7 +593,6 @@ function drawResizeHandles(obj: GameObject, t: GameObject["transform"]) {
 		handle.fill({ color: 0xffaa00 });
 		handle.stroke({ width: 1, color: 0x1a1a1a, alpha: 0.5 });
 
-		// موقعیت در world
 		handle.x = t.x + pos.x * t.scaleX;
 		handle.y = t.y + pos.y * t.scaleY;
 
@@ -434,7 +615,7 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 	const startTransform = { ...obj.transform };
 
 	const onMove = (moveEvent: any) => {
-		if (!isResizing || !viewport) return;
+		if (!isResizing || !viewport || !scene) return;
 
 		const dx = (moveEvent.global.x - startPos.x) / viewport.scale.x;
 		const dy = (moveEvent.global.y - startPos.y) / viewport.scale.y;
@@ -445,10 +626,6 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 		let newX = startTransform.x;
 		let newY = startTransform.y;
 
-		const originX = startTransform.originX;
-		const originY = startTransform.originY;
-
-		// محاسبه بر اساس جهت
 		switch (handle) {
 			case "e":
 				newW = Math.max(1, startTransform.width + dx);
@@ -486,7 +663,6 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 				break;
 		}
 
-		// Shift → حفظ نسبت ابعاد
 		if (shift) {
 			const aspect = startTransform.width / startTransform.height;
 			if (newW / newH > aspect) {
@@ -496,12 +672,20 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 			}
 		}
 
+		// Snap resize to grid
+		if (scene.snapToGrid) {
+			const g = scene.gridSize || 32;
+			newW = Math.round(newW / g) * g;
+			newH = Math.round(newH / g) * g;
+			if (handle === "w" || handle === "nw" || handle === "sw") newX = Math.round(newX / g) * g;
+			if (handle === "n" || handle === "nw" || handle === "ne") newY = Math.round(newY / g) * g;
+		}
+
 		obj.transform.width = Math.round(newW);
 		obj.transform.height = Math.round(newH);
 		obj.transform.x = Math.round(newX);
 		obj.transform.y = Math.round(newY);
 
-		// رندر دوباره این آبجکت
 		rerenderObject(obj);
 		drawSelectionOutlines();
 	};
@@ -521,81 +705,14 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 }
 
 function rerenderObject(obj: GameObject) {
-	// حذف container قدیمی
 	const old = objectSprites.get(obj.id);
 	if (old) {
 		contentLayer.removeChild(old);
 		old.destroy({ children: true });
 		objectSprites.delete(obj.id);
 	}
-	// رندر دوباره
-	renderObjectNoEvents(obj);
-}
-
-function renderObjectNoEvents(obj: GameObject) {
-	const container = new Container();
-	const t = obj.transform;
-
-	const g = new Graphics();
-	const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
-
-	if (obj.type === "sprite") {
-		g.rect(0, 0, t.width, t.height);
-		g.fill({ color, alpha: 1 });
-		g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
-	} else if (obj.type === "shape") {
-		g.circle(t.width / 2, t.height / 2, Math.min(t.width, t.height) / 2);
-		g.fill({ color, alpha: 1 });
-	} else if (obj.type === "text") {
-		const txt = new Text({
-			text: obj.name,
-			style: new TextStyle({ fill: obj.color || "#ffffff", fontSize: 16 }),
-		});
-		container.addChild(txt);
-	} else {
-		g.rect(0, 0, t.width, t.height);
-		g.fill({ color, alpha: 0.3 });
-		g.stroke({ width: 1, color, alpha: 1 });
-	}
-
-	if (obj.type !== "text") {
-		container.addChild(g);
-	}
-
-	container.x = t.x;
-	container.y = t.y;
-	container.rotation = (t.rotation * Math.PI) / 180;
-	container.scale.set(t.scaleX, t.scaleY);
-	container.pivot.set(t.width * t.originX, t.height * t.originY);
-
-	container.eventMode = "static";
-	container.cursor = "pointer";
-
-	container.on("pointerdown", (e) => {
-		e.stopPropagation();
-		const isMulti = e.shiftKey || e.ctrlKey || e.metaKey;
-		if (isMulti) {
-			const idx = selectedIds.indexOf(obj.id);
-			if (idx !== -1) {
-				selectedIds = selectedIds.filter((id) => id !== obj.id);
-				if (primarySelectedId === obj.id) {
-					primarySelectedId = selectedIds[selectedIds.length - 1] ?? null;
-				}
-			} else {
-				selectedIds = [...selectedIds, obj.id];
-				primarySelectedId = obj.id;
-			}
-			selectObjects(selectedIds, primarySelectedId);
-		} else {
-			if (!selectedIds.includes(obj.id)) {
-				selectObjects([obj.id], obj.id);
-			}
-		}
-		startDrag(e, obj);
-	});
-
-	contentLayer.addChild(container);
-	objectSprites.set(obj.id, container);
+	const layer = scene?.layers.find((l) => l.objects.some((o) => o.id === obj.id));
+	renderObject(obj, layer?.locked ?? false);
 }
 
 function findObject(s: Scene, id: string): GameObject | null {
@@ -625,13 +742,25 @@ window.addEventListener("resize", () => {
 });
 
 // ---------- Messages ----------
-window.addEventListener("message", (event) => {
+window.addEventListener("message", async (event) => {
 	const msg = event.data;
 	switch (msg.type) {
 		case "load":
 		case "update":
 			renderScene(msg.scene);
 			break;
+		case "texturesLoaded": {
+			const textures = msg.textures as Record<string, string>;
+			for (const [path, dataUrl] of Object.entries(textures)) {
+				try {
+					await loadTexture(path, dataUrl);
+				} catch (err) {
+					console.error("Failed to load texture:", path, err);
+				}
+			}
+			if (scene) renderScene(scene);
+			break;
+		}
 		case "selectFromOutliner":
 			if (msg.objectId) {
 				selectObjects([msg.objectId], msg.objectId);

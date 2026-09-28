@@ -12,6 +12,7 @@ export default defineConfig([
 		entry: {
 			viewport: "src/webview/viewport/main.ts",
 			inspector: "src/webview/inspector/main.ts",
+			layers: "src/webview/layers/main.ts",
 		},
 		format: "esm",
 		outDir: "dist/webview",

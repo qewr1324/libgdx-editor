@@ -13,13 +13,15 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private onUpdateObject: ((object: GameObject) => void) | null = null;
 	private onDeleteObject: ((objectId: string) => void) | null = null;
 	private onFocusObject: ((objectId: string) => void) | null = null;
+	private onUpdateSceneField: ((field: string, value: unknown) => void) | null = null;
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
-	public setHandlers(handlers: { onUpdateObject: (object: GameObject) => void; onDeleteObject: (objectId: string) => void; onFocusObject: (objectId: string) => void }): void {
+	public setHandlers(handlers: { onUpdateObject: (object: GameObject) => void; onDeleteObject: (objectId: string) => void; onFocusObject: (objectId: string) => void; onUpdateSceneField: (field: string, value: unknown) => void }): void {
 		this.onUpdateObject = handlers.onUpdateObject;
 		this.onDeleteObject = handlers.onDeleteObject;
 		this.onFocusObject = handlers.onFocusObject;
+		this.onUpdateSceneField = handlers.onUpdateSceneField;
 	}
 
 	resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void {
@@ -44,15 +46,14 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					}
 					break;
 				}
+				case "updateSceneField":
+					this.onUpdateSceneField?.(msg.field, msg.value);
+					break;
 				case "deleteObject":
-					if (this.onDeleteObject) {
-						this.onDeleteObject(msg.objectId);
-					}
+					this.onDeleteObject?.(msg.objectId);
 					break;
 				case "focusObject":
-					if (this.onFocusObject) {
-						this.onFocusObject(msg.objectId);
-					}
+					this.onFocusObject?.(msg.objectId);
 					break;
 			}
 		});
@@ -74,29 +75,29 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private pushSelectionToWebview(): void {
 		if (!this.view) return;
 
+		if (this.currentScene) {
+			const sceneMsg: ExtensionToInspectorMessage = { type: "showScene", scene: this.currentScene };
+			this.view.webview.postMessage(sceneMsg);
+		}
+
 		if (this.selectedIds.length === 0 || !this.currentScene) {
-			const msg: ExtensionToInspectorMessage = { type: "clearSelection" };
-			this.view.webview.postMessage(msg);
+			this.view.webview.postMessage({ type: "clearSelection" } satisfies ExtensionToInspectorMessage);
 			return;
 		}
 
 		if (this.selectedIds.length === 1) {
 			const obj = this.findObject(this.currentScene, this.selectedIds[0]);
 			if (obj) {
-				const msg: ExtensionToInspectorMessage = { type: "showObject", object: obj };
-				this.view.webview.postMessage(msg);
+				this.view.webview.postMessage({ type: "showObject", object: obj } satisfies ExtensionToInspectorMessage);
 			} else {
-				const msg: ExtensionToInspectorMessage = { type: "clearSelection" };
-				this.view.webview.postMessage(msg);
+				this.view.webview.postMessage({ type: "clearSelection" } satisfies ExtensionToInspectorMessage);
 			}
 		} else {
-			// چند انتخاب
-			const msg: ExtensionToInspectorMessage = {
+			this.view.webview.postMessage({
 				type: "showMultiSelection",
 				count: this.selectedIds.length,
 				ids: this.selectedIds,
-			};
-			this.view.webview.postMessage(msg);
+			} satisfies ExtensionToInspectorMessage);
 		}
 	}
 
@@ -111,6 +112,8 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 			obj.type = value as GameObject["type"];
 		} else if (field === "color" && typeof value === "string") {
 			obj.color = value;
+		} else if (field === "texture" && typeof value === "string") {
+			obj.texture = value || undefined;
 		} else if (field.startsWith("transform.")) {
 			const key = field.slice("transform.".length) as keyof GameObject["transform"];
 			const numValue = typeof value === "number" ? value : Number.parseFloat(String(value));

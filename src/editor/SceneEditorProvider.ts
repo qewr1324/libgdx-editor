@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { createEmptyScene, type GameObject, type Scene } from "../types/scene.js";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { getWebviewHtml } from "./webviewHtml.js";
+import { AssetManager } from "./assetManager.js";
 
 export type ObjectSelectionHandler = (objectIds: string[], scene: Scene) => void;
 export type SceneChangeHandler = (scene: Scene) => void;
@@ -16,6 +17,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	private activeWebview: vscode.Webview | null = null;
 	private currentScene: Scene | null = null;
 	private currentDocument: vscode.TextDocument | null = null;
+	private isDirty = false;
+	private autoSaveTimer: NodeJS.Timeout | null = null;
 
 	constructor(private readonly context: vscode.ExtensionContext) {
 		SceneEditorProvider.instances.add(this);
@@ -53,19 +56,27 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		};
 	}
 
+	public static getScene(): Scene | null {
+		for (const inst of SceneEditorProvider.instances) {
+			if (inst.currentScene) return inst.currentScene;
+		}
+		return null;
+	}
+
+	public static getCurrentSceneUri(): vscode.Uri | null {
+		for (const inst of SceneEditorProvider.instances) {
+			if (inst.currentDocument) return inst.currentDocument.uri;
+		}
+		return null;
+	}
+
 	public static updateObject(obj: GameObject): void {
 		for (const inst of SceneEditorProvider.instances) {
 			if (!inst.currentScene) continue;
 			const updated = inst.updateObjectInScene(inst.currentScene, obj);
 			inst.currentScene = updated;
-			try {
-				inst.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
-			} catch {
-				// ignore
-			}
-			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-				handler(updated);
-			}
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
 		}
 	}
 
@@ -74,14 +85,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			if (!inst.currentScene) continue;
 			const updated = inst.deleteObjectFromScene(inst.currentScene, objectId);
 			inst.currentScene = updated;
-			try {
-				inst.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
-			} catch {
-				// ignore
-			}
-			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-				handler(updated);
-			}
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
 		}
 	}
 
@@ -95,10 +100,178 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		}
 	}
 
+	public static updateSceneField(field: string, value: unknown): void {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = structuredClone(inst.currentScene) as Scene;
+			const keys = field.split(".");
+			if (keys.length === 1) {
+				(updated as unknown as Record<string, unknown>)[keys[0]] = value;
+			} else if (keys.length === 2) {
+				const parent = (updated as unknown as Record<string, unknown>)[keys[0]] as Record<string, unknown>;
+				parent[keys[1]] = value;
+			}
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+		}
+	}
+
+	public static async addSpriteWithTexture(texturePath: string): Promise<boolean> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+
+			const scene = inst.currentScene;
+			const defaultX = Math.round(scene.worldSize.width / 2);
+			const defaultY = Math.round(scene.worldSize.height / 2);
+
+			const newObj = inst.createObjectAt("sprite", defaultX, defaultY);
+			newObj.texture = texturePath;
+			newObj.name = `sprite_${newObj.id.slice(-4)}`;
+
+			const updated = inst.addObjectToScene(scene, newObj);
+			inst.currentScene = updated;
+			inst.markDirty();
+
+			if (inst.currentDocument) {
+				const textures = await AssetManager.loadTexturesAsDataUrls(inst.currentDocument.uri, updated);
+				inst.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+			}
+
+			inst.broadcastUpdate(updated);
+			return true;
+		}
+		return false;
+	}
+
+	public static async importTextureAt(x: number, y: number): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentDocument || !inst.currentScene) continue;
+			await inst.doImportTexture(x, y, false);
+		}
+	}
+
+	public static async importTextureDialog(): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentDocument || !inst.currentScene) continue;
+			await inst.doImportTexture(0, 0, true);
+		}
+	}
+
+	public static async addLayer(): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = structuredClone(inst.currentScene) as Scene;
+			const newIdx = updated.layers.length;
+			updated.layers.push({
+				name: `layer_${newIdx + 1}`,
+				zIndex: newIdx,
+				visible: true,
+				locked: false,
+				objects: [],
+			});
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+		}
+	}
+
+	public static async deleteLayer(name: string): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			if (inst.currentScene.layers.length <= 1) {
+				vscode.window.showWarningMessage("Cannot delete the last layer.");
+				continue;
+			}
+			const updated = structuredClone(inst.currentScene) as Scene;
+			updated.layers = updated.layers.filter((l) => l.name !== name);
+			updated.layers.forEach((l, i) => {
+				l.zIndex = i;
+			});
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+		}
+	}
+
+	public static async toggleLayerVisibility(name: string): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = structuredClone(inst.currentScene) as Scene;
+			const layer = updated.layers.find((l) => l.name === name);
+			if (layer) layer.visible = !layer.visible;
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+		}
+	}
+
+	public static async toggleLayerLock(name: string): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = structuredClone(inst.currentScene) as Scene;
+			const layer = updated.layers.find((l) => l.name === name);
+			if (layer) layer.locked = !layer.locked;
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+		}
+	}
+
+	public static async renameLayer(oldName: string, newName: string): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			if (inst.currentScene.layers.some((l) => l.name === newName)) {
+				vscode.window.showWarningMessage(`Layer "${newName}" already exists.`);
+				continue;
+			}
+			const updated = structuredClone(inst.currentScene) as Scene;
+			const layer = updated.layers.find((l) => l.name === oldName);
+			if (layer) layer.name = newName;
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+		}
+	}
+
+	public static async moveLayerUp(name: string): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = structuredClone(inst.currentScene) as Scene;
+			const idx = updated.layers.findIndex((l) => l.name === name);
+			if (idx < updated.layers.length - 1) {
+				[updated.layers[idx], updated.layers[idx + 1]] = [updated.layers[idx + 1], updated.layers[idx]];
+				updated.layers.forEach((l, i) => {
+					l.zIndex = i;
+				});
+			}
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+		}
+	}
+
+	public static async moveLayerDown(name: string): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = structuredClone(inst.currentScene) as Scene;
+			const idx = updated.layers.findIndex((l) => l.name === name);
+			if (idx > 0) {
+				[updated.layers[idx], updated.layers[idx - 1]] = [updated.layers[idx - 1], updated.layers[idx]];
+				updated.layers.forEach((l, i) => {
+					l.zIndex = i;
+				});
+			}
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+		}
+	}
+
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
 		webviewPanel.webview.options = {
 			enableScripts: true,
-			localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "dist"), vscode.Uri.joinPath(this.context.extensionUri, "res")],
+			localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, "dist"), vscode.Uri.joinPath(this.context.extensionUri, "res"), vscode.Uri.joinPath(document.uri, "..")],
 		};
 
 		webviewPanel.webview.html = getWebviewHtml(webviewPanel.webview, this.context.extensionUri, "viewport");
@@ -106,11 +279,15 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		this.activeWebview = webviewPanel.webview;
 		this.currentDocument = document;
 
-		const sendScene = () => {
+		const sendScene = async () => {
 			const scene = this.parseDocument(document);
 			this.currentScene = scene;
 			const msg: ExtensionToWebviewMessage = { type: "load", scene };
 			webviewPanel.webview.postMessage(msg);
+
+			const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
+			webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
 			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 				handler(scene);
 			}
@@ -119,17 +296,19 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		webviewPanel.webview.onDidReceiveMessage(async (msg: WebviewToExtensionMessage) => {
 			switch (msg.type) {
 				case "ready":
-					sendScene();
+					await sendScene();
 					break;
 				case "save":
 					await this.writeDocument(document, msg.scene);
 					this.currentScene = msg.scene;
+					this.isDirty = false;
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(msg.scene);
 					}
 					break;
 				case "sceneChanged":
 					this.currentScene = msg.scene;
+					this.markDirty();
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(msg.scene);
 					}
@@ -154,16 +333,26 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					const newObj = this.createObjectAt(msg.objectType, msg.x, msg.y);
 					const updated = this.addObjectToScene(this.currentScene, newObj);
 					this.currentScene = updated;
-					webviewPanel.webview.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.markDirty();
+					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
+					break;
+				}
+				case "requestAddTexture": {
+					await this.doImportTexture(msg.x, msg.y, false);
+					break;
+				}
+				case "requestImportTexture": {
+					await this.doImportTexture(0, 0, true);
 					break;
 				}
 				case "updateObject": {
 					if (!this.currentScene) break;
 					const updated = this.updateObjectInScene(this.currentScene, msg.object);
 					this.currentScene = updated;
+					this.markDirty();
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
@@ -176,6 +365,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 						updated = this.updateObjectInScene(updated, obj);
 					}
 					this.currentScene = updated;
+					this.markDirty();
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
@@ -185,7 +375,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					if (!this.currentScene) break;
 					const updated = this.deleteObjectFromScene(this.currentScene, msg.objectId);
 					this.currentScene = updated;
-					webviewPanel.webview.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.markDirty();
+					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
@@ -198,7 +389,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 						updated = this.deleteObjectFromScene(updated, id);
 					}
 					this.currentScene = updated;
-					webviewPanel.webview.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.markDirty();
+					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
@@ -209,12 +401,16 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 		const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
 			if (e.document.uri.toString() === document.uri.toString()) {
-				sendScene();
+				void sendScene();
 			}
 		});
 
 		webviewPanel.onDidDispose(() => {
 			changeSub.dispose();
+			if (this.autoSaveTimer) {
+				clearTimeout(this.autoSaveTimer);
+				this.autoSaveTimer = null;
+			}
 			SceneEditorProvider.instances.delete(this);
 			if (this.activeWebview === webviewPanel.webview) {
 				this.activeWebview = null;
@@ -223,6 +419,75 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 				this.currentDocument = null;
 			}
 		});
+	}
+
+	private broadcastUpdate(scene: Scene): void {
+		try {
+			this.activeWebview?.postMessage({ type: "update", scene } satisfies ExtensionToWebviewMessage);
+		} catch {
+			// ignore
+		}
+		for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+			handler(scene);
+		}
+	}
+
+	private markDirty(): void {
+		this.isDirty = true;
+		if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+		this.autoSaveTimer = setTimeout(() => {
+			void this.autoSave();
+		}, 3000);
+	}
+
+	private async autoSave(): Promise<void> {
+		if (!this.currentDocument || !this.currentScene || !this.isDirty) return;
+		try {
+			await this.writeDocument(this.currentDocument, this.currentScene);
+			this.isDirty = false;
+		} catch (err) {
+			console.error("Auto-save failed:", err);
+		}
+	}
+
+	private async doImportTexture(x: number, y: number, dialogOnly: boolean): Promise<void> {
+		if (!this.currentDocument || !this.currentScene) return;
+
+		const uris = await vscode.window.showOpenDialog({
+			canSelectMany: false,
+			filters: { Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] },
+			title: "Import Texture",
+		});
+		if (!uris || uris.length === 0) return;
+
+		try {
+			const relativePath = await AssetManager.importTexture(this.currentDocument.uri, uris[0]);
+
+			if (dialogOnly) {
+				vscode.window.showInformationMessage(`Texture imported: ${relativePath}`);
+				const textures = await AssetManager.loadTexturesAsDataUrls(this.currentDocument.uri, this.currentScene);
+				this.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+				return;
+			}
+
+			const newObj = this.createObjectAt("sprite", x, y);
+			newObj.texture = relativePath;
+			newObj.name = `sprite_${newObj.id.slice(-4)}`;
+
+			const updated = this.addObjectToScene(this.currentScene, newObj);
+			this.currentScene = updated;
+			this.markDirty();
+
+			const textures = await AssetManager.loadTexturesAsDataUrls(this.currentDocument.uri, updated);
+			this.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+			this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+
+			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+				handler(updated);
+			}
+		} catch (err) {
+			vscode.window.showErrorMessage(`Failed to import texture: ${err instanceof Error ? err.message : String(err)}`);
+		}
 	}
 
 	private createObjectAt(type: GameObject["type"], x: number, y: number): GameObject {
@@ -266,10 +531,12 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 				name: "default",
 				zIndex: 0,
 				visible: true,
+				locked: false,
 				objects: [],
 			});
 		}
-		newScene.layers[0].objects.push(obj);
+		const targetLayer = newScene.layers.find((l) => l.visible && !l.locked) ?? newScene.layers[0];
+		targetLayer.objects.push(obj);
 		return newScene;
 	}
 
@@ -299,7 +566,15 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			return createEmptyScene(document.uri.path.split("/").pop()?.replace(".lgdx.json", "") ?? "untitled");
 		}
 		try {
-			return JSON.parse(text) as Scene;
+			const parsed = JSON.parse(text) as Scene;
+			if (!parsed.camera) parsed.camera = { x: 0, y: 0, zoom: 1 };
+			if (typeof parsed.snapToGrid !== "boolean") parsed.snapToGrid = false;
+			if (typeof parsed.snapToObjects !== "boolean") parsed.snapToObjects = false;
+			for (const layer of parsed.layers) {
+				if (typeof layer.visible !== "boolean") layer.visible = true;
+				if (typeof layer.locked !== "boolean") layer.locked = false;
+			}
+			return parsed;
 		} catch {
 			vscode.window.showErrorMessage("فایل صحنه معتبر نیست. یک صحنه خالی ساخته می‌شود.");
 			return createEmptyScene();
@@ -312,5 +587,11 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		edit.replace(document.uri, fullRange, JSON.stringify(scene, null, 2));
 		await vscode.workspace.applyEdit(edit);
 		await document.save();
+
+		try {
+			await AssetManager.cleanupUnusedAssets(document.uri, scene);
+		} catch {
+			// ignore
+		}
 	}
 }
