@@ -20,7 +20,6 @@ app.innerHTML = `
   </div>
 `;
 
-// اعلام آمادگی به extension
 vscode.postMessage({ type: "ready" });
 
 window.addEventListener("message", (event) => {

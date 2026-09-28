@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { GameObject } from "../types/scene.js";
+import type { GameObject, Scene } from "../types/scene.js";
 import { getWebviewHtml } from "../editor/webviewHtml.js";
 import type { ExtensionToWebviewMessage } from "../protocol/messages.js";
 
@@ -7,8 +7,8 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
 
 	private view: vscode.WebviewView | null = null;
-	private pendingObject: GameObject | null = null;
-	private pendingSelection: string | null = null;
+	private currentScene: Scene | null = null;
+	private selectedId: string | null = null;
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -23,43 +23,59 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		webviewView.webview.html = getWebviewHtml(webviewView.webview, this.extensionUri, "inspector");
 
 		webviewView.webview.onDidReceiveMessage((msg) => {
-			// پیام‌های inspector را بعداً پردازش می‌کنیم
 			console.log("inspector message:", msg);
 		});
 
-		// اگر انتخابی قبل از آماده شدن webview انجام شده، الان بفرست
-		if (this.pendingSelection !== null) {
-			this.postToWebview({
-				type: "selectObject",
-				objectId: this.pendingSelection,
-			});
-		}
-		if (this.pendingObject) {
-			this.postToWebview({
-				type: "update",
-				scene: {
-					version: "1.0",
-					name: "",
-					worldSize: { width: 0, height: 0 },
-					backgroundColor: "",
-					gridSize: 0,
-					layers: [],
-				},
-			});
-		}
+		this.pushSelectionToWebview();
 	}
 
-	selectObject(objectId: string | null, object?: GameObject | null): void {
-		this.pendingSelection = objectId;
-		this.pendingObject = object ?? null;
+	setSelection(objectId: string | null, scene: Scene): void {
+		this.selectedId = objectId;
+		this.currentScene = scene;
+		this.pushSelectionToWebview();
+	}
 
-		this.postToWebview({
+	setScene(scene: Scene): void {
+		this.currentScene = scene;
+		this.pushSelectionToWebview();
+	}
+
+	private pushSelectionToWebview(): void {
+		if (!this.view) return;
+
+		const msg: ExtensionToWebviewMessage = {
 			type: "selectObject",
-			objectId,
-		});
+			objectId: this.selectedId,
+		};
+		this.view.webview.postMessage(msg);
+
+		if (this.selectedId && this.currentScene) {
+			const obj = this.findObject(this.currentScene, this.selectedId);
+			if (obj) {
+				this.view.webview.postMessage({
+					type: "objectUpdated",
+					object: obj,
+				});
+			}
+		}
 	}
 
-	private postToWebview(msg: ExtensionToWebviewMessage): void {
-		this.view?.webview.postMessage(msg);
+	private findObject(scene: Scene, id: string): GameObject | null {
+		for (const layer of scene.layers) {
+			const found = this.findInObjects(layer.objects, id);
+			if (found) return found;
+		}
+		return null;
+	}
+
+	private findInObjects(objects: GameObject[], id: string): GameObject | null {
+		for (const obj of objects) {
+			if (obj.id === id) return obj;
+			if (obj.children) {
+				const found = this.findInObjects(obj.children, id);
+				if (found) return found;
+			}
+		}
+		return null;
 	}
 }

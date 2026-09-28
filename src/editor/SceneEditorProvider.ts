@@ -3,13 +3,16 @@ import { createEmptyScene, type Scene } from "../types/scene.js";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { getWebviewHtml } from "./webviewHtml.js";
 
+export type ObjectSelectionHandler = (objectId: string | null, scene: Scene) => void;
+
 export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	public static readonly viewType = "libgdx-editor.sceneEditor";
 
 	private static instances = new Set<SceneEditorProvider>();
-	private static activeEditor: SceneEditorProvider | null = null;
+	private static selectionHandlers = new Set<ObjectSelectionHandler>();
 
 	private activeWebview: vscode.Webview | null = null;
+	private currentScene: Scene | null = null;
 
 	constructor(private readonly context: vscode.ExtensionContext) {
 		SceneEditorProvider.instances.add(this);
@@ -29,6 +32,13 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		}
 	}
 
+	public static onDidSelectObject(handler: ObjectSelectionHandler): vscode.Disposable {
+		SceneEditorProvider.selectionHandlers.add(handler);
+		return {
+			dispose: () => SceneEditorProvider.selectionHandlers.delete(handler),
+		};
+	}
+
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
 		webviewPanel.webview.options = {
 			enableScripts: true,
@@ -38,10 +48,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		webviewPanel.webview.html = getWebviewHtml(webviewPanel.webview, this.context.extensionUri, "viewport");
 
 		this.activeWebview = webviewPanel.webview;
-		SceneEditorProvider.activeEditor = this;
 
 		const sendScene = () => {
 			const scene = this.parseDocument(document);
+			this.currentScene = scene;
 			const msg: ExtensionToWebviewMessage = { type: "load", scene };
 			webviewPanel.webview.postMessage(msg);
 		};
@@ -55,7 +65,15 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					await this.writeDocument(document, msg.scene);
 					break;
 				case "sceneChanged":
+					this.currentScene = msg.scene;
 					break;
+				case "selectObject": {
+					const scene = this.currentScene ?? this.parseDocument(document);
+					for (const handler of SceneEditorProvider.selectionHandlers) {
+						handler(msg.objectId, scene);
+					}
+					break;
+				}
 			}
 		});
 
@@ -68,9 +86,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		webviewPanel.onDidDispose(() => {
 			changeSub.dispose();
 			SceneEditorProvider.instances.delete(this);
-			if (SceneEditorProvider.activeEditor === this) {
-				SceneEditorProvider.activeEditor = null;
-			}
 			if (this.activeWebview === webviewPanel.webview) {
 				this.activeWebview = null;
 			}

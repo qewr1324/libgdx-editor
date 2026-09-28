@@ -3,7 +3,7 @@
 	"type": "module",
 	"displayName": "LibGDX Editor",
 	"description": "❄️ LibGDX Editor - There is a 2D editor for game development in libGDX for 💠 VSCode. ",
-	"version": "0.14.16",
+	"version": "0.24.17",
 	"private": false,
 	"publisher": "GhurbeSABZI",
 	"packageManager": "bun@1.3.14",
@@ -55,6 +55,11 @@
 				"command": "libgdx-editor.openEditor",
 				"title": "LibGDX: Open Scene Editor",
 				"icon": "$(window)"
+			},
+			{
+				"command": "libgdx-editor.newScene",
+				"title": "LibGDX: New Scene",
+				"icon": "$(new-file)"
 			}
 		],
 		"customEditors": [
@@ -81,11 +86,6 @@
 		"views": {
 			"libgdx-editor": [
 				{
-					"id": "libgdx-editor.outliner",
-					"name": "Outliner",
-					"type": "tree"
-				},
-				{
 					"id": "libgdx-editor.inspector",
 					"name": "Inspector",
 					"type": "webview"
@@ -93,11 +93,17 @@
 			]
 		},
 		"menus": {
-			"view/title": [
+			"commandPalette": [
 				{
-					"command": "libgdx-editor.openEditor",
-					"when": "view == libgdx-editor.outliner",
-					"group": "navigation"
+					"command": "libgdx-editor.newScene",
+					"when": "true"
+				}
+			],
+			"explorer/context": [
+				{
+					"command": "libgdx-editor.newScene",
+					"when": "explorerResourceIsFolder",
+					"group": "navigation@10"
 				}
 			]
 		}
