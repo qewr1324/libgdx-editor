@@ -1,15 +1,12 @@
 import * as vscode from "vscode";
 import type { ExtensionToWebviewMessage } from "../../protocol/messages.js";
 import { AssetManager } from "../assetManager.js";
-import { SceneRegistry } from "../scene-registry.js";
 import { addObjectToScene, createObjectAt } from "../scene-mutations.js";
 import type { SceneHost } from "../scene-types.js";
 
-export async function addSpriteWithTextureOp(texturePath: string, width?: number, height?: number): Promise<boolean> {
-	const active = SceneRegistry.getActiveInstance();
-	if (!active) return false;
-	const scene = active.getScene();
-	const document = active.getDocument();
+export async function addSpriteWithTextureOp(host: SceneHost, texturePath: string, width?: number, height?: number): Promise<boolean> {
+	const scene = host.getScene();
+	const document = host.getDocument();
 	if (!scene || !document) return false;
 
 	const defaultX = Math.round(scene.worldSize.width / 2);
@@ -25,34 +22,29 @@ export async function addSpriteWithTextureOp(texturePath: string, width?: number
 	}
 
 	const updated = addObjectToScene(scene, newObj);
-	active.setScene(updated);
-	active.markDirty();
-	active.pushHistory(updated, "add texture");
+	host.setScene(updated);
+	host.markDirty();
+	host.pushHistory(updated, "add texture");
 
 	const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, updated);
-	active.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+	host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-	active.broadcastUpdate(updated);
-	active.broadcastHistoryState();
+	host.broadcastUpdate(updated);
+	host.broadcastHistoryState();
 	return true;
 }
 
-export async function importTextureAtOp(x: number, y: number): Promise<void> {
-	const active = SceneRegistry.getActiveInstance();
-	if (!active) return;
-	await doImportTextureOp(active, x, y, false);
+export async function importTextureAtOp(host: SceneHost, x: number, y: number): Promise<void> {
+	await doImportTextureOp(host, x, y, false);
 }
 
-export async function importTextureDialogOp(): Promise<void> {
-	const active = SceneRegistry.getActiveInstance();
-	if (!active) return;
-	await doImportTextureOp(active, 0, 0, true);
+export async function importTextureDialogOp(host: SceneHost): Promise<void> {
+	await doImportTextureOp(host, 0, 0, true);
 }
 
-async function doImportTextureOp(active: SceneHost | null, x: number, y: number, dialogOnly: boolean): Promise<void> {
-	if (!active) return;
-	const document = active.getDocument();
-	const scene = active.getScene();
+async function doImportTextureOp(host: SceneHost, x: number, y: number, dialogOnly: boolean): Promise<void> {
+	const document = host.getDocument();
+	const scene = host.getScene();
 	if (!document || !scene) return;
 
 	const uris = await vscode.window.showOpenDialog({
@@ -88,7 +80,7 @@ async function doImportTextureOp(active: SceneHost | null, x: number, y: number,
 		if (dialogOnly) {
 			vscode.window.showInformationMessage(`Texture imported: ${relativePath}${dims ? ` (${dims.width}×${dims.height})` : ""}`);
 			const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
-			active.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+			host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 			return;
 		}
 
@@ -102,14 +94,14 @@ async function doImportTextureOp(active: SceneHost | null, x: number, y: number,
 		}
 
 		const updated = addObjectToScene(scene, newObj);
-		active.setScene(updated);
-		active.markDirty();
-		active.pushHistory(updated, "import texture");
+		host.setScene(updated);
+		host.markDirty();
+		host.pushHistory(updated, "import texture");
 
 		const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, updated);
-		active.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
-		active.broadcastUpdate(updated);
-		active.broadcastHistoryState();
+		host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+		host.broadcastUpdate(updated);
+		host.broadcastHistoryState();
 	} catch (err) {
 		vscode.window.showErrorMessage(`Failed to import texture: ${err instanceof Error ? err.message : String(err)}`);
 	}

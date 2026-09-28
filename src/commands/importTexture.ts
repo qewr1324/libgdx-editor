@@ -2,16 +2,17 @@ import * as vscode from "vscode";
 import * as path from "node:path";
 import { SceneEditorProvider } from "../editor/SceneEditorProvider.js";
 import { AssetManager } from "../editor/assetManager.js";
+import { addSpriteWithTextureOp } from "../editor/scene-ops/addObjectOps.js";
 
 export async function importTextureCommand(context: vscode.ExtensionContext, uriFromContext?: vscode.Uri): Promise<void> {
-	const sceneUri = SceneEditorProvider.getCurrentSceneUri();
-	if (!sceneUri) {
+	const host = SceneEditorProvider.getActiveProvider();
+	if (!host) {
 		vscode.window.showWarningMessage("No active LibGDX scene. Open or create a .lgdx.json file first.");
 		return;
 	}
-
-	const scene = SceneEditorProvider.getScene();
-	if (!scene) {
+	const document = host.getDocument();
+	const scene = host.getScene();
+	if (!document || !scene) {
 		vscode.window.showWarningMessage("Could not read current scene.");
 		return;
 	}
@@ -37,9 +38,8 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 		return;
 	}
 
-	// ✅ مقایسه با پوشه assets صحیح — باگ ۱۱ رفع شد
-	const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
-	const assetsDirName = AssetManager.getAssetsDirName(sceneUri);
+	const sceneDir = vscode.Uri.joinPath(document.uri, "..");
+	const assetsDirName = AssetManager.getAssetsDirName(document.uri);
 	const assetsDir = vscode.Uri.joinPath(sceneDir, assetsDirName);
 	if (sourceUri.fsPath.startsWith(assetsDir.fsPath)) {
 		const relative = path.relative(sceneDir.fsPath, sourceUri.fsPath).replace(/\\/g, "/");
@@ -48,10 +48,8 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 	}
 
 	try {
-		// ابعاد تصویر را بخوان
 		const dims = await AssetManager.getImageDimensions(sourceUri);
 
-		// از کاربر scale بپرس
 		let scale = 1.0;
 		if (dims) {
 			const scaleInput = await vscode.window.showInputBox({
@@ -70,11 +68,10 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 			if (Number.isNaN(scale) || scale <= 0) scale = 1.0;
 		}
 
-		// کپی فایل به assets
-		const relativePath = await AssetManager.importTexture(sceneUri, sourceUri);
+		const relativePath = await AssetManager.importTexture(document.uri, sourceUri);
 
-		// sprite جدید با ابعاد واقعی
-		const added = await SceneEditorProvider.addSpriteWithTexture(relativePath, dims ? Math.round(dims.width * scale) : undefined, dims ? Math.round(dims.height * scale) : undefined);
+		// ✅ از host مستقیم استفاده می‌کنیم
+		const added = await addSpriteWithTextureOp(host, relativePath, dims ? Math.round(dims.width * scale) : undefined, dims ? Math.round(dims.height * scale) : undefined);
 
 		if (added) {
 			vscode.window.showInformationMessage(`Texture imported: ${relativePath}`);
@@ -87,10 +84,11 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 }
 
 export async function cleanupAssetsCommand(): Promise<void> {
-	const sceneUri = SceneEditorProvider.getCurrentSceneUri();
-	const scene = SceneEditorProvider.getScene();
+	const host = SceneEditorProvider.getActiveProvider();
+	const scene = host?.getScene();
+	const document = host?.getDocument();
 
-	if (!sceneUri || !scene) {
+	if (!document || !scene) {
 		vscode.window.showWarningMessage("No active LibGDX scene.");
 		return;
 	}
@@ -99,7 +97,7 @@ export async function cleanupAssetsCommand(): Promise<void> {
 	if (confirm !== "Delete") return;
 
 	try {
-		await AssetManager.cleanupUnusedAssets(sceneUri, scene);
+		await AssetManager.cleanupUnusedAssets(document.uri, scene);
 		vscode.window.showInformationMessage("Unused assets cleaned up.");
 	} catch (err) {
 		vscode.window.showErrorMessage(`Failed to cleanup assets: ${err instanceof Error ? err.message : String(err)}`);

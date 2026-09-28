@@ -6,9 +6,9 @@ import { ConfigManager } from "../config/config-manager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument } from "./scene-parser.js";
-import { addObjectToScene, createObjectAt, deleteObjectFromScene, updateObjectInScene, updateObjectsInScene } from "./scene-mutations.js";
+import { addObjectToScene, createObjectAt, deleteObjectFromScene, updateObjectsInScene } from "./scene-mutations.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
-import { deleteObjectOp, duplicateObjectsOp } from "./scene-ops/objectOps.js";
+import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
 import { undoOp, redoOp } from "./scene-ops/historyOps.js";
 import type { SceneHost } from "./scene-types.js";
@@ -23,7 +23,7 @@ export interface MessageHandlerContext {
 }
 
 export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: MessageHandlerContext): Promise<void> {
-	SceneRegistry.setActiveInstance(ctx.host);
+	const host = ctx.host;
 
 	switch (msg.type) {
 		case "ready":
@@ -36,100 +36,106 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			handleSceneChanged(msg, ctx);
 			break;
 		case "selectObject": {
-			const scene = ctx.host.getScene() ?? parseDocument(ctx.document);
+			SceneRegistry.setActiveInstance(host);
+			const scene = host.getScene() ?? parseDocument(ctx.document);
 			const ids = msg.objectId ? [msg.objectId] : [];
-			SceneRegistry.emitSelection(ids, scene);
+			SceneRegistry.emitSelection(host, ids, scene);
 			break;
 		}
 		case "selectObjects": {
-			const scene = ctx.host.getScene() ?? parseDocument(ctx.document);
-			SceneRegistry.emitSelection(msg.objectIds, scene);
+			SceneRegistry.setActiveInstance(host);
+			const scene = host.getScene() ?? parseDocument(ctx.document);
+			SceneRegistry.emitSelection(host, msg.objectIds, scene);
 			break;
 		}
 		case "requestAddObject": {
-			if (!ctx.host.getScene()) break;
+			const scene = host.getScene();
+			if (!scene) break;
 			const newObj = createObjectAt(msg.objectType, msg.x, msg.y);
-			const updated = addObjectToScene(ctx.host.getScene()!, newObj);
-			ctx.host.setScene(updated);
-			ctx.host.markDirty();
-			ctx.host.pushHistory(updated, `add ${msg.objectType}`);
-			ctx.host.broadcastUpdate(updated);
-			ctx.host.broadcastHistoryState();
+			const updated = addObjectToScene(scene, newObj);
+			host.setScene(updated);
+			host.markDirty();
+			host.pushHistory(updated, `add ${msg.objectType}`);
+			host.broadcastUpdate(updated);
+			host.broadcastHistoryState();
 			break;
 		}
 		case "requestAddTexture":
-			await importTextureAtOp(msg.x, msg.y);
+			await importTextureAtOp(host, msg.x, msg.y);
 			break;
 		case "requestImportTexture":
-			await importTextureDialogOp();
+			await importTextureDialogOp(host);
 			break;
-		case "updateObject": {
-			const current = ctx.host.getScene();
-			if (!current) break;
-			const updated = updateObjectInScene(current, msg.object);
-			ctx.host.setScene(updated);
-			ctx.host.markDirty();
-			ctx.host.pushHistory(updated, msg.historyLabel ?? "update object");
-			ctx.host.broadcastUpdate(updated);
-			ctx.host.broadcastHistoryState();
+		case "updateObject":
+			updateObjectOp(host, msg.object, msg.historyLabel ?? "update object");
 			break;
-		}
 		case "updateObjects": {
-			const current = ctx.host.getScene();
+			const current = host.getScene();
 			if (!current) break;
-			// ✅ batch update — باگ ۲۱ رفع شد
 			const updated = updateObjectsInScene(current, msg.objects);
-			ctx.host.setScene(updated);
-			ctx.host.markDirty();
-			ctx.host.pushHistory(updated, msg.historyLabel ?? "update objects");
-			ctx.host.broadcastUpdate(updated);
-			ctx.host.broadcastHistoryState();
+			host.setScene(updated);
+			host.markDirty();
+			host.pushHistory(updated, msg.historyLabel ?? "update objects");
+			host.broadcastUpdate(updated);
+			host.broadcastHistoryState();
 			break;
 		}
 		case "updateSceneField":
-			updateSceneFieldOp(msg.field, msg.value, msg.historyLabel ?? `update ${msg.field}`);
+			updateSceneFieldOp(host, msg.field, msg.value, msg.historyLabel ?? `update ${msg.field}`);
 			break;
 		case "deleteObject":
-			deleteObjectOp(msg.objectId);
+			deleteObjectOp(host, msg.objectId);
 			break;
 		case "deleteObjects": {
-			const current = ctx.host.getScene();
+			const current = host.getScene();
 			if (!current) break;
 			let updated = current;
 			for (const id of msg.objectIds) {
 				updated = deleteObjectFromScene(updated, id);
 			}
-			ctx.host.setScene(updated);
-			ctx.host.markDirty();
-			ctx.host.pushHistory(updated, "delete objects");
-			ctx.host.broadcastUpdate(updated);
-			ctx.host.broadcastHistoryState();
+			host.setScene(updated);
+			host.markDirty();
+			host.pushHistory(updated, "delete objects");
+			host.broadcastUpdate(updated);
+			host.broadcastHistoryState();
+			break;
+		}
+		case "pasteObjects": {
+			const current = host.getScene();
+			if (!current) break;
+			let updated = current;
+			for (const obj of msg.objects) {
+				updated = addObjectToScene(updated, obj);
+			}
+			host.setScene(updated);
+			host.markDirty();
+			host.pushHistory(updated, msg.historyLabel ?? "paste");
+			host.broadcastUpdate(updated);
+			host.broadcastHistoryState();
 			break;
 		}
 		case "duplicateObjects":
-			duplicateObjectsOp(msg.objectIds, msg.offsetX, msg.offsetY);
+			duplicateObjectsOp(host, msg.objectIds, msg.offsetX, msg.offsetY);
 			break;
 		case "openSceneSettings": {
-			const scene = ctx.host.getScene() ?? parseDocument(ctx.document);
-			SceneRegistry.emitSceneSettings(scene);
+			SceneRegistry.setActiveInstance(host);
+			const scene = host.getScene() ?? parseDocument(ctx.document);
+			SceneRegistry.emitSceneSettings(host, scene);
 			break;
 		}
 		case "undo":
-			undoOp();
+			undoOp(host);
 			break;
 		case "redo":
-			redoOp();
+			redoOp(host);
 			break;
 		case "updateConfig": {
-			console.log("[message-handler] updateConfig:", msg.key, "=", msg.value);
 			const config = ConfigManager.getInstance();
 			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 			break;
 		}
 		case "requestConfig": {
-			console.log("[message-handler] requestConfig");
 			const config = ConfigManager.getInstance().get();
-			// فقط به همین وب‌ویو
 			ctx.webviewPanel.webview.postMessage({
 				type: "configLoaded",
 				config: {
@@ -143,29 +149,15 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			} satisfies ExtensionToWebviewMessage);
 			break;
 		}
-		case "pasteObjects": {
-			const current = ctx.host.getScene();
-			if (!current) break;
-			let updated = current;
-			for (const obj of msg.objects) {
-				updated = addObjectToScene(updated, obj);
-			}
-			ctx.host.setScene(updated);
-			ctx.host.markDirty();
-			ctx.host.pushHistory(updated, msg.historyLabel ?? "paste");
-			ctx.host.broadcastUpdate(updated);
-			ctx.host.broadcastHistoryState();
-			break;
-		}
 	}
 }
 
 export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
+	const host = ctx.host;
 	const scene = parseDocument(ctx.document);
-	ctx.host.setScene(scene);
-	ctx.host.resetHistory(scene);
+	host.setScene(scene);
+	host.resetHistory(scene);
 
-	// ✅ فقط به همین وب‌ویو (نه broadcast)
 	ctx.webviewPanel.webview.postMessage({ type: "load", scene } satisfies ExtensionToWebviewMessage);
 
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, scene);
@@ -184,10 +176,10 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 		},
 	} satisfies ExtensionToWebviewMessage);
 
-	ctx.host.broadcastHistoryState();
+	host.broadcastHistoryState();
 
-	if (ctx.host.isActive()) {
-		SceneRegistry.emitSceneChange(scene);
+	if (host.isActive()) {
+		SceneRegistry.emitSceneChange(host, scene);
 	}
 }
 
@@ -197,15 +189,16 @@ export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void>
 		return;
 	}
 
+	const host = ctx.host;
 	const scene = parseDocument(ctx.document);
-	ctx.host.setScene(scene);
+	host.setScene(scene);
 	ctx.webviewPanel.webview.postMessage({ type: "load", scene } satisfies ExtensionToWebviewMessage);
 
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, scene);
 	ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-	if (ctx.host.isActive()) {
-		SceneRegistry.emitSceneChange(scene);
+	if (host.isActive()) {
+		SceneRegistry.emitSceneChange(host, scene);
 	}
 }
 
@@ -214,17 +207,16 @@ async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Pr
 	ctx.host.setScene(msg.scene);
 	ctx.markNotDirty();
 	if (ctx.host.isActive()) {
-		SceneRegistry.emitSceneChange(msg.scene);
+		SceneRegistry.emitSceneChange(ctx.host, msg.scene);
 	}
 }
 
 function handleSceneChanged(msg: { scene: Scene }, ctx: MessageHandlerContext): void {
 	ctx.host.setScene(msg.scene);
 	ctx.host.markDirty();
-	// ✅ pushHistory — باگ ۴ رفع شد
 	ctx.host.pushHistory(msg.scene, "scene changed");
 	ctx.host.broadcastHistoryState();
 	if (ctx.host.isActive()) {
-		SceneRegistry.emitSceneChange(msg.scene);
+		SceneRegistry.emitSceneChange(ctx.host, msg.scene);
 	}
 }

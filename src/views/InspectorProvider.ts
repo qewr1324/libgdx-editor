@@ -4,6 +4,7 @@ import { getWebviewHtml } from "../editor/webviewHtml.js";
 import type { ExtensionToInspectorMessage } from "../protocol/messages.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { ConfigManager } from "../config/config-manager.js";
+import type { SceneHost } from "../editor/scene-types.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -12,15 +13,21 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private currentScene: Scene | null = null;
 	private selectedIds: string[] = [];
 	private sceneMode = false;
+	private boundHost: SceneHost | null = null;
 
-	private onUpdateObject: ((object: GameObject, historyLabel?: string) => void) | null = null;
-	private onDeleteObject: ((objectId: string) => void) | null = null;
-	private onFocusObject: ((objectId: string) => void) | null = null;
-	private onUpdateSceneField: ((field: string, value: unknown, historyLabel?: string) => void) | null = null;
+	private onUpdateObject: ((host: SceneHost, object: GameObject, historyLabel?: string) => void) | null = null;
+	private onDeleteObject: ((host: SceneHost, objectId: string) => void) | null = null;
+	private onFocusObject: ((host: SceneHost, objectId: string) => void) | null = null;
+	private onUpdateSceneField: ((host: SceneHost, field: string, value: unknown, historyLabel?: string) => void) | null = null;
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
-	public setHandlers(handlers: { onUpdateObject: (object: GameObject, historyLabel?: string) => void; onDeleteObject: (objectId: string) => void; onFocusObject: (objectId: string) => void; onUpdateSceneField: (field: string, value: unknown, historyLabel?: string) => void }): void {
+	public setHandlers(handlers: {
+		onUpdateObject: (host: SceneHost, object: GameObject, historyLabel?: string) => void;
+		onDeleteObject: (host: SceneHost, objectId: string) => void;
+		onFocusObject: (host: SceneHost, objectId: string) => void;
+		onUpdateSceneField: (host: SceneHost, field: string, value: unknown, historyLabel?: string) => void;
+	}): void {
 		this.onUpdateObject = handlers.onUpdateObject;
 		this.onDeleteObject = handlers.onDeleteObject;
 		this.onFocusObject = handlers.onFocusObject;
@@ -62,29 +69,34 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					this.pushSelectionToWebview();
 					break;
 				case "updateObjectField": {
+					if (!this.boundHost) break;
 					const updated = this.applyFieldUpdate(msg.objectId, msg.field, msg.value);
 					if (updated && this.onUpdateObject) {
-						this.onUpdateObject(updated, `inspector: ${msg.field}`);
+						this.onUpdateObject(this.boundHost, updated, `inspector: ${msg.field}`);
 					}
 					break;
 				}
 				case "updateSceneField":
-					this.onUpdateSceneField?.(msg.field, msg.value, `scene: ${msg.field}`);
+					if (this.boundHost) {
+						this.onUpdateSceneField?.(this.boundHost, msg.field, msg.value, `scene: ${msg.field}`);
+					}
 					break;
 				case "deleteObject":
-					this.onDeleteObject?.(msg.objectId);
+					if (this.boundHost) {
+						this.onDeleteObject?.(this.boundHost, msg.objectId);
+					}
 					break;
 				case "focusObject":
-					this.onFocusObject?.(msg.objectId);
+					if (this.boundHost) {
+						this.onFocusObject?.(this.boundHost, msg.objectId);
+					}
 					break;
 				case "updateConfig": {
-					console.log("[InspectorProvider] updateConfig:", msg.key, "=", msg.value);
 					const config = ConfigManager.getInstance();
 					await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 					break;
 				}
 				case "requestConfig": {
-					console.log("[InspectorProvider] requestConfig");
 					const config = ConfigManager.getInstance().get();
 					this.view?.webview.postMessage({
 						type: "configLoaded",
@@ -105,22 +117,28 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
-	setSelection(objectIds: string[], scene: Scene): void {
+	setSelection(host: SceneHost, objectIds: string[], scene: Scene): void {
+		this.boundHost = host;
 		this.selectedIds = objectIds;
 		this.currentScene = scene;
-		// ✅ فقط اگر انتخاب واقعی داریم از sceneMode خارج شو — باگ ۲۳ رفع شد
 		if (objectIds.length > 0) {
 			this.sceneMode = false;
 		}
 		this.pushSelectionToWebview();
 	}
 
-	setScene(scene: Scene): void {
+	setScene(host: SceneHost, scene: Scene): void {
+		// ✅ فقط اگر host همان boundHost باشد آپدیت کن
+		if (this.boundHost && this.boundHost !== host) {
+			return;
+		}
+		this.boundHost = host;
 		this.currentScene = scene;
 		this.pushSelectionToWebview();
 	}
 
-	showSceneSettings(scene: Scene): void {
+	showSceneSettings(host: SceneHost, scene: Scene): void {
+		this.boundHost = host;
 		this.currentScene = scene;
 		this.selectedIds = [];
 		this.sceneMode = true;

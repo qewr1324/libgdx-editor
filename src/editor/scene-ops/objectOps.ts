@@ -1,57 +1,44 @@
 import type { ExtensionToWebviewMessage } from "../../protocol/messages.js";
 import type { GameObject } from "../../types/scene.js";
-import { SceneRegistry } from "../scene-registry.js";
+import type { SceneHost } from "../scene-types.js";
 import { duplicateObjectsInScene, deleteObjectFromScene, updateObjectInScene } from "../scene-mutations.js";
 
-export function updateObjectOp(obj: GameObject, historyLabel = "update object"): void {
-	const active = SceneRegistry.getActiveInstance();
-	if (!active) return;
-	const scene = active.getScene();
+export function updateObjectOp(host: SceneHost, obj: GameObject, historyLabel = "update object"): void {
+	const scene = host.getScene();
 	if (!scene) return;
-
 	const updated = updateObjectInScene(scene, obj);
-	active.setScene(updated);
-	active.markDirty();
-	active.pushHistory(updated, historyLabel);
-	active.broadcastUpdate(updated);
-	active.broadcastHistoryState();
+	host.setScene(updated);
+	host.markDirty();
+	host.pushHistory(updated, historyLabel);
+	host.broadcastUpdate(updated);
+	host.broadcastHistoryState();
 }
 
-export function deleteObjectOp(objectId: string): void {
-	const active = SceneRegistry.getActiveInstance();
-	if (!active) return;
-	const scene = active.getScene();
+export function deleteObjectOp(host: SceneHost, objectId: string): void {
+	const scene = host.getScene();
 	if (!scene) return;
-
 	const updated = deleteObjectFromScene(scene, objectId);
-	active.setScene(updated);
-	active.markDirty();
-	active.pushHistory(updated, "delete object");
-	active.broadcastUpdate(updated);
-	active.broadcastHistoryState();
+	host.setScene(updated);
+	host.markDirty();
+	host.pushHistory(updated, "delete object");
+	host.broadcastUpdate(updated);
+	host.broadcastHistoryState();
 }
 
-export function focusObjectOp(objectId: string): void {
-	const active = SceneRegistry.getActiveInstance();
-	if (!active) return;
-	active.postToWebview({ type: "focusObject", objectId } satisfies ExtensionToWebviewMessage);
+export function focusObjectOp(host: SceneHost, objectId: string): void {
+	host.postToWebview({ type: "focusObject", objectId } satisfies ExtensionToWebviewMessage);
 }
 
-export function duplicateObjectsOp(objectIds: string[], offsetX: number, offsetY: number): void {
-	const active = SceneRegistry.getActiveInstance();
-	if (!active) return;
-	const scene = active.getScene();
+export function duplicateObjectsOp(host: SceneHost, objectIds: string[], offsetX: number, offsetY: number): void {
+	const scene = host.getScene();
 	if (!scene) return;
-
 	const { scene: updated, newIds } = duplicateObjectsInScene(scene, objectIds, offsetX, offsetY);
-
-	active.setScene(updated);
-	active.markDirty();
-	active.pushHistory(updated, "duplicate");
-	active.broadcastUpdate(updated);
-	active.broadcastHistoryState();
-
+	host.setScene(updated);
+	host.markDirty();
+	host.pushHistory(updated, "duplicate");
+	host.broadcastUpdate(updated);
+	host.broadcastHistoryState();
 	setTimeout(() => {
-		active.postToWebview({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
+		host.postToWebview({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
 	}, 50);
 }

@@ -1,16 +1,13 @@
-import { SceneRegistry } from "../scene-registry.js";
+import type { SceneHost } from "../scene-types.js";
 import { updateSceneFieldInScene } from "../scene-mutations.js";
 
-export function updateSceneFieldOp(field: string, value: unknown, historyLabel = "update scene"): void {
-	const active = SceneRegistry.getActiveInstance();
-	if (!active) return;
-	const scene = active.getScene();
+export function updateSceneFieldOp(host: SceneHost, field: string, value: unknown, historyLabel = "update scene"): void {
+	const scene = host.getScene();
 	if (!scene) return;
-
 	const updated = updateSceneFieldInScene(scene, field, value);
-	active.setScene(updated);
-	active.markDirty();
-	active.pushHistory(updated, historyLabel);
-	active.broadcastUpdate(updated);
-	active.broadcastHistoryState();
+	host.setScene(updated);
+	host.markDirty();
+	host.pushHistory(updated, historyLabel);
+	host.broadcastUpdate(updated);
+	host.broadcastHistoryState();
 }

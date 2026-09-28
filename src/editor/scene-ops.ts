@@ -1,5 +1,6 @@
 /**
  * نقطه ورود واحد برای همه scene-ops.
+ * همه توابع نیاز به host (SceneHost) دارند تا اشتباه بین instance ها رخ ندهد.
  */
 
 // Object Operations

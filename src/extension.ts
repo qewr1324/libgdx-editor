@@ -5,62 +5,34 @@ import { newSceneCommand } from "./commands/newScene.js";
 import { importTextureCommand, cleanupAssetsCommand } from "./commands/importTexture.js";
 import { ConfigManager } from "./config/config-manager.js";
 import { SceneRegistry } from "./editor/scene-registry.js";
+import { updateObjectOp, deleteObjectOp, focusObjectOp, updateSceneFieldOp } from "./editor/scene-ops.js";
 
 export async function activate(context: vscode.ExtensionContext) {
 	console.log("LibGDX Editor activated");
 
 	const configManager = ConfigManager.getInstance();
 	await configManager.load();
-	console.log("LibGDX Editor config loaded:", configManager.get());
 
 	const inspector = new InspectorProvider(context.extensionUri);
 
 	context.subscriptions.push(vscode.window.registerWebviewViewProvider(InspectorProvider.viewType, inspector, { webviewOptions: { retainContextWhenHidden: true } }), SceneEditorProvider.register(context));
 
 	context.subscriptions.push(
-		SceneEditorProvider.onDidSelectObject((objectIds, scene) => {
-			inspector.setSelection(objectIds, scene);
+		SceneEditorProvider.onDidSelectObject((host, objectIds, scene) => {
+			inspector.setSelection(host, objectIds, scene);
 		}),
 	);
 
 	context.subscriptions.push(
-		SceneEditorProvider.onDidChangeScene((scene) => {
-			inspector.setScene(scene);
+		SceneEditorProvider.onDidChangeScene((host, scene) => {
+			inspector.setScene(host, scene);
 		}),
 	);
 
 	context.subscriptions.push(
-		SceneEditorProvider.onDidRequestSceneSettings((scene) => {
-			inspector.showSceneSettings(scene);
+		SceneEditorProvider.onDidRequestSceneSettings((host, scene) => {
+			inspector.showSceneSettings(host, scene);
 			void vscode.commands.executeCommand("libgdx-editor.inspector.focus");
-		}),
-	);
-
-	// ✅ رویداد تغییر instance فعال — باگ ۷ رفع شد
-	context.subscriptions.push(
-		SceneRegistry.onDidChangeActiveInstance((instance) => {
-			if (!instance) return;
-			const scene = instance.getScene();
-			if (scene) {
-				inspector.setScene(scene);
-			}
-		}),
-	);
-
-	context.subscriptions.push(
-		vscode.window.onDidChangeActiveTextEditor((editor) => {
-			if (!editor) return;
-			const instances = SceneEditorProvider.getAllInstances();
-			for (const inst of instances) {
-				if (inst.matchesDocument(editor.document)) {
-					SceneEditorProvider.setActiveInstance(inst);
-					const scene = inst.getCurrentScene();
-					if (scene) {
-						inspector.setScene(scene);
-					}
-					break;
-				}
-			}
 		}),
 	);
 
@@ -72,10 +44,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	);
 
 	inspector.setHandlers({
-		onUpdateObject: (obj, historyLabel) => SceneEditorProvider.updateObject(obj, historyLabel ?? "inspector edit"),
-		onDeleteObject: (objectId) => SceneEditorProvider.deleteObject(objectId),
-		onFocusObject: (objectId) => SceneEditorProvider.focusObject(objectId),
-		onUpdateSceneField: (field, value, historyLabel) => SceneEditorProvider.updateSceneField(field, value, historyLabel ?? `scene: ${field}`),
+		onUpdateObject: (host, obj, historyLabel) => updateObjectOp(host, obj, historyLabel ?? "inspector edit"),
+		onDeleteObject: (host, objectId) => deleteObjectOp(host, objectId),
+		onFocusObject: (host, objectId) => focusObjectOp(host, objectId),
+		onUpdateSceneField: (host, field, value, historyLabel) => updateSceneFieldOp(host, field, value, historyLabel ?? `scene: ${field}`),
 	});
 
 	context.subscriptions.push(

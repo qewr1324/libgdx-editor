@@ -6,131 +6,51 @@ import { HistoryManager } from "./historyManager.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument } from "./scene-parser.js";
 import type { SceneHost } from "./scene-types.js";
-import { handleWebviewMessage, sendScene, sendSceneUpdate } from "./message-handler.js";
-import { addSpriteWithTextureOp, deleteObjectOp, duplicateObjectsOp, focusObjectOp, importTextureAtOp, importTextureDialogOp, redoOp, undoOp, updateObjectOp, updateSceneFieldOp } from "./scene-ops.js";
+import { handleWebviewMessage, sendScene, sendSceneUpdate, type MessageHandlerContext } from "./message-handler.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 
 export type { ObjectSelectionHandler, SceneChangeHandler, OpenSceneSettingsHandler } from "./scene-types.js";
 
-export class SceneEditorProvider implements vscode.CustomTextEditorProvider, SceneHost {
-	public static readonly viewType = "libgdx-editor.sceneEditor";
+/**
+ * ✅ State مخصوص هر document — به جای currentScene/currentDocument مشترک.
+ */
+interface DocumentState {
+	document: vscode.TextDocument;
+	scene: Scene | null;
+	webviews: Set<vscode.Webview>;
+	history: HistoryManager;
+	isDirty: boolean;
+	autoSaveTimer: NodeJS.Timeout | null;
+	isProgrammaticChange: boolean;
+}
 
-	public static onDidSelectObject(handler: Parameters<typeof SceneRegistry.onDidSelectObject>[0]): vscode.Disposable {
-		return SceneRegistry.onDidSelectObject(handler);
-	}
+/**
+ * ✅ یک host مجزا برای هر document — تا op ها بین فایل‌ها قاطی نشوند.
+ */
+class DocumentHost implements SceneHost {
+	public readonly document: vscode.TextDocument;
+	public scene: Scene | null = null;
+	public readonly webviews = new Set<vscode.Webview>();
+	public readonly history = new HistoryManager();
+	public isDirty = false;
+	public autoSaveTimer: NodeJS.Timeout | null = null;
+	public isProgrammaticChange = false;
 
-	public static onDidChangeScene(handler: Parameters<typeof SceneRegistry.onDidChangeScene>[0]): vscode.Disposable {
-		return SceneRegistry.onDidChangeScene(handler);
-	}
-
-	public static onDidRequestSceneSettings(handler: Parameters<typeof SceneRegistry.onDidRequestSceneSettings>[0]): vscode.Disposable {
-		return SceneRegistry.onDidRequestSceneSettings(handler);
-	}
-
-	public static getAllInstances(): SceneEditorProvider[] {
-		return SceneRegistry.getInstances() as SceneEditorProvider[];
-	}
-
-	public static setActiveInstance(instance: SceneEditorProvider | null): void {
-		SceneRegistry.setActiveInstance(instance);
-	}
-
-	public static broadcastConfigChange(config: LibGdxEditorConfig): void {
-		const instances = SceneRegistry.getInstances();
-		console.log("[SceneEditorProvider] broadcastConfigChange to", instances.length, "instances");
-		for (const inst of instances) {
-			const instance = inst as unknown as SceneEditorProvider;
-			try {
-				const msg: ExtensionToWebviewMessage = {
-					type: "configUpdated",
-					config: {
-						version: config.version,
-						defaultTheme: config.defaultTheme,
-						autoSaveDelayMs: config.autoSaveDelayMs,
-						showRulers: config.showRulers,
-						showGrid: config.showGrid,
-						defaultGridSize: config.defaultGridSize,
-					},
-				};
-				instance.postToWebview(msg);
-			} catch (err) {
-				console.error("[SceneEditorProvider] postMessage failed:", err);
-			}
-		}
-	}
-
-	public static updateObject(obj: GameObject, historyLabel?: string): void {
-		updateObjectOp(obj, historyLabel);
-	}
-
-	public static deleteObject(objectId: string): void {
-		deleteObjectOp(objectId);
-	}
-
-	public static focusObject(objectId: string): void {
-		focusObjectOp(objectId);
-	}
-
-	public static updateSceneField(field: string, value: unknown, historyLabel?: string): void {
-		updateSceneFieldOp(field, value, historyLabel);
-	}
-
-	public static async addSpriteWithTexture(texturePath: string, width?: number, height?: number): Promise<boolean> {
-		return addSpriteWithTextureOp(texturePath, width, height);
-	}
-
-	public static duplicateObjects(objectIds: string[], offsetX: number, offsetY: number): void {
-		duplicateObjectsOp(objectIds, offsetX, offsetY);
-	}
-
-	public static undo(): void {
-		undoOp();
-	}
-
-	public static redo(): void {
-		redoOp();
-	}
-
-	public static async importTextureAt(x: number, y: number): Promise<void> {
-		await importTextureAtOp(x, y);
-	}
-
-	public static async importTextureDialog(): Promise<void> {
-		await importTextureDialogOp();
-	}
-
-	// ---------- Instance state ----------
-	/** همه وب‌ویوهای باز این instance (پشتیبانی چند tab) */
-	private webviews = new Set<vscode.Webview>();
-	private currentScene: Scene | null = null;
-	private currentDocument: vscode.TextDocument | null = null;
-	private isDirty = false;
-	private autoSaveTimer: NodeJS.Timeout | null = null;
-	private history: HistoryManager = new HistoryManager();
-	private isProgrammaticChange = false;
-
-	constructor(private readonly context: vscode.ExtensionContext) {
-		SceneRegistry.addInstance(this);
-	}
-
-	public static register(context: vscode.ExtensionContext): vscode.Disposable {
-		const provider = new SceneEditorProvider(context);
-		return vscode.window.registerCustomEditorProvider(SceneEditorProvider.viewType, provider, {
-			webviewOptions: { retainContextWhenHidden: true },
-			supportsMultipleEditorsPerDocument: false,
-		});
+	constructor(
+		document: vscode.TextDocument,
+		private readonly parent: SceneEditorProvider,
+	) {
+		this.document = document;
 	}
 
 	public getScene(): Scene | null {
-		return this.currentScene;
+		return this.scene;
 	}
-
 	public setScene(scene: Scene): void {
-		this.currentScene = scene;
+		this.scene = scene;
 	}
-
-	public getDocument(): vscode.TextDocument | null {
-		return this.currentDocument;
+	public getDocument(): vscode.TextDocument {
+		return this.document;
 	}
 
 	public postToWebview(msg: unknown): void {
@@ -143,7 +63,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		}
 	}
 
-	/** ارسال پیام فقط به یک وب‌ویو مشخص (برای پیام‌های per-webview مثل load) */
 	public postToSpecificWebview(webview: vscode.Webview, msg: unknown): void {
 		try {
 			webview.postMessage(msg);
@@ -161,15 +80,22 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 	}
 
 	public async autoSave(): Promise<void> {
-		if (!this.currentDocument || !this.currentScene || !this.isDirty) return;
+		if (!this.scene || !this.isDirty) return;
+
+		// چک امنیتی
+		const docName = this.document.uri.path.split("/").pop()?.replace(".lgdx.json", "");
+		if (docName && this.scene.name !== docName) {
+			console.warn(`[DocumentHost] autoSave skip: scene.name (${this.scene.name}) != doc name (${docName})`);
+			return;
+		}
+
 		try {
 			this.isProgrammaticChange = true;
-			await writeDocument(this.currentDocument, this.currentScene);
+			await writeDocument(this.document, this.scene);
 			this.isDirty = false;
 		} catch (err) {
 			console.error("Auto-save failed:", err);
 		} finally {
-			// ✅ همیشه ریست شود — باگ ۱ رفع شد
 			this.isProgrammaticChange = false;
 		}
 	}
@@ -177,38 +103,26 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 	public pushHistory(scene: Scene, label: string): void {
 		this.history.push(scene, label);
 	}
-
 	public resetHistory(scene: Scene): void {
 		this.history.reset(scene);
 	}
-
 	public undoHistory(): Scene | null {
 		return this.history.undo();
 	}
-
 	public redoHistory(): Scene | null {
 		return this.history.redo();
 	}
-
 	public canUndo(): boolean {
 		return this.history.canUndo();
 	}
-
 	public canRedo(): boolean {
 		return this.history.canRedo();
 	}
 
-	/**
-	 * آپدیت scene را به همه وب‌ویوهای همین instance می‌فرستد و اگر فعال باشد،
-	 * به Inspector هم اطلاع می‌دهد. (باگ ۵ رفع شد)
-	 */
 	public broadcastUpdate(scene: Scene): void {
-		// به همه وب‌ویوهای این instance
 		this.postToWebview({ type: "update", scene } satisfies ExtensionToWebviewMessage);
-
-		// به Inspector / Layers (فقط اگر فعال باشیم)
 		if (this.isActive()) {
-			SceneRegistry.emitSceneChange(scene);
+			SceneRegistry.emitSceneChange(this, scene);
 		}
 	}
 
@@ -223,13 +137,71 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 	public isActive(): boolean {
 		return SceneRegistry.isActive(this);
 	}
+}
 
-	public matchesDocument(document: vscode.TextDocument): boolean {
-		return this.currentDocument?.uri.toString() === document.uri.toString();
+export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
+	public static readonly viewType = "libgdx-editor.sceneEditor";
+
+	/** ✅ map document.uri → DocumentHost */
+	private hosts = new Map<string, DocumentHost>();
+
+	public static onDidSelectObject(handler: Parameters<typeof SceneRegistry.onDidSelectObject>[0]): vscode.Disposable {
+		return SceneRegistry.onDidSelectObject(handler);
 	}
 
-	public getCurrentScene(): Scene | null {
-		return this.currentScene;
+	public static onDidChangeScene(handler: Parameters<typeof SceneRegistry.onDidChangeScene>[0]): vscode.Disposable {
+		return SceneRegistry.onDidChangeScene(handler);
+	}
+
+	public static onDidRequestSceneSettings(handler: Parameters<typeof SceneRegistry.onDidRequestSceneSettings>[0]): vscode.Disposable {
+		return SceneRegistry.onDidRequestSceneSettings(handler);
+	}
+
+	public static broadcastConfigChange(config: LibGdxEditorConfig): void {
+		const instances = SceneRegistry.getInstances();
+		for (const inst of instances) {
+			try {
+				const msg: ExtensionToWebviewMessage = {
+					type: "configUpdated",
+					config: {
+						version: config.version,
+						defaultTheme: config.defaultTheme,
+						autoSaveDelayMs: config.autoSaveDelayMs,
+						showRulers: config.showRulers,
+						showGrid: config.showGrid,
+						defaultGridSize: config.defaultGridSize,
+					},
+				};
+				inst.postToWebview(msg);
+			} catch (err) {
+				console.error("[SceneEditorProvider] postMessage failed:", err);
+			}
+		}
+	}
+
+	public static getAllInstances(): SceneHost[] {
+		return SceneRegistry.getInstances();
+	}
+
+	public static setActiveInstance(instance: SceneHost | null): void {
+		SceneRegistry.setActiveInstance(instance);
+	}
+
+	/**
+	 * ✅ instance فعال را برمی‌گرداند (برای command ها).
+	 */
+	public static getActiveProvider(): SceneHost | null {
+		return SceneRegistry.getActiveInstance();
+	}
+
+	constructor(private readonly context: vscode.ExtensionContext) {}
+
+	public static register(context: vscode.ExtensionContext): vscode.Disposable {
+		const provider = new SceneEditorProvider(context);
+		return vscode.window.registerCustomEditorProvider(SceneEditorProvider.viewType, provider, {
+			webviewOptions: { retainContextWhenHidden: true },
+			supportsMultipleEditorsPerDocument: false,
+		});
 	}
 
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
@@ -240,22 +212,28 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 
 		webviewPanel.webview.html = getWebviewHtml(webviewPanel.webview, this.context.extensionUri, "viewport");
 
-		// ✅ پشتیبانی از چند وب‌ویو (باگ ۱۲ رفع شد)
-		this.webviews.add(webviewPanel.webview);
-		this.currentDocument = document;
+		// ✅ host مخصوص این document
+		const uriKey = document.uri.toString();
+		let host = this.hosts.get(uriKey);
+		if (!host) {
+			host = new DocumentHost(document, this);
+			this.hosts.set(uriKey, host);
+			SceneRegistry.addInstance(host);
+		}
+		host.webviews.add(webviewPanel.webview);
 
-		SceneRegistry.setActiveInstance(this);
+		SceneRegistry.setActiveInstance(host);
 
-		const ctx = {
-			host: this as SceneHost,
+		const ctx: MessageHandlerContext = {
+			host,
 			document,
 			webviewPanel,
 			markNotDirty: () => {
-				this.isDirty = false;
+				host.isDirty = false;
 			},
-			getIsProgrammaticChange: () => this.isProgrammaticChange,
+			getIsProgrammaticChange: () => host.isProgrammaticChange,
 			clearProgrammaticChange: () => {
-				this.isProgrammaticChange = false;
+				host.isProgrammaticChange = false;
 			},
 		};
 
@@ -265,9 +243,9 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 
 		const viewStateSub = webviewPanel.onDidChangeViewState(() => {
 			if (webviewPanel.active) {
-				SceneRegistry.setActiveInstance(this);
-				if (this.currentScene) {
-					SceneRegistry.emitSceneChange(this.currentScene);
+				SceneRegistry.setActiveInstance(host);
+				if (host.scene) {
+					SceneRegistry.emitSceneChange(host, host.scene);
 				}
 			}
 		});
@@ -281,14 +259,15 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		webviewPanel.onDidDispose(() => {
 			changeSub.dispose();
 			viewStateSub.dispose();
-			this.webviews.delete(webviewPanel.webview);
-			if (this.webviews.size === 0 && this.autoSaveTimer) {
-				clearTimeout(this.autoSaveTimer);
-				this.autoSaveTimer = null;
-			}
-			SceneRegistry.removeInstance(this);
-			if (this.currentDocument === document) {
-				this.currentDocument = null;
+			host.webviews.delete(webviewPanel.webview);
+
+			if (host.webviews.size === 0) {
+				if (host.autoSaveTimer) {
+					clearTimeout(host.autoSaveTimer);
+					host.autoSaveTimer = null;
+				}
+				this.hosts.delete(uriKey);
+				SceneRegistry.removeInstance(host);
 			}
 		});
 	}

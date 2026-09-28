@@ -13,7 +13,6 @@ export class SceneRegistry {
 	private static openSceneSettingsHandlers = new Set<OpenSceneSettingsHandler>();
 	private static activeChangeHandlers = new Set<ActiveInstanceChangeHandler>();
 
-	// ---------- Instances ----------
 	public static addInstance(instance: SceneHost): void {
 		SceneRegistry.instances.add(instance);
 	}
@@ -38,7 +37,6 @@ export class SceneRegistry {
 	public static setActiveInstance(instance: SceneHost | null): void {
 		if (SceneRegistry.activeInstance === instance) return;
 		SceneRegistry.activeInstance = instance;
-		// ✅ notify — باگ ۷ رفع شد
 		SceneRegistry.emitActiveChange(instance);
 	}
 
@@ -46,7 +44,6 @@ export class SceneRegistry {
 		return SceneRegistry.activeInstance === instance;
 	}
 
-	// ---------- Handlers ----------
 	public static onDidSelectObject(handler: ObjectSelectionHandler): vscode.Disposable {
 		SceneRegistry.selectionHandlers.add(handler);
 		return {
@@ -75,21 +72,21 @@ export class SceneRegistry {
 		};
 	}
 
-	public static emitSelection(objectIds: string[], scene: Scene): void {
+	public static emitSelection(host: SceneHost, objectIds: string[], scene: Scene): void {
 		for (const handler of SceneRegistry.selectionHandlers) {
-			handler(objectIds, scene);
+			handler(host, objectIds, scene);
 		}
 	}
 
-	public static emitSceneChange(scene: Scene): void {
+	public static emitSceneChange(host: SceneHost, scene: Scene): void {
 		for (const handler of SceneRegistry.sceneChangeHandlers) {
-			handler(scene);
+			handler(host, scene);
 		}
 	}
 
-	public static emitSceneSettings(scene: Scene): void {
+	public static emitSceneSettings(host: SceneHost, scene: Scene): void {
 		for (const handler of SceneRegistry.openSceneSettingsHandlers) {
-			handler(scene);
+			handler(host, scene);
 		}
 	}
 

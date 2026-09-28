@@ -1,11 +1,11 @@
 import type * as vscode from "vscode";
 import type { Scene } from "../types/scene.js";
 
-export type ObjectSelectionHandler = (objectIds: string[], scene: Scene) => void;
+export type ObjectSelectionHandler = (host: SceneHost, objectIds: string[], scene: Scene) => void;
 
-export type SceneChangeHandler = (scene: Scene) => void;
+export type SceneChangeHandler = (host: SceneHost, scene: Scene) => void;
 
-export type OpenSceneSettingsHandler = (scene: Scene) => void;
+export type OpenSceneSettingsHandler = (host: SceneHost, scene: Scene) => void;
 
 export interface SceneHost {
 	getScene(): Scene | null;
