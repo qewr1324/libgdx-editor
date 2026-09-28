@@ -148,7 +148,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
              style-src ${webview.cspSource} 'unsafe-inline';
              script-src ${webview.cspSource} 'nonce-${nonce}' 'wasm-unsafe-eval' 'unsafe-eval';
              worker-src blob:;
-             connect-src ${webview.cspSource};" />
+             connect-src ${webview.cspSource} data: blob:;" />
   <title>LibGDX Editor</title>
   <style>${sharedCss}${css}</style>
 </head>
