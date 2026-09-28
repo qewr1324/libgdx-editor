@@ -65,7 +65,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	setSelection(objectIds: string[], scene: Scene): void {
 		this.selectedIds = objectIds;
 		this.currentScene = scene;
-		// اگر کاربر آبجکت انتخاب کرد، حالت scene خاموش شود
 		if (objectIds.length > 0) {
 			this.sceneMode = false;
 		}
@@ -91,7 +90,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 			this.view.webview.postMessage({ type: "showScene", scene: this.currentScene } satisfies ExtensionToInspectorMessage);
 		}
 
-		// حالت Scene
 		if (this.sceneMode && this.currentScene) {
 			this.view.webview.postMessage({ type: "showSceneSettings", scene: this.currentScene } satisfies ExtensionToInspectorMessage);
 			return;

@@ -13,6 +13,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	public static readonly viewType = "libgdx-editor.sceneEditor";
 
 	private static instances = new Set<SceneEditorProvider>();
+	private static activeInstance: SceneEditorProvider | null = null;
 	private static selectionHandlers = new Set<ObjectSelectionHandler>();
 	private static sceneChangeHandlers = new Set<SceneChangeHandler>();
 	private static openSceneSettingsHandlers = new Set<OpenSceneSettingsHandler>();
@@ -68,7 +69,17 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		};
 	}
 
+	/**
+	 * فقط instance فعال را برمی‌گرداند.
+	 */
+	public static getActiveInstance(): SceneEditorProvider | null {
+		return SceneEditorProvider.activeInstance;
+	}
+
 	public static getScene(): Scene | null {
+		const active = SceneEditorProvider.activeInstance;
+		if (active?.currentScene) return active.currentScene;
+		// اگر فعال نیست، اولین instance با scene
 		for (const inst of SceneEditorProvider.instances) {
 			if (inst.currentScene) return inst.currentScene;
 		}
@@ -76,173 +87,167 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	}
 
 	public static getCurrentSceneUri(): vscode.Uri | null {
+		const active = SceneEditorProvider.activeInstance;
+		if (active?.currentDocument) return active.currentDocument.uri;
 		for (const inst of SceneEditorProvider.instances) {
 			if (inst.currentDocument) return inst.currentDocument.uri;
 		}
 		return null;
 	}
 
+	/**
+	 * فقط روی instance فعال اجرا می‌شود.
+	 */
 	public static updateObject(obj: GameObject, historyLabel = "update object"): void {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = inst.updateObjectInScene(inst.currentScene, obj);
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.history.push(updated, historyLabel);
-			inst.broadcastUpdate(updated);
-			inst.broadcastHistoryState();
-		}
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentScene) return;
+		const updated = active.updateObjectInScene(active.currentScene, obj);
+		active.currentScene = updated;
+		active.markDirty();
+		active.history.push(updated, historyLabel);
+		active.broadcastUpdate(updated);
+		active.broadcastHistoryState();
 	}
 
 	public static deleteObject(objectId: string): void {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = inst.deleteObjectFromScene(inst.currentScene, objectId);
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.history.push(updated, "delete object");
-			inst.broadcastUpdate(updated);
-			inst.broadcastHistoryState();
-		}
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentScene) return;
+		const updated = active.deleteObjectFromScene(active.currentScene, objectId);
+		active.currentScene = updated;
+		active.markDirty();
+		active.history.push(updated, "delete object");
+		active.broadcastUpdate(updated);
+		active.broadcastHistoryState();
 	}
 
 	public static focusObject(objectId: string): void {
-		for (const inst of SceneEditorProvider.instances) {
-			try {
-				inst.activeWebview?.postMessage({ type: "focusObject", objectId } satisfies ExtensionToWebviewMessage);
-			} catch {
-				// ignore
-			}
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.activeWebview) return;
+		try {
+			active.activeWebview.postMessage({ type: "focusObject", objectId } satisfies ExtensionToWebviewMessage);
+		} catch {
+			// ignore
 		}
 	}
 
 	public static updateSceneField(field: string, value: unknown, historyLabel = "update scene"): void {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = structuredClone(inst.currentScene) as Scene;
-			const keys = field.split(".");
-			if (keys.length === 1) {
-				(updated as unknown as Record<string, unknown>)[keys[0]] = value;
-			} else if (keys.length === 2) {
-				const parent = (updated as unknown as Record<string, unknown>)[keys[0]] as Record<string, unknown>;
-				parent[keys[1]] = value;
-			}
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.history.push(updated, historyLabel);
-			inst.broadcastUpdate(updated);
-			inst.broadcastHistoryState();
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentScene) return;
+		const updated = structuredClone(active.currentScene) as Scene;
+		const keys = field.split(".");
+		if (keys.length === 1) {
+			(updated as unknown as Record<string, unknown>)[keys[0]] = value;
+		} else if (keys.length === 2) {
+			const parent = (updated as unknown as Record<string, unknown>)[keys[0]] as Record<string, unknown>;
+			parent[keys[1]] = value;
 		}
+		active.currentScene = updated;
+		active.markDirty();
+		active.history.push(updated, historyLabel);
+		active.broadcastUpdate(updated);
+		active.broadcastHistoryState();
 	}
 
 	public static async addSpriteWithTexture(texturePath: string, width?: number, height?: number): Promise<boolean> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentScene || !active.currentDocument) return false;
 
-			const scene = inst.currentScene;
-			const defaultX = Math.round(scene.worldSize.width / 2);
-			const defaultY = Math.round(scene.worldSize.height / 2);
+		const scene = active.currentScene;
+		const defaultX = Math.round(scene.worldSize.width / 2);
+		const defaultY = Math.round(scene.worldSize.height / 2);
 
-			const newObj = inst.createObjectAt("sprite", defaultX, defaultY);
-			newObj.texture = texturePath;
-			newObj.name = `sprite_${newObj.id.slice(-4)}`;
+		const newObj = active.createObjectAt("sprite", defaultX, defaultY);
+		newObj.texture = texturePath;
+		newObj.name = `sprite_${newObj.id.slice(-4)}`;
 
-			if (width && height) {
-				newObj.transform.width = width;
-				newObj.transform.height = height;
-			}
-
-			const updated = inst.addObjectToScene(scene, newObj);
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.history.push(updated, "add texture");
-
-			if (inst.currentDocument) {
-				const textures = await AssetManager.loadTexturesAsDataUrls(inst.currentDocument.uri, updated);
-				inst.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
-			}
-
-			inst.broadcastUpdate(updated);
-			inst.broadcastHistoryState();
-			return true;
+		if (width && height) {
+			newObj.transform.width = width;
+			newObj.transform.height = height;
 		}
-		return false;
+
+		const updated = active.addObjectToScene(scene, newObj);
+		active.currentScene = updated;
+		active.markDirty();
+		active.history.push(updated, "add texture");
+
+		const textures = await AssetManager.loadTexturesAsDataUrls(active.currentDocument.uri, updated);
+		active.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+		active.broadcastUpdate(updated);
+		active.broadcastHistoryState();
+		return true;
 	}
 
 	public static duplicateObjects(objectIds: string[], offsetX: number, offsetY: number): void {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = structuredClone(inst.currentScene) as Scene;
-			const newIds: string[] = [];
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentScene) return;
 
-			for (const layer of updated.layers) {
-				const objectsToClone: GameObject[] = [];
-				for (const obj of layer.objects) {
-					if (objectIds.includes(obj.id)) {
-						const clone = structuredClone(obj) as GameObject;
-						clone.id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-						clone.name = `${obj.name}_copy`;
-						clone.transform.x += offsetX;
-						clone.transform.y += offsetY;
-						objectsToClone.push(clone);
-						newIds.push(clone.id);
-					}
+		const updated = structuredClone(active.currentScene) as Scene;
+		const newIds: string[] = [];
+
+		for (const layer of updated.layers) {
+			const objectsToClone: GameObject[] = [];
+			for (const obj of layer.objects) {
+				if (objectIds.includes(obj.id)) {
+					const clone = structuredClone(obj) as GameObject;
+					clone.id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+					clone.name = `${obj.name}_copy`;
+					clone.transform.x += offsetX;
+					clone.transform.y += offsetY;
+					objectsToClone.push(clone);
+					newIds.push(clone.id);
 				}
-				layer.objects.push(...objectsToClone);
 			}
-
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.history.push(updated, "duplicate");
-			inst.broadcastUpdate(updated);
-			inst.broadcastHistoryState();
-
-			setTimeout(() => {
-				try {
-					inst.activeWebview?.postMessage({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
-				} catch {
-					// ignore
-				}
-			}, 50);
+			layer.objects.push(...objectsToClone);
 		}
+
+		active.currentScene = updated;
+		active.markDirty();
+		active.history.push(updated, "duplicate");
+		active.broadcastUpdate(updated);
+		active.broadcastHistoryState();
+
+		setTimeout(() => {
+			try {
+				active.activeWebview?.postMessage({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
+			} catch {
+				// ignore
+			}
+		}, 50);
 	}
 
 	public static undo(): void {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const scene = inst.history.undo();
-			if (!scene) continue;
-			inst.currentScene = scene;
-			inst.markDirty();
-			inst.broadcastUpdate(scene);
-			inst.broadcastHistoryState();
-		}
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentScene) return;
+		const scene = active.history.undo();
+		if (!scene) return;
+		active.currentScene = scene;
+		active.markDirty();
+		active.broadcastUpdate(scene);
+		active.broadcastHistoryState();
 	}
 
 	public static redo(): void {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const scene = inst.history.redo();
-			if (!scene) continue;
-			inst.currentScene = scene;
-			inst.markDirty();
-			inst.broadcastUpdate(scene);
-			inst.broadcastHistoryState();
-		}
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentScene) return;
+		const scene = active.history.redo();
+		if (!scene) return;
+		active.currentScene = scene;
+		active.markDirty();
+		active.broadcastUpdate(scene);
+		active.broadcastHistoryState();
 	}
 
 	public static async importTextureAt(x: number, y: number): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentDocument || !inst.currentScene) continue;
-			await inst.doImportTexture(x, y, false);
-		}
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentDocument || !active.currentScene) return;
+		await active.doImportTexture(x, y, false);
 	}
 
 	public static async importTextureDialog(): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentDocument || !inst.currentScene) continue;
-			await inst.doImportTexture(0, 0, true);
-		}
+		const active = SceneEditorProvider.activeInstance;
+		if (!active?.currentDocument || !active.currentScene) return;
+		await active.doImportTexture(0, 0, true);
 	}
 
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
@@ -256,6 +261,9 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		this.activeWebview = webviewPanel.webview;
 		this.currentDocument = document;
 
+		// ⭐ این instance را فعال کن وقتی webview اش focus گرفت
+		SceneEditorProvider.activeInstance = this;
+
 		const sendScene = async () => {
 			const scene = this.parseDocument(document);
 			this.currentScene = scene;
@@ -268,8 +276,11 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 			this.broadcastHistoryState();
 
-			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-				handler(scene);
+			// فقط اگر این instance فعال است، به inspector بفرست
+			if (SceneEditorProvider.activeInstance === this) {
+				for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+					handler(scene);
+				}
 			}
 		};
 
@@ -287,10 +298,25 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
 			webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-				handler(scene);
+			if (SceneEditorProvider.activeInstance === this) {
+				for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+					handler(scene);
+				}
 			}
 		};
+
+		// ⭐ وقتی panel فعال شد، این instance را active کن
+		const viewStateSub = webviewPanel.onDidChangeViewState(() => {
+			if (webviewPanel.active) {
+				SceneEditorProvider.activeInstance = this;
+				// scene را به inspector بفرست
+				if (this.currentScene) {
+					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+						handler(this.currentScene);
+					}
+				}
+			}
+		});
 
 		webviewPanel.webview.onDidReceiveMessage(async (msg: WebviewToExtensionMessage) => {
 			switch (msg.type) {
@@ -302,18 +328,23 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					this.currentScene = msg.scene;
 					this.isDirty = false;
 					this.isProgrammaticChange = true;
-					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-						handler(msg.scene);
+					if (SceneEditorProvider.activeInstance === this) {
+						for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+							handler(msg.scene);
+						}
 					}
 					break;
 				case "sceneChanged":
 					this.currentScene = msg.scene;
 					this.markDirty();
-					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-						handler(msg.scene);
+					if (SceneEditorProvider.activeInstance === this) {
+						for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+							handler(msg.scene);
+						}
 					}
 					break;
 				case "selectObject": {
+					SceneEditorProvider.activeInstance = this;
 					const scene = this.currentScene ?? this.parseDocument(document);
 					const ids = msg.objectId ? [msg.objectId] : [];
 					for (const handler of SceneEditorProvider.selectionHandlers) {
@@ -322,6 +353,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				}
 				case "selectObjects": {
+					SceneEditorProvider.activeInstance = this;
 					const scene = this.currentScene ?? this.parseDocument(document);
 					for (const handler of SceneEditorProvider.selectionHandlers) {
 						handler(msg.objectIds, scene);
@@ -329,6 +361,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				}
 				case "requestAddObject": {
+					SceneEditorProvider.activeInstance = this;
 					if (!this.currentScene) break;
 					const newObj = this.createObjectAt(msg.objectType, msg.x, msg.y);
 					const updated = this.addObjectToScene(this.currentScene, newObj);
@@ -340,14 +373,17 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				}
 				case "requestAddTexture": {
+					SceneEditorProvider.activeInstance = this;
 					await this.doImportTexture(msg.x, msg.y, false);
 					break;
 				}
 				case "requestImportTexture": {
+					SceneEditorProvider.activeInstance = this;
 					await this.doImportTexture(0, 0, true);
 					break;
 				}
 				case "updateObject": {
+					SceneEditorProvider.activeInstance = this;
 					if (!this.currentScene) break;
 					const updated = this.updateObjectInScene(this.currentScene, msg.object);
 					this.currentScene = updated;
@@ -358,6 +394,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				}
 				case "updateObjects": {
+					SceneEditorProvider.activeInstance = this;
 					if (!this.currentScene) break;
 					let updated = this.currentScene;
 					for (const obj of msg.objects) {
@@ -371,10 +408,12 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				}
 				case "updateSceneField": {
+					SceneEditorProvider.activeInstance = this;
 					SceneEditorProvider.updateSceneField(msg.field, msg.value, msg.historyLabel ?? `update ${msg.field}`);
 					break;
 				}
 				case "deleteObject": {
+					SceneEditorProvider.activeInstance = this;
 					if (!this.currentScene) break;
 					const updated = this.deleteObjectFromScene(this.currentScene, msg.objectId);
 					this.currentScene = updated;
@@ -385,6 +424,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				}
 				case "deleteObjects": {
+					SceneEditorProvider.activeInstance = this;
 					if (!this.currentScene) break;
 					let updated = this.currentScene;
 					for (const id of msg.objectIds) {
@@ -398,10 +438,12 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				}
 				case "duplicateObjects": {
+					SceneEditorProvider.activeInstance = this;
 					SceneEditorProvider.duplicateObjects(msg.objectIds, msg.offsetX, msg.offsetY);
 					break;
 				}
 				case "openSceneSettings": {
+					SceneEditorProvider.activeInstance = this;
 					const scene = this.currentScene ?? this.parseDocument(document);
 					for (const handler of SceneEditorProvider.openSceneSettingsHandlers) {
 						handler(scene);
@@ -409,10 +451,12 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				}
 				case "undo": {
+					SceneEditorProvider.activeInstance = this;
 					SceneEditorProvider.undo();
 					break;
 				}
 				case "redo": {
+					SceneEditorProvider.activeInstance = this;
 					SceneEditorProvider.redo();
 					break;
 				}
@@ -431,11 +475,17 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 		webviewPanel.onDidDispose(() => {
 			changeSub.dispose();
+			viewStateSub.dispose();
 			if (this.autoSaveTimer) {
 				clearTimeout(this.autoSaveTimer);
 				this.autoSaveTimer = null;
 			}
 			SceneEditorProvider.instances.delete(this);
+			if (SceneEditorProvider.activeInstance === this) {
+				// یک instance دیگر را فعال کن اگر وجود دارد
+				const remaining = Array.from(SceneEditorProvider.instances);
+				SceneEditorProvider.activeInstance = remaining.length > 0 ? remaining[0] : null;
+			}
 			if (this.activeWebview === webviewPanel.webview) {
 				this.activeWebview = null;
 			}
@@ -446,17 +496,17 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	}
 
 	private broadcastUpdate(scene: Scene): void {
-		// به همه نمونه‌ها بفرست (viewport)
-		for (const inst of SceneEditorProvider.instances) {
-			try {
-				inst.activeWebview?.postMessage({ type: "update", scene } satisfies ExtensionToWebviewMessage);
-			} catch {
-				// ignore
-			}
+		// فقط به webview خودم بفرست
+		try {
+			this.activeWebview?.postMessage({ type: "update", scene } satisfies ExtensionToWebviewMessage);
+		} catch {
+			// ignore
 		}
-		// به handlerهای scene (inspector)
-		for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-			handler(scene);
+		// فقط اگر این instance فعال است، به inspector بفرست
+		if (SceneEditorProvider.activeInstance === this) {
+			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+				handler(scene);
+			}
 		}
 	}
 
