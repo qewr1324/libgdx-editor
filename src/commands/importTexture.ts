@@ -46,9 +46,33 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 	}
 
 	try {
+		// ابعاد تصویر را بخوان
+		const dims = await AssetManager.getImageDimensions(sourceUri);
+
+		// از کاربر scale بپرس
+		let scale = 1.0;
+		if (dims) {
+			const scaleInput = await vscode.window.showInputBox({
+				title: "Import Texture",
+				prompt: `Image size: ${dims.width} × ${dims.height}px — Enter scale factor`,
+				value: "1.0",
+				validateInput: (value) => {
+					const num = Number.parseFloat(value);
+					if (Number.isNaN(num)) return "Must be a number";
+					if (num <= 0) return "Must be greater than 0";
+					return null;
+				},
+			});
+			if (scaleInput === undefined) return;
+			scale = Number.parseFloat(scaleInput);
+			if (Number.isNaN(scale) || scale <= 0) scale = 1.0;
+		}
+
+		// کپی فایل به assets
 		const relativePath = await AssetManager.importTexture(sceneUri, sourceUri);
 
-		const added = await SceneEditorProvider.addSpriteWithTexture(relativePath);
+		// sprite جدید با ابعاد واقعی
+		const added = await SceneEditorProvider.addSpriteWithTexture(relativePath, dims ? Math.round(dims.width * scale) : undefined, dims ? Math.round(dims.height * scale) : undefined);
 
 		if (added) {
 			vscode.window.showInformationMessage(`Texture imported: ${relativePath}`);

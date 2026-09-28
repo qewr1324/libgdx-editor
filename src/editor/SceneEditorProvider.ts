@@ -126,7 +126,21 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		}
 	}
 
-	public static async addSpriteWithTexture(texturePath: string): Promise<boolean> {
+	public static async importTextureAt(x: number, y: number): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentDocument || !inst.currentScene) continue;
+			await inst.doImportTexture(x, y, false);
+		}
+	}
+
+	public static async importTextureDialog(): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentDocument || !inst.currentScene) continue;
+			await inst.doImportTexture(0, 0, true);
+		}
+	}
+
+	public static async addSpriteWithTexture(texturePath: string, width?: number, height?: number): Promise<boolean> {
 		for (const inst of SceneEditorProvider.instances) {
 			if (!inst.currentScene) continue;
 
@@ -137,6 +151,11 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			const newObj = inst.createObjectAt("sprite", defaultX, defaultY);
 			newObj.texture = texturePath;
 			newObj.name = `sprite_${newObj.id.slice(-4)}`;
+
+			if (width && height) {
+				newObj.transform.width = width;
+				newObj.transform.height = height;
+			}
 
 			const updated = inst.addObjectToScene(scene, newObj);
 			inst.currentScene = updated;
@@ -151,20 +170,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			return true;
 		}
 		return false;
-	}
-
-	public static async importTextureAt(x: number, y: number): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentDocument || !inst.currentScene) continue;
-			await inst.doImportTexture(x, y, false);
-		}
-	}
-
-	public static async importTextureDialog(): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentDocument || !inst.currentScene) continue;
-			await inst.doImportTexture(0, 0, true);
-		}
 	}
 
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
@@ -371,27 +376,55 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		if (!uris || uris.length === 0) return;
 
 		try {
+			// ۱. ابعاد واقعی تصویر را بخوان
+			const dims = await AssetManager.getImageDimensions(uris[0]);
+
+			// ۲. از کاربر scale را بپرس (اگر dialogOnly نبود، به معنی افزودن sprite است)
+			let scale = 1.0;
+			if (!dialogOnly && dims) {
+				const scaleInput = await vscode.window.showInputBox({
+					title: "Import Texture",
+					prompt: `Image size: ${dims.width} × ${dims.height}px — Enter scale factor`,
+					value: "1.0",
+					validateInput: (value) => {
+						const num = Number.parseFloat(value);
+						if (Number.isNaN(num)) return "Must be a number";
+						if (num <= 0) return "Must be greater than 0";
+						return null;
+					},
+				});
+				if (scaleInput === undefined) return; // کاربر لغو کرد
+				scale = Number.parseFloat(scaleInput);
+				if (Number.isNaN(scale) || scale <= 0) scale = 1.0;
+			}
+
+			// ۳. فایل را کپی کن به assets/
 			const relativePath = await AssetManager.importTexture(this.currentDocument.uri, uris[0]);
 
 			if (dialogOnly) {
-				vscode.window.showInformationMessage(`Texture imported: ${relativePath}`);
+				vscode.window.showInformationMessage(`Texture imported: ${relativePath}${dims ? ` (${dims.width}×${dims.height})` : ""}`);
 				const textures = await AssetManager.loadTexturesAsDataUrls(this.currentDocument.uri, this.currentScene);
 				this.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 				return;
 			}
 
+			// ۴. یک sprite با ابعاد واقعی تصویر و scale بساز
 			const newObj = this.createObjectAt("sprite", x, y);
 			newObj.texture = relativePath;
 			newObj.name = `sprite_${newObj.id.slice(-4)}`;
+
+			if (dims) {
+				newObj.transform.width = Math.round(dims.width * scale);
+				newObj.transform.height = Math.round(dims.height * scale);
+			}
 
 			const updated = this.addObjectToScene(this.currentScene, newObj);
 			this.currentScene = updated;
 			this.markDirty();
 
-			// ۱. اول scene جدید را بفرست (تا viewport sprite را با texture اضافه کند)
+			// ۵. اول scene جدید، بعد textureها
 			this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 
-			// ۲. بعد textureها را بفرست (تا viewport texture را لود کند)
 			const textures = await AssetManager.loadTexturesAsDataUrls(this.currentDocument.uri, updated);
 			this.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 

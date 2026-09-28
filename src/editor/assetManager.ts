@@ -1,5 +1,11 @@
 import * as vscode from "vscode";
 import * as path from "node:path";
+import { imageSize } from "image-size";
+
+export interface ImageDimensions {
+	width: number;
+	height: number;
+}
 
 export class AssetManager {
 	private static getAssetsDir(sceneUri: vscode.Uri): vscode.Uri {
@@ -7,11 +13,7 @@ export class AssetManager {
 		return vscode.Uri.joinPath(sceneDir, "assets");
 	}
 
-	/**
-	 * یک نام عددی یکتا می‌سازد: 0.png, 1.png, 2.png, ...
-	 */
 	private static async generateUniqueName(assetsDir: vscode.Uri, ext: string): Promise<string> {
-		// پیدا کردن بزرگ‌ترین شماره موجود
 		let maxNum = -1;
 		try {
 			const entries = await vscode.workspace.fs.readDirectory(assetsDir);
@@ -49,6 +51,23 @@ export class AssetManager {
 		await vscode.workspace.fs.writeFile(targetUri, content);
 
 		return `assets/${uniqueName}`;
+	}
+
+	/**
+	 * ابعاد واقعی یک تصویر را می‌خواند.
+	 */
+	public static async getImageDimensions(sourceUri: vscode.Uri): Promise<ImageDimensions | null> {
+		try {
+			const content = await vscode.workspace.fs.readFile(sourceUri);
+			const buffer = Buffer.from(content);
+			const result = imageSize(buffer);
+			if (result.width && result.height) {
+				return { width: result.width, height: result.height };
+			}
+			return null;
+		} catch {
+			return null;
+		}
 	}
 
 	public static async deleteTexture(sceneUri: vscode.Uri, relativePath: string): Promise<void> {
