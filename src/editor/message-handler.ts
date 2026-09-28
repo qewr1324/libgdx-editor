@@ -123,11 +123,13 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			redoOp();
 			break;
 		case "updateConfig": {
+			console.log("[message-handler] updateConfig:", msg.key, "=", msg.value);
 			const config = ConfigManager.getInstance();
 			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 			break;
 		}
 		case "requestConfig": {
+			console.log("[message-handler] requestConfig");
 			const config = ConfigManager.getInstance().get();
 			ctx.webviewPanel.webview.postMessage({
 				type: "configLoaded",
@@ -155,7 +157,6 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, scene);
 	ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-	// ارسال config به webview
 	const config = ConfigManager.getInstance().get();
 	ctx.webviewPanel.webview.postMessage({
 		type: "configLoaded",

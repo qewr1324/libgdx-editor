@@ -11,6 +11,7 @@ import type { Scene } from "../../types/scene.js";
 let pendingRender: (() => void) | null = null;
 let currentConfig: LibGdxEditorConfigMessage | null = null;
 let currentSceneFromMessage: Scene | null = null;
+let lastAppliedThemeName: string | null = null;
 
 function scheduleRender(callback: () => void): void {
 	if (interactionMode !== "idle") {
@@ -30,6 +31,10 @@ export function flushPendingRender(): void {
 
 function applyEffectiveTheme(): void {
 	const themeName = currentSceneFromMessage?.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
+	console.log("[Viewport] applyEffectiveTheme:", themeName, "(last:", lastAppliedThemeName, ")");
+	if (themeName === lastAppliedThemeName) return;
+	lastAppliedThemeName = themeName;
+	console.log("[Viewport] applying theme:", themeName);
 	applyTheme(themeName);
 }
 
@@ -59,6 +64,7 @@ export function setupMessages(): void {
 			}
 			case "configLoaded":
 			case "configUpdated":
+				console.log("[Viewport] configLoaded/configUpdated received:", msg.config);
 				currentConfig = msg.config;
 				applyEffectiveTheme();
 				break;

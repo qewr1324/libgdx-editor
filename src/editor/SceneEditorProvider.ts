@@ -36,9 +36,13 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 	}
 
 	public static broadcastConfigChange(config: LibGdxEditorConfig): void {
-		for (const inst of SceneRegistry.getInstances()) {
+		const instances = SceneRegistry.getInstances();
+		console.log("[SceneEditorProvider] broadcastConfigChange to", instances.length, "instances");
+		for (const inst of instances) {
 			const instance = inst as unknown as SceneEditorProvider;
 			try {
+				const hasWebview = instance.activeWebview !== null;
+				console.log("[SceneEditorProvider] posting to webview:", hasWebview, "for doc:", instance.currentDocument?.uri.fsPath);
 				instance.activeWebview?.postMessage({
 					type: "configUpdated",
 					config: {
@@ -50,8 +54,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 						defaultGridSize: config.defaultGridSize,
 					},
 				} satisfies ExtensionToWebviewMessage);
-			} catch {
-				// ignore
+			} catch (err) {
+				console.error("[SceneEditorProvider] postMessage failed:", err);
 			}
 		}
 	}

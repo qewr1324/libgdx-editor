@@ -23,8 +23,10 @@ let lastAppliedTheme: string | null = null;
 
 function applyEffectiveTheme(): void {
 	const themeName = currentScene?.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
+	console.log("[Inspector] applyEffectiveTheme:", themeName, "(last:", lastAppliedTheme, ")");
 	if (themeName === lastAppliedTheme) return;
 	lastAppliedTheme = themeName;
+	console.log("[Inspector] applying theme:", themeName);
 	applyTheme(themeName);
 }
 
@@ -78,7 +80,6 @@ function render(force = false): void {
 
 // ---------- Scene Settings ----------
 function buildSceneSettingsHtml(scene: Scene): string {
-	const effectiveTheme = scene.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
 	const isOverride = scene.themeOverride !== null && scene.themeOverride !== undefined;
 
 	return `
@@ -206,24 +207,23 @@ function attachSceneListeners(): void {
 		render(true);
 	});
 
-	// theme override checkbox
 	const overrideCheckbox = app.querySelector<HTMLInputElement>('[data-special="theme-override-enabled"]');
 	overrideCheckbox?.addEventListener("change", () => {
 		const checked = overrideCheckbox.checked;
 		const value = checked ? (currentConfig?.defaultTheme ?? "win98") : null;
+		console.log("[Inspector] theme override toggled:", value);
 		vscode.postMessage({ type: "updateSceneField", field: "themeOverride", value, historyLabel: "toggle theme override" });
 	});
 
-	// config field (defaultTheme)
 	const configInputs = app.querySelectorAll<HTMLSelectElement>("[data-config-field]");
 	for (const input of configInputs) {
 		const field = input.dataset.configField!;
 		input.addEventListener("change", () => {
+			console.log("[Inspector] config field changed:", field, "=", input.value);
 			vscode.postMessage({ type: "updateConfig", key: field, value: input.value });
 		});
 	}
 
-	// scene fields
 	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-scene-field]");
 	for (const input of inputs) {
 		const field = input.dataset.sceneField!;
@@ -532,6 +532,7 @@ window.addEventListener("message", (event) => {
 			break;
 		case "configLoaded":
 		case "configUpdated":
+			console.log("[Inspector] configLoaded/configUpdated received:", msg.config);
 			currentConfig = msg.config;
 			applyEffectiveTheme();
 			if (sceneMode) {
