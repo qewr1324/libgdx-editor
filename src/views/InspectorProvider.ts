@@ -9,6 +9,7 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private view: vscode.WebviewView | null = null;
 	private currentScene: Scene | null = null;
 	private selectedIds: string[] = [];
+	private sceneMode = false;
 
 	private onUpdateObject: ((object: GameObject) => void) | null = null;
 	private onDeleteObject: ((objectId: string) => void) | null = null;
@@ -64,6 +65,10 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	setSelection(objectIds: string[], scene: Scene): void {
 		this.selectedIds = objectIds;
 		this.currentScene = scene;
+		// اگر کاربر آبجکت انتخاب کرد، حالت scene خاموش شود
+		if (objectIds.length > 0) {
+			this.sceneMode = false;
+		}
 		this.pushSelectionToWebview();
 	}
 
@@ -72,12 +77,24 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
+	showSceneSettings(scene: Scene): void {
+		this.currentScene = scene;
+		this.selectedIds = [];
+		this.sceneMode = true;
+		this.pushSelectionToWebview();
+	}
+
 	private pushSelectionToWebview(): void {
 		if (!this.view) return;
 
 		if (this.currentScene) {
-			const sceneMsg: ExtensionToInspectorMessage = { type: "showScene", scene: this.currentScene };
-			this.view.webview.postMessage(sceneMsg);
+			this.view.webview.postMessage({ type: "showScene", scene: this.currentScene } satisfies ExtensionToInspectorMessage);
+		}
+
+		// حالت Scene
+		if (this.sceneMode && this.currentScene) {
+			this.view.webview.postMessage({ type: "showSceneSettings", scene: this.currentScene } satisfies ExtensionToInspectorMessage);
+			return;
 		}
 
 		if (this.selectedIds.length === 0 || !this.currentScene) {

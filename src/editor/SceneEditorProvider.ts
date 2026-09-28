@@ -158,116 +158,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		}
 	}
 
-	public static async addLayer(): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = structuredClone(inst.currentScene) as Scene;
-			const newIdx = updated.layers.length;
-			updated.layers.push({
-				name: `layer_${newIdx + 1}`,
-				zIndex: newIdx,
-				visible: true,
-				locked: false,
-				objects: [],
-			});
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.broadcastUpdate(updated);
-		}
-	}
-
-	public static async deleteLayer(name: string): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			if (inst.currentScene.layers.length <= 1) {
-				vscode.window.showWarningMessage("Cannot delete the last layer.");
-				continue;
-			}
-			const updated = structuredClone(inst.currentScene) as Scene;
-			updated.layers = updated.layers.filter((l) => l.name !== name);
-			updated.layers.forEach((l, i) => {
-				l.zIndex = i;
-			});
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.broadcastUpdate(updated);
-		}
-	}
-
-	public static async toggleLayerVisibility(name: string): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = structuredClone(inst.currentScene) as Scene;
-			const layer = updated.layers.find((l) => l.name === name);
-			if (layer) layer.visible = !layer.visible;
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.broadcastUpdate(updated);
-		}
-	}
-
-	public static async toggleLayerLock(name: string): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = structuredClone(inst.currentScene) as Scene;
-			const layer = updated.layers.find((l) => l.name === name);
-			if (layer) layer.locked = !layer.locked;
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.broadcastUpdate(updated);
-		}
-	}
-
-	public static async renameLayer(oldName: string, newName: string): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			if (inst.currentScene.layers.some((l) => l.name === newName)) {
-				vscode.window.showWarningMessage(`Layer "${newName}" already exists.`);
-				continue;
-			}
-			const updated = structuredClone(inst.currentScene) as Scene;
-			const layer = updated.layers.find((l) => l.name === oldName);
-			if (layer) layer.name = newName;
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.broadcastUpdate(updated);
-		}
-	}
-
-	public static async moveLayerUp(name: string): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = structuredClone(inst.currentScene) as Scene;
-			const idx = updated.layers.findIndex((l) => l.name === name);
-			if (idx < updated.layers.length - 1) {
-				[updated.layers[idx], updated.layers[idx + 1]] = [updated.layers[idx + 1], updated.layers[idx]];
-				updated.layers.forEach((l, i) => {
-					l.zIndex = i;
-				});
-			}
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.broadcastUpdate(updated);
-		}
-	}
-
-	public static async moveLayerDown(name: string): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentScene) continue;
-			const updated = structuredClone(inst.currentScene) as Scene;
-			const idx = updated.layers.findIndex((l) => l.name === name);
-			if (idx > 0) {
-				[updated.layers[idx], updated.layers[idx - 1]] = [updated.layers[idx - 1], updated.layers[idx]];
-				updated.layers.forEach((l, i) => {
-					l.zIndex = i;
-				});
-			}
-			inst.currentScene = updated;
-			inst.markDirty();
-			inst.broadcastUpdate(updated);
-		}
-	}
-
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
 		webviewPanel.webview.options = {
 			enableScripts: true,
@@ -369,6 +259,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
+					break;
+				}
+				case "updateSceneField": {
+					SceneEditorProvider.updateSceneField(msg.field, msg.value);
 					break;
 				}
 				case "deleteObject": {
@@ -535,8 +429,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 				objects: [],
 			});
 		}
-		const targetLayer = newScene.layers.find((l) => l.visible && !l.locked) ?? newScene.layers[0];
-		targetLayer.objects.push(obj);
+		newScene.layers[0].objects.push(obj);
 		return newScene;
 	}
 

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-export type WebviewKind = "viewport" | "inspector" | "layers";
+export type WebviewKind = "viewport" | "inspector";
 
 export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, kind: WebviewKind): string {
 	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "dist", "webview", `${kind}.js`));
@@ -33,6 +33,23 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		#toolbar button:hover { background: var(--vscode-button-secondaryHoverBackground); }
 		#toolbar button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 		#toolbar-info { margin-left: 8px; color: var(--vscode-descriptionForeground); font-size: 11px; }
+		#context-menu {
+			position: fixed; z-index: 1000;
+			background: var(--vscode-menu-background);
+			color: var(--vscode-menu-foreground);
+			border: 1px solid var(--vscode-menu-border);
+			border-radius: 4px;
+			padding: 4px 0;
+			min-width: 180px;
+			box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+			font-size: 12px;
+		}
+		.context-menu-item {
+			padding: 6px 12px; cursor: pointer;
+			display: flex; align-items: center; gap: 6px;
+		}
+		.context-menu-item:hover { background: var(--vscode-menu-selectionBackground); color: var(--vscode-menu-selectionForeground); }
+		.context-menu-separator { height: 1px; background: var(--vscode-menu-border); margin: 4px 0; }
 	`;
 
 	const inspectorCss = `
@@ -44,7 +61,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		}
 		.empty-icon { font-size: 48px; opacity: 0.3; margin-bottom: 12px; }
 		.empty-text { font-size: 14px; margin-bottom: 4px; }
-		.empty-hint { font-size: 11px; opacity: 0.7; }
+		.empty-hint { font-size: 11px; opacity: 0.7; line-height: 1.5; }
 		.inspector { padding: 8px; }
 		.section {
 			margin-bottom: 12px; padding: 8px;
@@ -68,6 +85,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		.type-shape { background: #ff4a4a; color: white; }
 		.type-text { background: #ffffff; color: #1a1a1a; }
 		.type-group { background: #9b59b6; color: white; }
+		.type-scene { background: #f39c12; color: white; }
 		.object-id {
 			font-size: 10px; color: var(--vscode-descriptionForeground);
 			font-family: monospace; word-break: break-all;
@@ -117,53 +135,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		}
 	`;
 
-	const layersCss = `
-		#app { overflow-y: auto; }
-		.layers-panel { padding: 6px; }
-		.layer-item {
-			display: flex; align-items: center; gap: 4px;
-			padding: 6px 8px; margin-bottom: 3px;
-			background: var(--vscode-editorWidget-background);
-			border-radius: 4px;
-			border-left: 3px solid transparent;
-			cursor: pointer;
-			font-size: 12px;
-		}
-		.layer-item:hover { background: var(--vscode-list-hoverBackground); }
-		.layer-item.selected {
-			border-left-color: var(--vscode-focusBorder);
-			background: var(--vscode-list-activeSelectionBackground);
-			color: var(--vscode-list-activeSelectionForeground);
-		}
-		.layer-item.hidden { opacity: 0.5; }
-		.layer-name { flex: 1; cursor: text; }
-		.layer-name input {
-			background: transparent; color: inherit; border: 1px solid var(--vscode-focusBorder);
-			padding: 2px 4px; font-family: inherit; font-size: inherit;
-			width: 100%; box-sizing: border-box;
-		}
-		.layer-icon {
-			background: transparent; border: none; cursor: pointer;
-			font-size: 12px; padding: 2px; border-radius: 3px;
-			color: var(--vscode-foreground); opacity: 0.7;
-		}
-		.layer-icon:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
-		.toolbar-inline {
-			display: flex; gap: 6px; padding: 6px; margin-bottom: 6px;
-			border-bottom: 1px solid var(--vscode-panel-border);
-		}
-		.toolbar-inline button {
-			background: var(--vscode-button-secondaryBackground);
-			color: var(--vscode-button-secondaryForeground);
-			border: none; padding: 4px 8px; border-radius: 4px;
-			cursor: pointer; font-family: inherit; font-size: 11px;
-		}
-		.toolbar-inline button:hover { background: var(--vscode-button-secondaryHoverBackground); }
-	`;
-
-	let css = "";
-	if (kind === "inspector") css = inspectorCss;
-	else if (kind === "layers") css = layersCss;
+	const css = kind === "inspector" ? inspectorCss : "";
 
 	return `<!DOCTYPE html>
 <html lang="en">

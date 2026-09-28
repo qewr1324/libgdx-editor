@@ -14,8 +14,20 @@ let currentObject: GameObject | null = null;
 let currentObjectId: string | null = null;
 let currentScene: Scene | null = null;
 let multiSelection: { count: number; ids: string[] } | null = null;
+let sceneMode = false;
 
 function render(force = false): void {
+	// حالت Scene Settings
+	if (sceneMode && currentScene) {
+		if (!force && app.querySelector(".inspector-scene")) {
+			updateSceneFieldValues();
+			return;
+		}
+		app.innerHTML = buildSceneSettingsHtml(currentScene);
+		attachSceneListeners();
+		return;
+	}
+
 	if (multiSelection) {
 		app.innerHTML = `
 			<div class="empty-state">
@@ -34,12 +46,10 @@ function render(force = false): void {
 			<div class="empty-state">
 				<div class="empty-icon">◻️</div>
 				<div class="empty-text">No object selected</div>
-				<div class="empty-hint">Click on an object in the viewport</div>
+				<div class="empty-hint">Click on an object in the viewport<br/>Right-click on the viewport to edit scene settings</div>
 			</div>
-			${renderSceneSection()}
 		`;
 		currentObjectId = null;
-		attachSceneListeners();
 		return;
 	}
 
@@ -49,53 +59,130 @@ function render(force = false): void {
 	}
 
 	currentObjectId = currentObject.id;
-	app.innerHTML = buildInspectorHtml(currentObject) + renderSceneSection();
+	app.innerHTML = buildInspectorHtml(currentObject);
 	attachEventListeners();
-	attachSceneListeners();
 }
 
-function renderSceneSection(): string {
-	if (!currentScene) return "";
+// ---------- Scene Settings ----------
+function buildSceneSettingsHtml(scene: Scene): string {
 	return `
-		<div class="section">
-			<div class="section-title">Scene</div>
-			<div class="field-row">
+		<div class="inspector inspector-scene">
+			<div class="section header-section">
+				<div class="header-top">
+					<div class="object-type-badge type-scene">SCENE</div>
+					<button class="btn-icon" id="btn-close-scene" title="Close scene settings">✖</button>
+				</div>
+				<div class="object-id">${escapeHtml(scene.name)}</div>
+			</div>
+
+			<div class="section">
+				<div class="section-title">World</div>
+				<div class="field-row">
+					<div class="field">
+						<label>Width</label>
+						<input type="number" data-scene-field="worldSize.width" value="${scene.worldSize.width}" step="1" min="1" />
+					</div>
+					<div class="field">
+						<label>Height</label>
+						<input type="number" data-scene-field="worldSize.height" value="${scene.worldSize.height}" step="1" min="1" />
+					</div>
+				</div>
+			</div>
+
+			<div class="section">
+				<div class="section-title">Appearance</div>
 				<div class="field">
-					<label>World Width</label>
-					<input type="number" data-scene-field="worldSize.width" value="${currentScene.worldSize.width}" step="1" min="1" />
+					<label>Background Color</label>
+					<div class="color-row">
+						<input type="color" data-scene-field="backgroundColor" value="${scene.backgroundColor}" />
+						<input type="text" data-scene-field="backgroundColor" value="${escapeAttr(scene.backgroundColor)}" />
+					</div>
 				</div>
 				<div class="field">
-					<label>World Height</label>
-					<input type="number" data-scene-field="worldSize.height" value="${currentScene.worldSize.height}" step="1" min="1" />
+					<label>Grid Size</label>
+					<input type="number" data-scene-field="gridSize" value="${scene.gridSize}" step="1" min="1" />
 				</div>
 			</div>
-			<div class="field">
-				<label>Grid Size</label>
-				<input type="number" data-scene-field="gridSize" value="${currentScene.gridSize}" step="1" min="1" />
-			</div>
-			<div class="field">
-				<label>Background</label>
-				<div class="color-row">
-					<input type="color" data-scene-field="backgroundColor" value="${currentScene.backgroundColor}" />
-					<input type="text" data-scene-field="backgroundColor" value="${escapeAttr(currentScene.backgroundColor)}" />
+
+			<div class="section">
+				<div class="section-title">Behavior</div>
+				<div class="field">
+					<label class="checkbox-row">
+						<input type="checkbox" data-scene-field="snapToGrid" ${scene.snapToGrid ? "checked" : ""} />
+						<span>Snap to Grid</span>
+					</label>
 				</div>
-			</div>
-			<div class="field">
-				<label class="checkbox-row">
-					<input type="checkbox" data-scene-field="snapToGrid" ${currentScene.snapToGrid ? "checked" : ""} />
-					<span>Snap to Grid</span>
-				</label>
-			</div>
-			<div class="field">
-				<label class="checkbox-row">
-					<input type="checkbox" data-scene-field="snapToObjects" ${currentScene.snapToObjects ? "checked" : ""} />
-					<span>Snap to Objects</span>
-				</label>
 			</div>
 		</div>
 	`;
 }
 
+function updateSceneFieldValues(): void {
+	if (!currentScene) return;
+	setSceneFieldValue("worldSize.width", currentScene.worldSize.width, "number");
+	setSceneFieldValue("worldSize.height", currentScene.worldSize.height, "number");
+	setSceneFieldValue("backgroundColor", currentScene.backgroundColor, "color");
+	setSceneFieldValue("backgroundColor", currentScene.backgroundColor, "text");
+	setSceneFieldValue("gridSize", currentScene.gridSize, "number");
+	setSceneFieldValue("snapToGrid", currentScene.snapToGrid, "checkbox");
+}
+
+function setSceneFieldValue(field: string, value: unknown, kind: "number" | "text" | "color" | "checkbox"): void {
+	const elements = app.querySelectorAll<HTMLInputElement>(`[data-scene-field="${field}"]`);
+	for (const el of elements) {
+		if (document.activeElement === el) continue;
+		if (kind === "color" && el.type !== "color") continue;
+		if (kind === "text" && el.type !== "text") continue;
+		if (kind === "number" && el.type !== "number") continue;
+		if (kind === "checkbox" && el.type !== "checkbox") continue;
+		if (el.type === "checkbox") {
+			if (el.checked === value) continue;
+			el.checked = value as boolean;
+		} else {
+			if (el.value === String(value)) continue;
+			el.value = String(value);
+		}
+	}
+}
+
+function attachSceneListeners() {
+	document.getElementById("btn-close-scene")?.addEventListener("click", () => {
+		sceneMode = false;
+		render(true);
+	});
+
+	const inputs = app.querySelectorAll<HTMLInputElement>("[data-scene-field]");
+	for (const input of inputs) {
+		const field = input.dataset.sceneField!;
+
+		if (input.type === "number") {
+			input.addEventListener("change", () => {
+				const value = Number.parseFloat(input.value);
+				if (!Number.isNaN(value)) {
+					vscode.postMessage({ type: "updateSceneField", field, value });
+				}
+			});
+		} else if (input.type === "checkbox") {
+			input.addEventListener("change", () => {
+				vscode.postMessage({ type: "updateSceneField", field, value: input.checked });
+			});
+		} else if (input.type === "color") {
+			input.addEventListener("input", () => {
+				const textInput = input.parentElement?.querySelector<HTMLInputElement>('input[type="text"]');
+				if (textInput && document.activeElement !== textInput) {
+					textInput.value = input.value;
+				}
+				vscode.postMessage({ type: "updateSceneField", field, value: input.value });
+			});
+		} else {
+			input.addEventListener("change", () => {
+				vscode.postMessage({ type: "updateSceneField", field, value: input.value });
+			});
+		}
+	}
+}
+
+// ---------- Object Inspector ----------
 function buildInspectorHtml(obj: GameObject): string {
 	const t = obj.transform;
 	return `
@@ -308,38 +395,6 @@ function attachEventListeners() {
 	}
 }
 
-function attachSceneListeners() {
-	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("[data-scene-field]");
-	for (const input of inputs) {
-		const field = input.dataset.sceneField!;
-
-		if (input instanceof HTMLInputElement && input.type === "number") {
-			input.addEventListener("change", () => {
-				const value = Number.parseFloat(input.value);
-				if (!Number.isNaN(value)) {
-					vscode.postMessage({ type: "updateSceneField", field, value });
-				}
-			});
-		} else if (input instanceof HTMLInputElement && input.type === "checkbox") {
-			input.addEventListener("change", () => {
-				vscode.postMessage({ type: "updateSceneField", field, value: input.checked });
-			});
-		} else if (input instanceof HTMLInputElement && input.type === "color") {
-			input.addEventListener("input", () => {
-				const textInput = input.parentElement?.querySelector<HTMLInputElement>('input[type="text"]');
-				if (textInput && document.activeElement !== textInput) {
-					textInput.value = input.value;
-				}
-				vscode.postMessage({ type: "updateSceneField", field, value: input.value });
-			});
-		} else if (input instanceof HTMLInputElement) {
-			input.addEventListener("change", () => {
-				vscode.postMessage({ type: "updateSceneField", field, value: input.value });
-			});
-		}
-	}
-}
-
 function sendFieldUpdate(field: string, value: unknown) {
 	if (!currentObject) return;
 	vscode.postMessage({
@@ -365,22 +420,32 @@ window.addEventListener("message", (event) => {
 	switch (msg.type) {
 		case "showObject":
 			multiSelection = null;
+			sceneMode = false;
 			currentObject = msg.object;
 			render(false);
 			break;
 		case "showMultiSelection":
+			sceneMode = false;
 			multiSelection = { count: msg.count, ids: msg.ids };
 			render(true);
 			break;
 		case "showScene":
 			currentScene = msg.scene;
-			if (currentObject) {
+			if (sceneMode) {
 				render(false);
 			}
+			break;
+		case "showSceneSettings":
+			currentScene = msg.scene;
+			sceneMode = true;
+			currentObject = null;
+			multiSelection = null;
+			render(true);
 			break;
 		case "clearSelection":
 			multiSelection = null;
 			currentObject = null;
+			sceneMode = false;
 			render(true);
 			break;
 	}

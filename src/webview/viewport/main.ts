@@ -29,7 +29,6 @@ let viewport: Viewport;
 let gridLayer: Container;
 let contentLayer: Container;
 let selectionLayer: Container;
-let snapGuideLayer: Container;
 const objectSprites = new Map<string, Container>();
 
 async function initPixi() {
@@ -58,16 +57,13 @@ async function initPixi() {
 	gridLayer = new Container();
 	contentLayer = new Container();
 	selectionLayer = new Container();
-	snapGuideLayer = new Container();
 
 	viewport.addChild(gridLayer);
 	viewport.addChild(contentLayer);
-	viewport.addChild(snapGuideLayer);
 	viewport.addChild(selectionLayer);
 
-	viewport.on("zoomed", () => redrawGrid());
-
 	setupToolbar();
+	setupContextMenu();
 }
 
 // ---------- Toolbar ----------
@@ -80,8 +76,7 @@ function setupToolbar() {
 		<button data-action="add-text" title="Add Text">🔤 Text</button>
 		<button data-action="add-texture" title="Add Texture from file">🖼️ Texture</button>
 		<button data-action="delete" title="Delete Selected">🗑️ Delete</button>
-		<button data-action="snap-grid" title="Snap to Grid" class="">▦ Grid</button>
-		<button data-action="snap-objects" title="Snap to Objects" class="">🧲 Objects</button>
+		<button data-action="snap-grid" title="Snap to Grid">▦ Grid</button>
 		<button data-action="save" title="Save (Ctrl+S)">💾 Save</button>
 		<span id="toolbar-info"></span>
 	`;
@@ -118,13 +113,6 @@ function setupToolbar() {
 					vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: scene.snapToGrid });
 				}
 				break;
-			case "snap-objects":
-				if (scene) {
-					scene.snapToObjects = !scene.snapToObjects;
-					target.classList.toggle("active", scene.snapToObjects);
-					vscode.postMessage({ type: "updateSceneField", field: "snapToObjects", value: scene.snapToObjects });
-				}
-				break;
 			case "save":
 				if (scene) {
 					vscode.postMessage({ type: "save", scene });
@@ -150,6 +138,79 @@ function setupToolbar() {
 		}
 		if (e.key === "Escape") {
 			selectObjects([]);
+		}
+	});
+}
+
+// ---------- Context Menu (Right-click) ----------
+function setupContextMenu() {
+	const menu = document.createElement("div");
+	menu.id = "context-menu";
+	menu.innerHTML = `
+		<div class="context-menu-item" data-action="scene-settings">⚙️ Scene Settings</div>
+		<div class="context-menu-separator"></div>
+		<div class="context-menu-item" data-action="add-sprite-here">➕ Add Sprite Here</div>
+		<div class="context-menu-item" data-action="add-shape-here">⭕ Add Shape Here</div>
+		<div class="context-menu-item" data-action="add-text-here">🔤 Add Text Here</div>
+		<div class="context-menu-item" data-action="add-texture-here">🖼️ Add Texture Here</div>
+	`;
+	menu.style.display = "none";
+	document.body.appendChild(menu);
+
+	let contextWorldX = 0;
+	let contextWorldY = 0;
+
+	app.canvas.addEventListener("contextmenu", (e) => {
+		e.preventDefault();
+		if (!viewport) return;
+
+		// موقعیت در world coordinates
+		const rect = app.canvas.getBoundingClientRect();
+		const screenX = e.clientX - rect.left;
+		const screenY = e.clientY - rect.top;
+		const world = viewport.toWorld(screenX, screenY);
+		contextWorldX = Math.round(world.x);
+		contextWorldY = Math.round(world.y);
+
+		menu.style.left = `${e.clientX}px`;
+		menu.style.top = `${e.clientY}px`;
+		menu.style.display = "block";
+	});
+
+	document.addEventListener("click", (e) => {
+		if (!menu.contains(e.target as Node)) {
+			menu.style.display = "none";
+		}
+	});
+
+	document.addEventListener("keydown", (e) => {
+		if (e.key === "Escape") {
+			menu.style.display = "none";
+		}
+	});
+
+	menu.addEventListener("click", (e) => {
+		const target = e.target as HTMLElement;
+		const action = target.dataset.action;
+		menu.style.display = "none";
+		if (!action) return;
+
+		switch (action) {
+			case "scene-settings":
+				vscode.postMessage({ type: "openSceneSettings" });
+				break;
+			case "add-sprite-here":
+				vscode.postMessage({ type: "requestAddObject", objectType: "sprite", x: contextWorldX, y: contextWorldY });
+				break;
+			case "add-shape-here":
+				vscode.postMessage({ type: "requestAddObject", objectType: "shape", x: contextWorldX, y: contextWorldY });
+				break;
+			case "add-text-here":
+				vscode.postMessage({ type: "requestAddObject", objectType: "text", x: contextWorldX, y: contextWorldY });
+				break;
+			case "add-texture-here":
+				vscode.postMessage({ type: "requestAddTexture", x: contextWorldX, y: contextWorldY });
+				break;
 		}
 	});
 }
@@ -180,7 +241,7 @@ function addTexture() {
 	});
 }
 
-// ---------- Grid ----------
+// ---------- Grid (فقط یک‌بار رسم می‌شود) ----------
 function redrawGrid() {
 	if (!scene) return;
 	gridLayer.removeChildren();
@@ -243,14 +304,12 @@ function renderObject(obj: GameObject, layerLocked = false) {
 	const t = obj.transform;
 
 	if (obj.type === "sprite" && obj.texture && textureCache.has(obj.texture)) {
-		// از texture استفاده کن
 		const texture = textureCache.get(obj.texture)!;
 		const sprite = new Sprite(texture);
 		sprite.width = t.width;
 		sprite.height = t.height;
 		container.addChild(sprite);
 	} else if (obj.type === "sprite") {
-		// fallback: rect رنگی
 		const g = new Graphics();
 		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
 		g.rect(0, 0, t.width, t.height);
@@ -319,21 +378,21 @@ function renderObject(obj: GameObject, layerLocked = false) {
 	objectSprites.set(obj.id, container);
 }
 
-// ---------- Drag with Snapping ----------
+// ---------- Drag with Snap to Grid only ----------
 function startDrag(e: any, primaryObj: GameObject) {
 	isDraggingObject = true;
 
 	const startPos = e.global.clone();
-	const startTransforms = new Map<string, { x: number; y: number; width: number; height: number }>();
+	const startTransforms = new Map<string, { x: number; y: number }>();
 
 	for (const id of selectedIds) {
 		const o = scene ? findObject(scene, id) : null;
 		if (o) {
-			startTransforms.set(id, { x: o.transform.x, y: o.transform.y, width: o.transform.width, height: o.transform.height });
+			startTransforms.set(id, { x: o.transform.x, y: o.transform.y });
 		}
 	}
 	if (startTransforms.size === 0) {
-		startTransforms.set(primaryObj.id, { x: primaryObj.transform.x, y: primaryObj.transform.y, width: primaryObj.transform.width, height: primaryObj.transform.height });
+		startTransforms.set(primaryObj.id, { x: primaryObj.transform.x, y: primaryObj.transform.y });
 	}
 
 	const onMove = (moveEvent: any) => {
@@ -341,10 +400,6 @@ function startDrag(e: any, primaryObj: GameObject) {
 		const dx = (moveEvent.global.x - startPos.x) / viewport.scale.x;
 		const dy = (moveEvent.global.y - startPos.y) / viewport.scale.y;
 
-		let snapDX = 0;
-		let snapDY = 0;
-
-		// snapping را بر اساس primaryObject حساب کن
 		const primaryStart = startTransforms.get(primaryObj.id)!;
 		let newPrimaryX = primaryStart.x + dx;
 		let newPrimaryY = primaryStart.y + dy;
@@ -355,17 +410,8 @@ function startDrag(e: any, primaryObj: GameObject) {
 			newPrimaryY = Math.round(newPrimaryY / g) * g;
 		}
 
-		if (scene.snapToObjects) {
-			const snap = findSnapTarget(primaryObj.id, newPrimaryX, newPrimaryY, primaryStart.width, primaryStart.height);
-			newPrimaryX += snap.dx;
-			newPrimaryY += snap.dy;
-			drawSnapGuides(snap.guides);
-		} else {
-			clearSnapGuides();
-		}
-
-		snapDX = newPrimaryX - (primaryStart.x + dx);
-		snapDY = newPrimaryY - (primaryStart.y + dy);
+		const snapDX = newPrimaryX - (primaryStart.x + dx);
+		const snapDY = newPrimaryY - (primaryStart.y + dy);
 
 		for (const [id, start] of startTransforms) {
 			const obj = scene ? findObject(scene, id) : null;
@@ -387,7 +433,6 @@ function startDrag(e: any, primaryObj: GameObject) {
 
 	const onUp = () => {
 		isDraggingObject = false;
-		clearSnapGuides();
 		app.stage.off("pointermove", onMove);
 		app.stage.off("pointerup", onUp);
 		app.stage.off("pointerupoutside", onUp);
@@ -406,113 +451,6 @@ function startDrag(e: any, primaryObj: GameObject) {
 	app.stage.on("pointermove", onMove);
 	app.stage.on("pointerup", onUp);
 	app.stage.on("pointerupoutside", onUp);
-}
-
-// ---------- Snap to Objects ----------
-interface SnapGuide {
-	orientation: "h" | "v";
-	position: number;
-	from: number;
-	to: number;
-}
-
-function findSnapTarget(excludeId: string, x: number, y: number, w: number, h: number): { dx: number; dy: number; guides: SnapGuide[] } {
-	const threshold = 8;
-	if (!scene) return { dx: 0, dy: 0, guides: [] };
-
-	const left = x - w / 2;
-	const right = x + w / 2;
-	const top = y - h / 2;
-	const bottom = y + h / 2;
-	const centerX = x;
-	const centerY = y;
-
-	let bestDX = 0;
-	let bestDY = 0;
-	let bestDistX = threshold + 1;
-	let bestDistY = threshold + 1;
-	let bestGuideX: SnapGuide | null = null;
-	let bestGuideY: SnapGuide | null = null;
-
-	for (const layer of scene.layers) {
-		if (!layer.visible) continue;
-		for (const obj of layer.objects) {
-			if (obj.id === excludeId) continue;
-			const t = obj.transform;
-			const oLeft = t.x - t.width * t.originX;
-			const oRight = oLeft + t.width;
-			const oTop = t.y - t.height * t.originY;
-			const oBottom = oTop + t.height;
-			const oCenterX = t.x;
-			const oCenterY = t.y;
-
-			// X snaps
-			const candidatesX = [
-				{ d: oLeft - left, guide: oLeft },
-				{ d: oRight - right, guide: oRight },
-				{ d: oCenterX - centerX, guide: oCenterX },
-				{ d: oLeft - right, guide: oLeft },
-				{ d: oRight - left, guide: oRight },
-			];
-			for (const c of candidatesX) {
-				const abs = Math.abs(c.d);
-				if (abs < bestDistX) {
-					bestDistX = abs;
-					bestDX = c.d;
-					bestGuideX = { orientation: "v", position: c.guide, from: Math.min(top, oTop), to: Math.max(bottom, oBottom) };
-				}
-			}
-
-			// Y snaps
-			const candidatesY = [
-				{ d: oTop - top, guide: oTop },
-				{ d: oBottom - bottom, guide: oBottom },
-				{ d: oCenterY - centerY, guide: oCenterY },
-				{ d: oTop - bottom, guide: oTop },
-				{ d: oBottom - top, guide: oBottom },
-			];
-			for (const c of candidatesY) {
-				const abs = Math.abs(c.d);
-				if (abs < bestDistY) {
-					bestDistY = abs;
-					bestDY = c.d;
-					bestGuideY = { orientation: "h", position: c.guide, from: Math.min(left, oLeft), to: Math.max(right, oRight) };
-				}
-			}
-		}
-	}
-
-	const guides: SnapGuide[] = [];
-	if (bestDistX <= threshold && bestGuideX) guides.push(bestGuideX);
-	if (bestDistY <= threshold && bestGuideY) guides.push(bestGuideY);
-
-	return {
-		dx: bestDistX <= threshold ? bestDX : 0,
-		dy: bestDistY <= threshold ? bestDY : 0,
-		guides,
-	};
-}
-
-function drawSnapGuides(guides: SnapGuide[]) {
-	clearSnapGuides();
-	if (guides.length === 0) return;
-
-	for (const g of guides) {
-		const line = new Graphics();
-		if (g.orientation === "v") {
-			line.moveTo(g.position, g.from - 50);
-			line.lineTo(g.position, g.to + 50);
-		} else {
-			line.moveTo(g.from - 50, g.position);
-			line.lineTo(g.to + 50, g.position);
-		}
-		line.stroke({ width: 1, color: 0xff00ff, alpha: 0.9 });
-		snapGuideLayer.addChild(line);
-	}
-}
-
-function clearSnapGuides() {
-	snapGuideLayer.removeChildren();
 }
 
 // ---------- Selection ----------
@@ -672,7 +610,6 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 			}
 		}
 
-		// Snap resize to grid
 		if (scene.snapToGrid) {
 			const g = scene.gridSize || 32;
 			newW = Math.round(newW / g) * g;
@@ -734,7 +671,6 @@ function setupDeselect() {
 	});
 }
 
-// ---------- Resize ----------
 window.addEventListener("resize", () => {
 	if (viewport) {
 		viewport.resize(window.innerWidth, window.innerHeight);
@@ -788,7 +724,6 @@ window.addEventListener("message", async (event) => {
 	}
 });
 
-// ---------- Boot ----------
 (async () => {
 	await initPixi();
 	setupDeselect();
