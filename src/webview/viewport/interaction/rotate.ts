@@ -1,4 +1,4 @@
-import { app, setCurrentInteraction, setInteractionMode, viewport } from "../state.js";
+import { currentInteraction, setCurrentInteraction, setInteractionMode, viewport } from "../state.js";
 import type { GameObject } from "../../../types/scene.js";
 import type { InteractionData } from "../types.js";
 import { rerenderObject } from "../render/scene.js";
@@ -6,17 +6,18 @@ import { drawSelectionOutlines } from "../selection/selection.js";
 import { drawRotateGizmo } from "../selection/gizmo.js";
 
 export function beginRotate(e: any, obj: GameObject): void {
-	const rect = app.canvas.getBoundingClientRect();
-	const startGlobalX = e.clientX - rect.left;
-	const startGlobalY = e.clientY - rect.top;
-
 	if (!viewport) return;
-	const startWorld = viewport.toWorld(startGlobalX, startGlobalY);
-	const startAngle = Math.atan2(startWorld.y - obj.transform.y, startWorld.x - obj.transform.x);
+
+	const rect = (document.querySelector("canvas") as HTMLCanvasElement).getBoundingClientRect();
+	const screenX = e.clientX - rect.left;
+	const screenY = e.clientY - rect.top;
+	const world = viewport.toWorld(screenX, screenY);
+
+	const startAngle = Math.atan2(world.y - obj.transform.y, world.x - obj.transform.x);
 
 	const data: InteractionData = {
-		startGlobalX,
-		startGlobalY,
+		startWorldX: world.x,
+		startWorldY: world.y,
 		startTransforms: new Map(),
 		primaryObj: obj,
 		rotateStartAngle: startAngle,
@@ -29,16 +30,14 @@ export function beginRotate(e: any, obj: GameObject): void {
 	setInteractionMode("rotate");
 }
 
-export function handleRotateMove(e: PointerEvent, globalX: number, globalY: number): void {
-	const state = require("../state.js") as typeof import("../state.js");
-	const data = state.currentInteraction;
+export function handleRotateMove(e: PointerEvent, worldX: number, worldY: number): void {
+	const data = currentInteraction;
 	if (!data || !viewport) return;
 	const obj = data.primaryObj;
 	if (data.rotateStartAngle === undefined || data.rotateStartRotation === undefined || !data.rotateCenter || data.rotateRadius === undefined) return;
 
-	const world = viewport.toWorld(globalX, globalY);
 	const center = data.rotateCenter;
-	const currentAngle = Math.atan2(world.y - center.y, world.x - center.x);
+	const currentAngle = Math.atan2(worldY - center.y, worldX - center.x);
 
 	let deltaDeg = ((currentAngle - data.rotateStartAngle) * 180) / Math.PI;
 	if (deltaDeg > 180) deltaDeg -= 360;
@@ -56,6 +55,7 @@ export function handleRotateMove(e: PointerEvent, globalX: number, globalY: numb
 
 	obj.transform.rotation = Math.round(newRotation * 100) / 100;
 
+	const world = { x: worldX, y: worldY };
 	rerenderObject(obj);
 	drawSelectionOutlines();
 	drawRotateGizmo(obj, center, data.rotateRadius, world, e.shiftKey, e.altKey);

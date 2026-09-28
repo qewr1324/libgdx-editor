@@ -1,7 +1,7 @@
 import { Application, Container } from "pixi.js";
 import { Viewport } from "pixi-viewport";
 import { setApp, setViewport, setGridLayer, setContentLayer, setSelectionLayer, setGizmoLayer } from "../state.js";
-import { setupGlobalInteractionListeners } from "../interaction/global.js";
+import { setupGlobalInteractionListeners, finishInteractionSafely } from "../interaction/global.js";
 
 export async function initPixi(): Promise<void> {
 	const app = new Application();
@@ -45,15 +45,13 @@ export async function initPixi(): Promise<void> {
 	setSelectionLayer(selectionLayer);
 	setGizmoLayer(gizmoLayer);
 
-	// fallback: PixiJS هم pointerup را بگیرد
 	app.stage.eventMode = "static";
 	app.stage.on("pointerup", () => {
-		void import("../interaction/global.js").then((m) => m.finishInteractionSafely());
+		finishInteractionSafely();
 	});
 	app.stage.on("pointerupoutside", () => {
-		void import("../interaction/global.js").then((m) => m.finishInteractionSafely());
+		finishInteractionSafely();
 	});
 
-	// global interaction listeners
 	setupGlobalInteractionListeners();
 }

@@ -1,15 +1,21 @@
-import { app, scene, setCurrentInteraction, setInteractionMode, viewport } from "../state.js";
+import { currentInteraction, scene, setCurrentInteraction, setInteractionMode, viewport } from "../state.js";
 import type { GameObject } from "../../../types/scene.js";
-import type { InteractionData, HandleType } from "../types.js";
+import type { HandleType, InteractionData } from "../types.js";
 import { rerenderObject } from "../render/scene.js";
 import { drawSelectionOutlines } from "../selection/selection.js";
 import { drawResizeLabel } from "../selection/gizmo.js";
 
 export function beginResize(e: any, obj: GameObject, handle: HandleType): void {
-	const rect = app.canvas.getBoundingClientRect();
+	if (!viewport) return;
+
+	const rect = (document.querySelector("canvas") as HTMLCanvasElement).getBoundingClientRect();
+	const screenX = e.clientX - rect.left;
+	const screenY = e.clientY - rect.top;
+	const world = viewport.toWorld(screenX, screenY);
+
 	const data: InteractionData = {
-		startGlobalX: e.clientX - rect.left,
-		startGlobalY: e.clientY - rect.top,
+		startWorldX: world.x,
+		startWorldY: world.y,
 		startTransforms: new Map(),
 		primaryObj: obj,
 		resizeHandle: handle,
@@ -21,17 +27,16 @@ export function beginResize(e: any, obj: GameObject, handle: HandleType): void {
 	setInteractionMode("resize");
 }
 
-export function handleResizeMove(e: PointerEvent, globalX: number, globalY: number): void {
-	const state = require("../state.js") as typeof import("../state.js");
-	const data = state.currentInteraction;
+export function handleResizeMove(e: PointerEvent, worldX: number, worldY: number): void {
+	const data = currentInteraction;
 	if (!data || !viewport || !scene) return;
 
 	const obj = data.primaryObj;
 	const handle = data.resizeHandle!;
 	const startTransform = data.startTransforms.get(obj.id)!;
 
-	const dx = (globalX - data.startGlobalX) / viewport.scale.x;
-	const dy = (globalY - data.startGlobalY) / viewport.scale.y;
+	const dx = worldX - data.startWorldX;
+	const dy = worldY - data.startWorldY;
 
 	const shift = e.shiftKey;
 	const alt = e.altKey;

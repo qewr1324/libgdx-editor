@@ -13,8 +13,9 @@ export interface StartTransform {
 }
 
 export interface InteractionData {
-	startGlobalX: number;
-	startGlobalY: number;
+	// موقعیت شروع در world coordinates
+	startWorldX: number;
+	startWorldY: number;
 	startTransforms: Map<string, StartTransform>;
 	primaryObj: GameObject;
 	resizeHandle?: HandleType;

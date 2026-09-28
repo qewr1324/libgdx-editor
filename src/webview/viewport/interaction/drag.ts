@@ -1,4 +1,4 @@
-import { currentInteraction, viewport, scene, objectSprites, selectedIds, setCurrentInteraction, setInteractionMode } from "../state.js";
+import { currentInteraction, objectSprites, scene, selectedIds, setCurrentInteraction, setInteractionMode, viewport } from "../state.js";
 import type { GameObject } from "../../../types/scene.js";
 import type { InteractionData } from "../types.js";
 import { findObject } from "../utils/geometry.js";
@@ -6,10 +6,16 @@ import { drawSelectionOutlines } from "../selection/selection.js";
 import { drawDragGuides } from "../selection/gizmo.js";
 
 export function beginDrag(e: any, primaryObj: GameObject): void {
-	const rect = app.canvas.getBoundingClientRect();
+	if (!viewport) return;
+
+	const rect = (document.querySelector("canvas") as HTMLCanvasElement).getBoundingClientRect();
+	const screenX = e.clientX - rect.left;
+	const screenY = e.clientY - rect.top;
+	const world = viewport.toWorld(screenX, screenY);
+
 	const data: InteractionData = {
-		startGlobalX: e.clientX - rect.left,
-		startGlobalY: e.clientY - rect.top,
+		startWorldX: world.x,
+		startWorldY: world.y,
 		startTransforms: new Map(),
 		primaryObj,
 	};
@@ -28,12 +34,12 @@ export function beginDrag(e: any, primaryObj: GameObject): void {
 	setInteractionMode("drag");
 }
 
-export function handleDragMove(_e: PointerEvent, globalX: number, globalY: number): void {
+export function handleDragMove(_e: PointerEvent, worldX: number, worldY: number): void {
 	const data = currentInteraction;
 	if (!data || !viewport || !scene) return;
 
-	const dx = (globalX - data.startGlobalX) / viewport.scale.x;
-	const dy = (globalY - data.startGlobalY) / viewport.scale.y;
+	const dx = worldX - data.startWorldX;
+	const dy = worldY - data.startWorldY;
 
 	const primaryStart = data.startTransforms.get(data.primaryObj.id)!;
 	let newPrimaryX = primaryStart.x + dx;
@@ -65,10 +71,4 @@ export function handleDragMove(_e: PointerEvent, globalX: number, globalY: numbe
 
 	drawSelectionOutlines();
 	drawDragGuides(data.primaryObj);
-}
-
-function requireCurrentInteraction(): InteractionData | null {
-	// این تابع از state می‌خواند — برای اطمینان
-	const state = require("../state.js") as typeof import("../state.js");
-	return state.currentInteraction;
 }

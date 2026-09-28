@@ -1,4 +1,4 @@
-import { app, currentInteraction, interactionMode, isFinishingInteraction, scene, setIsFinishingInteraction, setInteractionMode, setCurrentInteraction } from "../state.js";
+import { app, currentInteraction, interactionMode, isFinishingInteraction, scene, setIsFinishingInteraction, setInteractionMode, setCurrentInteraction, viewport } from "../state.js";
 import { handleDragMove } from "./drag.js";
 import { handleResizeMove } from "./resize.js";
 import { handleRotateMove } from "./rotate.js";
@@ -9,21 +9,23 @@ import { findObject } from "../utils/geometry.js";
 
 export function setupGlobalInteractionListeners(): void {
 	window.addEventListener("pointermove", (e) => {
-		if (interactionMode === "idle" || !currentInteraction || !scene) return;
+		if (interactionMode === "idle" || !currentInteraction || !scene || !viewport) return;
 
+		// موقعیت ماوس در world coordinates
 		const rect = app.canvas.getBoundingClientRect();
-		const globalX = e.clientX - rect.left;
-		const globalY = e.clientY - rect.top;
+		const screenX = e.clientX - rect.left;
+		const screenY = e.clientY - rect.top;
+		const world = viewport.toWorld(screenX, screenY);
 
 		switch (interactionMode) {
 			case "drag":
-				handleDragMove(e, globalX, globalY);
+				handleDragMove(e, world.x, world.y);
 				break;
 			case "resize":
-				handleResizeMove(e, globalX, globalY);
+				handleResizeMove(e, world.x, world.y);
 				break;
 			case "rotate":
-				handleRotateMove(e, globalX, globalY);
+				handleRotateMove(e, world.x, world.y);
 				break;
 		}
 	});
