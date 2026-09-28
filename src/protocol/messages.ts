@@ -15,3 +15,8 @@ export type WebviewToExtensionMessage =
 	| { type: "deleteObject"; objectId: string };
 
 export type ExtensionToWebviewMessage = { type: "load"; scene: Scene } | { type: "update"; scene: Scene } | { type: "selectObject"; objectId: string | null } | { type: "selectFromOutliner"; objectId: string | null } | { type: "objectUpdated"; object: GameObject } | { type: "focusObject"; objectId: string };
+
+// پیام‌های مخصوص Inspector
+export type InspectorToExtensionMessage = { type: "inspectorReady" } | { type: "updateObjectField"; objectId: string; field: string; value: unknown } | { type: "deleteObject"; objectId: string } | { type: "focusObject"; objectId: string };
+
+export type ExtensionToInspectorMessage = { type: "showObject"; object: GameObject } | { type: "clearSelection" } | { type: "sceneUpdated"; scene: Scene };

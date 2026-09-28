@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { GameObject, Scene } from "../types/scene.js";
 import { getWebviewHtml } from "../editor/webviewHtml.js";
-import type { ExtensionToWebviewMessage } from "../protocol/messages.js";
+import type { ExtensionToInspectorMessage } from "../protocol/messages.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -10,7 +10,19 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private currentScene: Scene | null = null;
 	private selectedId: string | null = null;
 
+	// Callbackهایی که از بیرون set می‌شوند
+	private onUpdateObject: ((object: GameObject) => void) | null = null;
+	private onDeleteObject: ((objectId: string) => void) | null = null;
+	private onFocusObject: ((objectId: string) => void) | null = null;
+
 	constructor(private readonly extensionUri: vscode.Uri) {}
+
+	// ثبت callbackها از extension.ts
+	public setHandlers(handlers: { onUpdateObject: (object: GameObject) => void; onDeleteObject: (objectId: string) => void; onFocusObject: (objectId: string) => void }): void {
+		this.onUpdateObject = handlers.onUpdateObject;
+		this.onDeleteObject = handlers.onDeleteObject;
+		this.onFocusObject = handlers.onFocusObject;
+	}
 
 	resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void {
 		this.view = webviewView;
@@ -23,7 +35,28 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		webviewView.webview.html = getWebviewHtml(webviewView.webview, this.extensionUri, "inspector");
 
 		webviewView.webview.onDidReceiveMessage((msg) => {
-			console.log("inspector message:", msg);
+			switch (msg.type) {
+				case "inspectorReady":
+					this.pushSelectionToWebview();
+					break;
+				case "updateObjectField": {
+					const updated = this.applyFieldUpdate(msg.objectId, msg.field, msg.value);
+					if (updated && this.onUpdateObject) {
+						this.onUpdateObject(updated);
+					}
+					break;
+				}
+				case "deleteObject":
+					if (this.onDeleteObject) {
+						this.onDeleteObject(msg.objectId);
+					}
+					break;
+				case "focusObject":
+					if (this.onFocusObject) {
+						this.onFocusObject(msg.objectId);
+					}
+					break;
+			}
 		});
 
 		this.pushSelectionToWebview();
@@ -43,21 +76,46 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private pushSelectionToWebview(): void {
 		if (!this.view) return;
 
-		const msg: ExtensionToWebviewMessage = {
-			type: "selectObject",
-			objectId: this.selectedId,
-		};
-		this.view.webview.postMessage(msg);
-
-		if (this.selectedId && this.currentScene) {
-			const obj = this.findObject(this.currentScene, this.selectedId);
-			if (obj) {
-				this.view.webview.postMessage({
-					type: "objectUpdated",
-					object: obj,
-				});
-			}
+		if (!this.selectedId || !this.currentScene) {
+			const msg: ExtensionToInspectorMessage = { type: "clearSelection" };
+			this.view.webview.postMessage(msg);
+			return;
 		}
+
+		const obj = this.findObject(this.currentScene, this.selectedId);
+		if (obj) {
+			const msg: ExtensionToInspectorMessage = { type: "showObject", object: obj };
+			this.view.webview.postMessage(msg);
+		} else {
+			const msg: ExtensionToInspectorMessage = { type: "clearSelection" };
+			this.view.webview.postMessage(msg);
+		}
+	}
+
+	private applyFieldUpdate(objectId: string, field: string, value: unknown): GameObject | null {
+		if (!this.currentScene) return null;
+		const obj = this.findObject(this.currentScene, objectId);
+		if (!obj) return null;
+
+		// فیلدهای top-level
+		if (field === "name" && typeof value === "string") {
+			obj.name = value;
+		} else if (field === "type" && typeof value === "string") {
+			obj.type = value as GameObject["type"];
+		} else if (field === "color" && typeof value === "string") {
+			obj.color = value;
+		} else if (field.startsWith("transform.")) {
+			// فیلدهای transform
+			const key = field.slice("transform.".length) as keyof GameObject["transform"];
+			const numValue = typeof value === "number" ? value : Number.parseFloat(String(value));
+			if (!Number.isNaN(numValue)) {
+				obj.transform[key] = numValue;
+			}
+		} else if (field === "properties" && typeof value === "object" && value !== null) {
+			obj.properties = value as Record<string, unknown>;
+		}
+
+		return structuredClone(obj) as GameObject;
 	}
 
 	private findObject(scene: Scene, id: string): GameObject | null {

@@ -34,7 +34,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			try {
 				inst.activeWebview?.postMessage(msg);
 			} catch {
-				// webview ممکن است dispose شده باشد
+				// ignore
 			}
 		}
 	}
@@ -51,6 +51,51 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		return {
 			dispose: () => SceneEditorProvider.sceneChangeHandlers.delete(handler),
 		};
+	}
+
+	// متدهای استاتیک که از Inspector صدا زده می‌شوند
+	public static updateObject(obj: GameObject): void {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = inst.updateObjectInScene(inst.currentScene, obj);
+			inst.currentScene = updated;
+			// به viewport پیام بفرست
+			try {
+				inst.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+			} catch {
+				// ignore
+			}
+			// به سایر handlerها
+			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+				handler(updated);
+			}
+		}
+	}
+
+	public static deleteObject(objectId: string): void {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = inst.deleteObjectFromScene(inst.currentScene, objectId);
+			inst.currentScene = updated;
+			try {
+				inst.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+			} catch {
+				// ignore
+			}
+			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+				handler(updated);
+			}
+		}
+	}
+
+	public static focusObject(objectId: string): void {
+		for (const inst of SceneEditorProvider.instances) {
+			try {
+				inst.activeWebview?.postMessage({ type: "focusObject", objectId } satisfies ExtensionToWebviewMessage);
+			} catch {
+				// ignore
+			}
+		}
 	}
 
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
