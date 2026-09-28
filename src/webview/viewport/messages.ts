@@ -4,13 +4,12 @@ import { renderScene } from "./render/scene.js";
 import { interactionMode, scene, selectedIds, viewport } from "./state.js";
 import { selectObjects } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
+import { applyThemeFromScene } from "./theme/theme-manager.js";
 
-// صف رندر معوق
 let pendingRender: (() => void) | null = null;
 
 function scheduleRender(callback: () => void): void {
 	if (interactionMode !== "idle") {
-		// در حین interaction، رندر را ذخیره کن
 		pendingRender = callback;
 		return;
 	}
@@ -31,6 +30,8 @@ export function setupMessages(): void {
 		switch (msg.type) {
 			case "load":
 			case "update":
+				// تم صحنه را اعمال کن
+				applyThemeFromScene(msg.scene?.theme);
 				scheduleRender(() => renderScene(msg.scene));
 				break;
 			case "texturesLoaded": {

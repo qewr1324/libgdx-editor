@@ -1,4 +1,5 @@
 import type { GameObject, Scene } from "../../types/scene.js";
+import { THEMES, THEME_ORDER } from "../viewport/theme/themes.js";
 
 interface VsCodeApi {
 	postMessage(msg: unknown): void;
@@ -76,6 +77,20 @@ function buildSceneSettingsHtml(scene: Scene): string {
 			</div>
 
 			<div class="section">
+				<div class="section-title">Theme</div>
+				<div class="field">
+					<label>UI Theme</label>
+					<select data-scene-field="theme">
+						${THEME_ORDER.map((key) => {
+							const theme = THEMES[key];
+							const selected = (scene.theme ?? "win98") === key ? "selected" : "";
+							return `<option value="${key}" ${selected}>${theme.label}</option>`;
+						}).join("")}
+					</select>
+				</div>
+			</div>
+
+			<div class="section">
 				<div class="section-title">World</div>
 				<div class="field-row">
 					<div class="field">
@@ -119,6 +134,7 @@ function buildSceneSettingsHtml(scene: Scene): string {
 
 function updateSceneFieldValues(): void {
 	if (!currentScene) return;
+	setSceneFieldValue("theme", currentScene.theme ?? "win98", "select");
 	setSceneFieldValue("worldSize.width", currentScene.worldSize.width, "number");
 	setSceneFieldValue("worldSize.height", currentScene.worldSize.height, "number");
 	setSceneFieldValue("backgroundColor", currentScene.backgroundColor, "color");
@@ -127,44 +143,53 @@ function updateSceneFieldValues(): void {
 	setSceneFieldValue("snapToGrid", currentScene.snapToGrid, "checkbox");
 }
 
-function setSceneFieldValue(field: string, value: unknown, kind: "number" | "text" | "color" | "checkbox"): void {
-	const elements = app.querySelectorAll<HTMLInputElement>(`[data-scene-field="${field}"]`);
+function setSceneFieldValue(field: string, value: unknown, kind: "number" | "text" | "color" | "checkbox" | "select"): void {
+	const elements = app.querySelectorAll<HTMLInputElement | HTMLSelectElement>(`[data-scene-field="${field}"]`);
 	for (const el of elements) {
 		if (document.activeElement === el) continue;
 		if (kind === "color" && el.type !== "color") continue;
 		if (kind === "text" && el.type !== "text") continue;
 		if (kind === "number" && el.type !== "number") continue;
 		if (kind === "checkbox" && el.type !== "checkbox") continue;
-		if (el.type === "checkbox") {
+		if (kind === "select" && el.tagName !== "SELECT") continue;
+
+		if (el instanceof HTMLSelectElement) {
+			if (el.value === String(value)) continue;
+			el.value = String(value);
+		} else if (el instanceof HTMLInputElement && el.type === "checkbox") {
 			if (el.checked === value) continue;
 			el.checked = value as boolean;
-		} else {
+		} else if (el instanceof HTMLInputElement) {
 			if (el.value === String(value)) continue;
 			el.value = String(value);
 		}
 	}
 }
 
-function attachSceneListeners() {
+function attachSceneListeners(): void {
 	document.getElementById("btn-close-scene")?.addEventListener("click", () => {
 		sceneMode = false;
 		render(true);
 	});
 
-	const inputs = app.querySelectorAll<HTMLInputElement>("[data-scene-field]");
+	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-scene-field]");
 	for (const input of inputs) {
 		const field = input.dataset.sceneField!;
 
-		if (input.type === "number") {
+		if (input instanceof HTMLSelectElement) {
+			input.addEventListener("change", () => {
+				vscode.postMessage({ type: "updateSceneField", field, value: input.value, historyLabel: `scene: ${field}` });
+			});
+		} else if (input.type === "number") {
 			input.addEventListener("change", () => {
 				const value = Number.parseFloat(input.value);
 				if (!Number.isNaN(value)) {
-					vscode.postMessage({ type: "updateSceneField", field, value });
+					vscode.postMessage({ type: "updateSceneField", field, value, historyLabel: `scene: ${field}` });
 				}
 			});
 		} else if (input.type === "checkbox") {
 			input.addEventListener("change", () => {
-				vscode.postMessage({ type: "updateSceneField", field, value: input.checked });
+				vscode.postMessage({ type: "updateSceneField", field, value: input.checked, historyLabel: `scene: ${field}` });
 			});
 		} else if (input.type === "color") {
 			input.addEventListener("input", () => {
@@ -172,11 +197,11 @@ function attachSceneListeners() {
 				if (textInput && document.activeElement !== textInput) {
 					textInput.value = input.value;
 				}
-				vscode.postMessage({ type: "updateSceneField", field, value: input.value });
+				vscode.postMessage({ type: "updateSceneField", field, value: input.value, historyLabel: `scene: ${field}` });
 			});
 		} else {
 			input.addEventListener("change", () => {
-				vscode.postMessage({ type: "updateSceneField", field, value: input.value });
+				vscode.postMessage({ type: "updateSceneField", field, value: input.value, historyLabel: `scene: ${field}` });
 			});
 		}
 	}
@@ -333,7 +358,7 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 	}
 }
 
-function attachEventListeners() {
+function attachEventListeners(): void {
 	const deleteBtn = document.getElementById("btn-delete");
 	deleteBtn?.addEventListener("click", () => {
 		if (currentObject) {
@@ -395,7 +420,7 @@ function attachEventListeners() {
 	}
 }
 
-function sendFieldUpdate(field: string, value: unknown) {
+function sendFieldUpdate(field: string, value: unknown): void {
 	if (!currentObject) return;
 	vscode.postMessage({
 		type: "updateObjectField",

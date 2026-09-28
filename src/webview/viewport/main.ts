@@ -7,8 +7,13 @@ import { setupMouseTracker } from "./ui/mouse-tracker.js";
 import { setupDeselect } from "./selection/selection.js";
 import { setupMessages } from "./messages.js";
 import { vscode } from "./types.js";
+import { applyTheme } from "./theme/theme-manager.js";
+import { DEFAULT_THEME } from "./theme/themes.js";
 
 (async () => {
+	// تم پیش‌فرض قبل از هر چیز اعمال شود
+	applyTheme(DEFAULT_THEME);
+
 	await initPixi();
 	setupToolbar();
 	setupContextMenu();
