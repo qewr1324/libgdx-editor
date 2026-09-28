@@ -5,15 +5,17 @@ import { copySelection, pasteClipboard, duplicateSelection } from "../commands/c
 export function setupToolbar(): void {
 	const toolbar = document.createElement("div");
 	toolbar.id = "toolbar";
-	toolbar.style.top = "22px";
-	toolbar.style.left = "22px";
+	toolbar.style.top = "24px";
+	toolbar.style.left = "24px";
 	toolbar.innerHTML = `
 		<button data-action="add-sprite" title="Add Sprite">➕ Sprite</button>
 		<button data-action="add-shape" title="Add Shape">⭕ Shape</button>
 		<button data-action="add-text" title="Add Text">🔤 Text</button>
 		<button data-action="add-texture" title="Add Texture from file">🖼️ Texture</button>
+		<span style="width:1px;height:20px;background:#808080;box-shadow:1px 0 0 #ffffff;margin:0 4px;"></span>
 		<button data-action="delete" title="Delete Selected">🗑️ Delete</button>
 		<button data-action="snap-grid" title="Snap to Grid">▦ Grid</button>
+		<span style="width:1px;height:20px;background:#808080;box-shadow:1px 0 0 #ffffff;margin:0 4px;"></span>
 		<button data-action="save" title="Save (Ctrl+S)">💾 Save</button>
 		<span id="toolbar-info"></span>
 	`;
@@ -58,15 +60,13 @@ export function updateToolbarInfo(text: string): void {
 }
 
 function addObject(type: "sprite" | "shape" | "text" | "group"): void {
-	void import("../pixi/setup.js").then(() => {
-		void import("../state.js").then((state) => {
-			const center = state.viewport.center;
-			vscode.postMessage({
-				type: "requestAddObject",
-				objectType: type,
-				x: Math.round(center.x),
-				y: Math.round(center.y),
-			});
+	void import("../state.js").then((state) => {
+		const center = state.viewport.center;
+		vscode.postMessage({
+			type: "requestAddObject",
+			objectType: type,
+			x: Math.round(center.x),
+			y: Math.round(center.y),
 		});
 	});
 }

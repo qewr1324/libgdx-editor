@@ -18,11 +18,11 @@ export function redrawGrid(): void {
 		g.moveTo(0, y);
 		g.lineTo(worldW, y);
 	}
-	g.stroke({ width: 1, color: 0x3a3a3a, alpha: 0.7 });
+	g.stroke({ width: 1, color: 0x808080, alpha: 0.5 });
 
 	const border = new Graphics();
 	border.rect(0, 0, worldW, worldH);
-	border.stroke({ width: 2, color: 0x4a9eff, alpha: 0.8 });
+	border.stroke({ width: 2, color: 0x000080, alpha: 0.9 });
 
 	gridLayer.addChild(g);
 	gridLayer.addChild(border);
