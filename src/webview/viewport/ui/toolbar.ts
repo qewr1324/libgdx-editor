@@ -1,6 +1,7 @@
 import { vscode } from "../types.js";
 import { scene, setScene } from "../state.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
+import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
 
 export function setupToolbar(): void {
 	const toolbar = document.createElement("div");
@@ -51,6 +52,10 @@ export function setupToolbar(): void {
 		}
 	});
 
+	// راه‌اندازی Undo/Redo از ماژول جدا
+	setupHistoryKeyboardShortcuts();
+
+	// سایر shortcut ها
 	setupKeyboardShortcuts();
 }
 
@@ -113,12 +118,6 @@ function setupKeyboardShortcuts(): void {
 		if (mod && e.key === "s") {
 			e.preventDefault();
 			saveScene();
-		} else if (mod && e.key === "z" && !e.shiftKey) {
-			e.preventDefault();
-			vscode.postMessage({ type: "undo" });
-		} else if (mod && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
-			e.preventDefault();
-			vscode.postMessage({ type: "redo" });
 		} else if (mod && e.key === "c") {
 			e.preventDefault();
 			copySelection();

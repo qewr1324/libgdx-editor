@@ -1,6 +1,7 @@
 import { app, viewport } from "../state.js";
 import { vscode } from "../types.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
+import { HISTORY_MENU_ITEMS, handleHistoryMenuAction } from "../history/history-ui.js";
 
 export function setupContextMenu(): void {
 	const menu = document.createElement("div");
@@ -17,8 +18,7 @@ export function setupContextMenu(): void {
 		<div class="context-menu-item" data-action="paste">📥 Paste (Ctrl+V)</div>
 		<div class="context-menu-item" data-action="duplicate">📑 Duplicate (Ctrl+D)</div>
 		<div class="context-menu-separator"></div>
-		<div class="context-menu-item" data-action="undo">↶ Undo (Ctrl+Z)</div>
-		<div class="context-menu-item" data-action="redo">↷ Redo (Ctrl+Y)</div>
+		${HISTORY_MENU_ITEMS}
 		<div class="context-menu-separator"></div>
 		<div class="context-menu-item" data-action="delete">🗑️ Delete (Del)</div>
 	`;
@@ -62,6 +62,9 @@ export function setupContextMenu(): void {
 		menu.style.display = "none";
 		if (!action) return;
 
+		// اول Undo/Redo را چک کن (از ماژول جدا)
+		if (handleHistoryMenuAction(action)) return;
+
 		handleMenuAction(action, contextWorldX, contextWorldY);
 	});
 }
@@ -91,12 +94,6 @@ function handleMenuAction(action: string, worldX: number, worldY: number): void 
 			break;
 		case "duplicate":
 			duplicateSelection();
-			break;
-		case "undo":
-			vscode.postMessage({ type: "undo" });
-			break;
-		case "redo":
-			vscode.postMessage({ type: "redo" });
 			break;
 		case "delete":
 			void import("../state.js").then((state) => {
