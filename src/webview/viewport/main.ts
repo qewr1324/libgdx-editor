@@ -31,6 +31,7 @@ let viewport: Viewport;
 let gridLayer: Container;
 let contentLayer: Container;
 let selectionLayer: Container;
+let gizmoLayer: Container; // برای نمایش‌های زنده (زاویه، ابعاد، مختصات)
 const objectSprites = new Map<string, Container>();
 
 // ---------- Ruler & Cursor state ----------
@@ -66,10 +67,12 @@ async function initPixi() {
 	gridLayer = new Container();
 	contentLayer = new Container();
 	selectionLayer = new Container();
+	gizmoLayer = new Container();
 
 	viewport.addChild(gridLayer);
 	viewport.addChild(contentLayer);
 	viewport.addChild(selectionLayer);
+	viewport.addChild(gizmoLayer);
 
 	setupToolbar();
 	setupContextMenu();
@@ -615,7 +618,7 @@ function renderObject(obj: GameObject, layerLocked = false) {
 	objectSprites.set(obj.id, container);
 }
 
-// ---------- Drag ----------
+// ---------- Drag (with live coordinates) ----------
 function startDrag(e: any, primaryObj: GameObject) {
 	isDraggingObject = true;
 
@@ -666,10 +669,12 @@ function startDrag(e: any, primaryObj: GameObject) {
 		}
 
 		drawSelectionOutlines();
+		drawDragGuides(primaryObj);
 	};
 
 	const onUp = () => {
 		isDraggingObject = false;
+		clearGizmo();
 		app.stage.off("pointermove", onMove);
 		app.stage.off("pointerup", onUp);
 		app.stage.off("pointerupoutside", onUp);
@@ -688,6 +693,65 @@ function startDrag(e: any, primaryObj: GameObject) {
 	app.stage.on("pointermove", onMove);
 	app.stage.on("pointerup", onUp);
 	app.stage.on("pointerupoutside", onUp);
+}
+
+/**
+ * راهنماهای خط‌چین برای موقعیت فعلی + نمایش مختصات.
+ */
+function drawDragGuides(obj: GameObject) {
+	clearGizmo();
+	const t = obj.transform;
+
+	const guideColor = 0x00d4ff;
+	const dashLen = 4;
+	const gapLen = 4;
+	const offset = 30;
+
+	// خط افقی به سمت چپ (به محور Y)
+	const hLine = new Graphics();
+	drawDashedLine(hLine, t.x, t.y, t.x - offset, t.y, dashLen, gapLen);
+	hLine.stroke({ width: 1, color: guideColor, alpha: 0.7 });
+	gizmoLayer.addChild(hLine);
+
+	// خط عمودی به سمت بالا (به محور X)
+	const vLine = new Graphics();
+	drawDashedLine(vLine, t.x, t.y, t.x, t.y - offset, dashLen, gapLen);
+	vLine.stroke({ width: 1, color: guideColor, alpha: 0.7 });
+	gizmoLayer.addChild(vLine);
+
+	// برچسب مختصات
+	const label = new Text({
+		text: `${Math.round(t.x)}, ${Math.round(t.y)}`,
+		style: new TextStyle({
+			fill: "#00d4ff",
+			fontSize: 11,
+			fontFamily: "monospace",
+			stroke: { color: 0x000000, width: 3 },
+		}),
+	});
+	label.x = t.x + 8;
+	label.y = t.y - offset - 16;
+	gizmoLayer.addChild(label);
+}
+
+function drawDashedLine(g: Graphics, x1: number, y1: number, x2: number, y2: number, dashLen: number, gapLen: number) {
+	const dx = x2 - x1;
+	const dy = y2 - y1;
+	const len = Math.sqrt(dx * dx + dy * dy);
+	const ux = dx / len;
+	const uy = dy / len;
+
+	let pos = 0;
+	while (pos < len) {
+		const startX = x1 + ux * pos;
+		const startY = y1 + uy * pos;
+		const endPos = Math.min(pos + dashLen, len);
+		const endX = x1 + ux * endPos;
+		const endY = y1 + uy * endPos;
+		g.moveTo(startX, startY);
+		g.lineTo(endX, endY);
+		pos += dashLen + gapLen;
+	}
 }
 
 // ---------- Selection ----------
@@ -709,7 +773,7 @@ function selectObjects(ids: string[], primaryId?: string | null) {
 	vscode.postMessage({ type: "selectObjects", objectIds: ids });
 }
 
-// ---------- Selection Outlines + Resize + Rotate ----------
+// ---------- Selection Outlines + Handles ----------
 function drawSelectionOutlines() {
 	selectionLayer.removeChildren();
 	if (selectedIds.length === 0 || !scene) return;
@@ -763,9 +827,19 @@ function drawResizeHandles(obj: GameObject, t: GameObject["transform"]) {
 		{ type: "w", x: left, y: (top + bottom) / 2, cursor: "ew-resize" },
 	];
 
+	// گوشه‌های قطری را کمی بزرگ‌تر نشان بده
 	for (const pos of positions) {
+		const isCorner = pos.type === "nw" || pos.type === "ne" || pos.type === "se" || pos.type === "sw";
+		const size = isCorner ? hw + 2 : hw;
+
 		const handle = new Graphics();
-		handle.rect(-hw / 2, -hw / 2, hw, hw);
+		if (isCorner) {
+			// گوشه‌ها: مربع
+			handle.rect(-size / 2, -size / 2, size, size);
+		} else {
+			// لبه‌ها: دایره کوچک
+			handle.circle(0, 0, size / 2);
+		}
 		handle.fill({ color: 0xffaa00 });
 		handle.stroke({ width: 1, color: 0x1a1a1a, alpha: 0.5 });
 
@@ -789,9 +863,18 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]) {
 	const centerY = top - 25;
 
 	const handle = new Graphics();
-	handle.circle(0, 0, 6);
+	handle.circle(0, 0, 7);
 	handle.fill({ color: 0x4aff9b });
 	handle.stroke({ width: 2, color: 0x1a1a1a, alpha: 0.7 });
+
+	// فلش کوچک داخل دایره
+	const arrow = new Graphics();
+	arrow.moveTo(-3, 0);
+	arrow.lineTo(3, 0);
+	arrow.lineTo(0, -3);
+	arrow.closePath();
+	arrow.fill({ color: 0x1a1a1a });
+	arrow.y = 0;
 
 	const line = new Graphics();
 	line.moveTo(0, top);
@@ -807,6 +890,7 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]) {
 	const lineContainer = new Container();
 	lineContainer.addChild(line);
 	lineContainer.addChild(handle);
+	lineContainer.addChild(arrow);
 	lineContainer.y = centerY;
 	lineContainer.eventMode = "static";
 	lineContainer.cursor = "grab";
@@ -820,6 +904,7 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]) {
 	selectionLayer.addChild(rotateContainer);
 }
 
+// ---------- Resize (advanced) ----------
 function startResize(e: any, obj: GameObject, handle: HandleType) {
 	isResizing = true;
 
@@ -832,50 +917,59 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 		const dx = (moveEvent.global.x - startPos.x) / viewport.scale.x;
 		const dy = (moveEvent.global.y - startPos.y) / viewport.scale.y;
 
-		const shift = moveEvent.shiftKey;
+		const shift = moveEvent.shiftKey; // حفظ نسبت
+		const alt = moveEvent.altKey; // از مرکز
+
+		// نقطه مقابل (لنگر) را ثابت نگه دار
 		let newW = startTransform.width;
 		let newH = startTransform.height;
 		let newX = startTransform.x;
 		let newY = startTransform.y;
 
-		switch (handle) {
-			case "e":
+		// جهت تغییرات
+		const isLeft = handle === "w" || handle === "nw" || handle === "sw";
+		const isRight = handle === "e" || handle === "ne" || handle === "se";
+		const isTop = handle === "n" || handle === "nw" || handle === "ne";
+		const isBottom = handle === "s" || handle === "sw" || handle === "se";
+		const isHorizontal = isLeft || isRight;
+		const isVertical = isTop || isBottom;
+
+		if (alt) {
+			// از مرکز: هر دو طرف تغییر می‌کند
+			if (isHorizontal) {
+				newW = Math.max(1, startTransform.width + (isRight ? dx * 2 : -dx * 2));
+			}
+			if (isVertical) {
+				newH = Math.max(1, startTransform.height + (isBottom ? dy * 2 : -dy * 2));
+			}
+			// x و y ثابت می‌مانند (از مرکز)
+		} else {
+			// از گوشه مقابل: لنگر ثابت
+			if (isRight) {
 				newW = Math.max(1, startTransform.width + dx);
-				break;
-			case "w":
+				// x ثابت می‌ماند (چون origin در وسط است، نصف تغییر x جابجا می‌شود)
+				newX = startTransform.x + dx / 2;
+			} else if (isLeft) {
 				newW = Math.max(1, startTransform.width - dx);
 				newX = startTransform.x + dx / 2;
-				break;
-			case "s":
+			}
+
+			if (isBottom) {
 				newH = Math.max(1, startTransform.height + dy);
-				break;
-			case "n":
+				newY = startTransform.y + dy / 2;
+			} else if (isTop) {
 				newH = Math.max(1, startTransform.height - dy);
 				newY = startTransform.y + dy / 2;
-				break;
-			case "se":
-				newW = Math.max(1, startTransform.width + dx);
-				newH = Math.max(1, startTransform.height + dy);
-				break;
-			case "sw":
-				newW = Math.max(1, startTransform.width - dx);
-				newH = Math.max(1, startTransform.height + dy);
-				newX = startTransform.x + dx / 2;
-				break;
-			case "ne":
-				newW = Math.max(1, startTransform.width + dx);
-				newH = Math.max(1, startTransform.height - dy);
-				newY = startTransform.y + dy / 2;
-				break;
-			case "nw":
-				newW = Math.max(1, startTransform.width - dx);
-				newH = Math.max(1, startTransform.height - dy);
-				newX = startTransform.x + dx / 2;
-				newY = startTransform.y + dy / 2;
-				break;
+			}
+
+			// اگر افقی نیست، x ثابت
+			if (!isHorizontal) newX = startTransform.x;
+			// اگر عمودی نیست، y ثابت
+			if (!isVertical) newY = startTransform.y;
 		}
 
-		if (shift) {
+		// Shift → حفظ نسبت ابعاد
+		if (shift && isHorizontal && isVertical) {
 			const aspect = startTransform.width / startTransform.height;
 			if (newW / newH > aspect) {
 				newW = newH * aspect;
@@ -884,12 +978,11 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 			}
 		}
 
+		// Snap به grid
 		if (scene.snapToGrid) {
 			const g = scene.gridSize || 32;
 			newW = Math.round(newW / g) * g;
 			newH = Math.round(newH / g) * g;
-			if (handle === "w" || handle === "nw" || handle === "sw") newX = Math.round(newX / g) * g;
-			if (handle === "n" || handle === "nw" || handle === "ne") newY = Math.round(newY / g) * g;
 		}
 
 		obj.transform.width = Math.round(newW);
@@ -899,10 +992,12 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 
 		rerenderObject(obj);
 		drawSelectionOutlines();
+		drawResizeLabel(obj);
 	};
 
 	const onUp = () => {
 		isResizing = false;
+		clearGizmo();
 		app.stage.off("pointermove", onMove);
 		app.stage.off("pointerup", onUp);
 		app.stage.off("pointerupoutside", onUp);
@@ -919,7 +1014,27 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 	app.stage.on("pointerupoutside", onUp);
 }
 
-// ---------- Rotate ----------
+/**
+ * برچسب زنده ابعاد.
+ */
+function drawResizeLabel(obj: GameObject) {
+	clearGizmo();
+	const t = obj.transform;
+	const label = new Text({
+		text: `${Math.round(t.width)} × ${Math.round(t.height)}`,
+		style: new TextStyle({
+			fill: "#ffaa00",
+			fontSize: 11,
+			fontFamily: "monospace",
+			stroke: { color: 0x000000, width: 3 },
+		}),
+	});
+	label.x = t.x + t.width / 2 + 8;
+	label.y = t.y + t.height / 2 + 8;
+	gizmoLayer.addChild(label);
+}
+
+// ---------- Rotate (advanced) ----------
 function startRotate(e: any, obj: GameObject) {
 	isRotating = true;
 
@@ -931,38 +1046,43 @@ function startRotate(e: any, obj: GameObject) {
 	const startAngle = Math.atan2(startWorld.y - centerWorld.y, startWorld.x - centerWorld.x);
 	const startRotation = t.rotation;
 
+	// دایره راهنما
+	const guideRadius = Math.max(t.width, t.height) / 2 + 40;
+
 	const onMove = (moveEvent: any) => {
 		if (!isRotating || !viewport) return;
 
 		const world = viewport.toWorld(moveEvent.global.x, moveEvent.global.y);
 		const currentAngle = Math.atan2(world.y - centerWorld.y, world.x - centerWorld.x);
 
-		// delta = اختلاف زاویه فعلی و اولیه
 		let deltaDeg = ((currentAngle - startAngle) * 180) / Math.PI;
 
-		// نرمال‌سازی delta به بازه -180 تا 180
 		if (deltaDeg > 180) deltaDeg -= 360;
 		if (deltaDeg < -180) deltaDeg += 360;
 
-		// زاویه نهایی = زاویه اولیه آبجکت + delta
 		let newRotation = startRotation + deltaDeg;
 
-		// Shift → snap
-		if (moveEvent.shiftKey) {
+		// Snap
+		if (moveEvent.altKey) {
+			// Alt → ۹۰ درجه
+			newRotation = Math.round(newRotation / 90) * 90;
+		} else if (moveEvent.shiftKey) {
+			// Shift → ۱۵ درجه
 			newRotation = Math.round(newRotation / 15) * 15;
 		}
 
-		// نرمال‌سازی به 0-360
 		newRotation = ((newRotation % 360) + 360) % 360;
 
 		obj.transform.rotation = Math.round(newRotation * 100) / 100;
 
 		rerenderObject(obj);
 		drawSelectionOutlines();
+		drawRotateGizmo(obj, centerWorld, guideRadius, world, moveEvent.shiftKey, moveEvent.altKey);
 	};
 
 	const onUp = () => {
 		isRotating = false;
+		clearGizmo();
 		app.stage.off("pointermove", onMove);
 		app.stage.off("pointerup", onUp);
 		app.stage.off("pointerupoutside", onUp);
@@ -977,6 +1097,70 @@ function startRotate(e: any, obj: GameObject) {
 	app.stage.on("pointermove", onMove);
 	app.stage.on("pointerup", onUp);
 	app.stage.on("pointerupoutside", onUp);
+}
+
+/**
+ * دایره راهنما + خط از مرکز به ماوس + برچسب زاویه.
+ */
+function drawRotateGizmo(obj: GameObject, center: { x: number; y: number }, radius: number, mouseWorld: { x: number; y: number }, shift: boolean, alt: boolean) {
+	clearGizmo();
+
+	// دایره راهنما
+	const circle = new Graphics();
+	circle.circle(center.x, center.y, radius);
+	circle.stroke({ width: 1, color: 0x4aff9b, alpha: 0.4 });
+	gizmoLayer.addChild(circle);
+
+	// خط از مرکز به ماوس
+	const line = new Graphics();
+	line.moveTo(center.x, center.y);
+	line.lineTo(mouseWorld.x, mouseWorld.y);
+	line.stroke({ width: 1, color: 0x4aff9b, alpha: 0.6 });
+	gizmoLayer.addChild(line);
+
+	// خط از مرکز به سمت زاویه قفل‌شده
+	const angleRad = (obj.transform.rotation * Math.PI) / 180;
+	// چون نقطه چرخش بالای آبجکت است، ۹۰ درجه کم می‌کنیم
+	const visualAngle = angleRad - Math.PI / 2;
+	const endX = center.x + Math.cos(visualAngle) * radius;
+	const endY = center.y + Math.sin(visualAngle) * radius;
+
+	const snapLine = new Graphics();
+	snapLine.moveTo(center.x, center.y);
+	snapLine.lineTo(endX, endY);
+	snapLine.stroke({ width: 2, color: 0xffaa00, alpha: 0.8 });
+	gizmoLayer.addChild(snapLine);
+
+	// برچسب زاویه
+	let labelText = `${Math.round(obj.transform.rotation)}°`;
+	if (alt) labelText += " [90°]";
+	else if (shift) labelText += " [15°]";
+
+	const label = new Text({
+		text: labelText,
+		style: new TextStyle({
+			fill: "#ffaa00",
+			fontSize: 12,
+			fontFamily: "monospace",
+			fontWeight: "bold",
+			stroke: { color: 0x000000, width: 3 },
+		}),
+	});
+	label.x = mouseWorld.x + 12;
+	label.y = mouseWorld.y - 18;
+	gizmoLayer.addChild(label);
+
+	// نشانگر نقطه شروع (خط مبنا)
+	const baseLine = new Graphics();
+	baseLine.moveTo(center.x, center.y);
+	baseLine.lineTo(center.x, center.y - radius);
+	baseLine.stroke({ width: 1, color: 0xffffff, alpha: 0.2 });
+	gizmoLayer.addChild(baseLine);
+}
+
+// ---------- Gizmo helpers ----------
+function clearGizmo() {
+	gizmoLayer.removeChildren();
 }
 
 function rerenderObject(obj: GameObject) {
@@ -1036,7 +1220,6 @@ window.addEventListener("message", async (event) => {
 			break;
 		}
 		case "historyState":
-			// می‌توانی در toolbar نشان دهی
 			console.log("History state:", msg.canUndo, msg.canRedo);
 			break;
 		case "selectFromOutliner":
