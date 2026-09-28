@@ -1,9 +1,29 @@
 import { vscode } from "./types.js";
 import { loadTexture } from "./pixi/textures.js";
 import { renderScene } from "./render/scene.js";
-import { scene, setScene, selectedIds, viewport } from "./state.js";
+import { interactionMode, scene, selectedIds, viewport } from "./state.js";
 import { selectObjects } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
+
+// صف رندر معوق
+let pendingRender: (() => void) | null = null;
+
+function scheduleRender(callback: () => void): void {
+	if (interactionMode !== "idle") {
+		// در حین interaction، رندر را ذخیره کن
+		pendingRender = callback;
+		return;
+	}
+	callback();
+}
+
+export function flushPendingRender(): void {
+	if (pendingRender && interactionMode === "idle") {
+		const cb = pendingRender;
+		pendingRender = null;
+		cb();
+	}
+}
 
 export function setupMessages(): void {
 	window.addEventListener("message", async (event) => {
@@ -11,7 +31,7 @@ export function setupMessages(): void {
 		switch (msg.type) {
 			case "load":
 			case "update":
-				renderScene(msg.scene);
+				scheduleRender(() => renderScene(msg.scene));
 				break;
 			case "texturesLoaded": {
 				const textures = msg.textures as Record<string, string>;
@@ -22,7 +42,9 @@ export function setupMessages(): void {
 						console.error("Failed to load texture:", path, err);
 					}
 				}
-				if (scene) renderScene(scene);
+				scheduleRender(() => {
+					if (scene) renderScene(scene);
+				});
 				break;
 			}
 			case "historyState":

@@ -8,10 +8,10 @@ import type { GameObject } from "../../../types/scene.js";
 import { findObject } from "../utils/geometry.js";
 
 export function setupGlobalInteractionListeners(): void {
+	// pointermove روی window — تا حتی اگر ماوس از canvas خارج شد هم کار کند
 	window.addEventListener("pointermove", (e) => {
 		if (interactionMode === "idle" || !currentInteraction || !scene || !viewport) return;
 
-		// موقعیت ماوس در world coordinates
 		const rect = app.canvas.getBoundingClientRect();
 		const screenX = e.clientX - rect.left;
 		const screenY = e.clientY - rect.top;
@@ -30,12 +30,15 @@ export function setupGlobalInteractionListeners(): void {
 		}
 	});
 
-	const onPointerUp = () => {
+	// pointerup روی window — اما بدون blur
+	window.addEventListener("pointerup", () => {
 		finishInteractionSafely();
-	};
-	window.addEventListener("pointerup", onPointerUp);
-	window.addEventListener("pointercancel", onPointerUp);
-	window.addEventListener("blur", onPointerUp);
+	});
+	window.addEventListener("pointercancel", () => {
+		finishInteractionSafely();
+	});
+
+	// ⚠️ blur را حذف کردیم — چون باعث قطع شدن درگ در حین کار می‌شد
 }
 
 export function finishInteractionSafely(): void {
@@ -47,11 +50,14 @@ export function finishInteractionSafely(): void {
 	try {
 		finishInteraction();
 	} finally {
+		// کاهش timeout به 0 — فقط برای جلوگیری از recursion
 		setTimeout(() => {
 			setIsFinishingInteraction(false);
-		}, 50);
+		}, 0);
 	}
 }
+
+import { flushPendingRender } from "../messages.js";
 
 export function finishInteraction(): void {
 	if (!currentInteraction) {
@@ -66,7 +72,10 @@ export function finishInteraction(): void {
 	setCurrentInteraction(null);
 	clearGizmo();
 
-	if (!scene) return;
+	if (!scene) {
+		flushPendingRender();
+		return;
+	}
 
 	if (mode === "drag") {
 		const updated: GameObject[] = [];
@@ -90,4 +99,7 @@ export function finishInteraction(): void {
 			historyLabel: "rotate",
 		});
 	}
+
+	// بعد از پایان interaction، رندر معوق را اجرا کن
+	flushPendingRender();
 }

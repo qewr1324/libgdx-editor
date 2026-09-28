@@ -1,12 +1,21 @@
 import { Container, Graphics, Rectangle, Sprite, Text, TextStyle } from "pixi.js";
-import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache } from "../state.js";
+import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode } from "../state.js";
 import type { GameObject, Scene } from "../../../types/scene.js";
 import { redrawGrid } from "./grid.js";
 import { beginDrag } from "../interaction/drag.js";
 import { selectObjects, drawSelectionOutlines } from "../selection/selection.js";
+import { findObject } from "../utils/geometry.js";
 
 export function renderScene(newScene: Scene): void {
 	setScene(newScene);
+
+	// ⚠️ اگر در حال درگ/resize/rotate هستیم، رندر نکن
+	// چون container ها از بین می‌روند و interaction قطع می‌شود
+	if (interactionMode !== "idle") {
+		// فقط scene را ذخیره کن
+		return;
+	}
+
 	app.renderer.background.color = newScene.backgroundColor || "#1a1a1a";
 
 	contentLayer.removeChildren();
