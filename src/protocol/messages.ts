@@ -14,7 +14,8 @@ export type WebviewToExtensionMessage =
 	| { type: "deleteObject"; objectId: string }
 	| { type: "deleteObjects"; objectIds: string[] }
 	| { type: "requestImportTexture" }
-	| { type: "openSceneSettings" };
+	| { type: "openSceneSettings" }
+	| { type: "duplicateObjects"; objectIds: string[]; offsetX: number; offsetY: number };
 
 export type ExtensionToWebviewMessage =
 	| { type: "load"; scene: Scene }

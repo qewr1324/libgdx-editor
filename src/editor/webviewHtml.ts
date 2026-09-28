@@ -16,8 +16,10 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			font-size: var(--vscode-font-size);
 		}
 		canvas { display: block; }
+		#ruler-h, #ruler-v { display: block; user-select: none; }
+		#ruler-info { user-select: none; }
 		#toolbar {
-			position: fixed; top: 10px; left: 10px; z-index: 100;
+			position: fixed; z-index: 100;
 			display: flex; gap: 6px; padding: 6px;
 			background: var(--vscode-editorWidget-background);
 			border: 1px solid var(--vscode-editorWidget-border);
@@ -40,7 +42,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			border: 1px solid var(--vscode-menu-border);
 			border-radius: 4px;
 			padding: 4px 0;
-			min-width: 180px;
+			min-width: 200px;
 			box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 			font-size: 12px;
 		}

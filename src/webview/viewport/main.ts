@@ -13,14 +13,18 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 
+// ---------- State ----------
 let scene: Scene | null = null;
 let selectedIds: string[] = [];
 let primarySelectedId: string | null = null;
 let isDraggingObject = false;
 let isResizing = false;
+let isRotating = false;
+let clipboard: GameObject[] = [];
 
 const textureCache = new Map<string, Texture>();
 
+// ---------- Pixi setup ----------
 const app = new Application();
 
 let viewport: Viewport;
@@ -28,6 +32,13 @@ let gridLayer: Container;
 let contentLayer: Container;
 let selectionLayer: Container;
 const objectSprites = new Map<string, Container>();
+
+// ---------- Ruler & Cursor state ----------
+let mouseWorldX = 0;
+let mouseWorldY = 0;
+let rulerInfo: HTMLDivElement | null = null;
+let rulerH: HTMLCanvasElement | null = null;
+let rulerV: HTMLCanvasElement | null = null;
 
 async function initPixi() {
 	await app.init({
@@ -62,11 +73,16 @@ async function initPixi() {
 
 	setupToolbar();
 	setupContextMenu();
+	setupRulers();
+	setupMouseTracker();
 }
 
+// ---------- Toolbar ----------
 function setupToolbar() {
 	const toolbar = document.createElement("div");
 	toolbar.id = "toolbar";
+	toolbar.style.top = "22px";
+	toolbar.style.left = "22px";
 	toolbar.innerHTML = `
 		<button data-action="add-sprite" title="Add Sprite">➕ Sprite</button>
 		<button data-action="add-shape" title="Add Shape">⭕ Shape</button>
@@ -121,24 +137,100 @@ function setupToolbar() {
 	});
 
 	window.addEventListener("keydown", (e) => {
-		if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+		const mod = e.ctrlKey || e.metaKey;
+
+		if (mod && e.key === "s") {
 			e.preventDefault();
 			if (scene) {
 				vscode.postMessage({ type: "save", scene });
 				updateToolbarInfo("Saved ✓");
 				setTimeout(() => updateToolbarInfo(""), 1500);
 			}
-		}
-		if (e.key === "Delete" && selectedIds.length > 0) {
+		} else if (mod && e.key === "c") {
+			e.preventDefault();
+			copySelection();
+		} else if (mod && e.key === "v") {
+			e.preventDefault();
+			pasteClipboard();
+		} else if (mod && e.key === "d") {
+			e.preventDefault();
+			duplicateSelection();
+		} else if (e.key === "Delete" && selectedIds.length > 0) {
 			vscode.postMessage({ type: "deleteObjects", objectIds: selectedIds });
 			selectObjects([]);
-		}
-		if (e.key === "Escape") {
+		} else if (e.key === "Escape") {
 			selectObjects([]);
 		}
 	});
 }
 
+function updateToolbarInfo(text: string) {
+	const el = document.getElementById("toolbar-info");
+	if (el) el.textContent = text;
+}
+
+function addObject(type: GameObject["type"]) {
+	if (!viewport) return;
+	const center = viewport.center;
+	vscode.postMessage({
+		type: "requestAddObject",
+		objectType: type,
+		x: Math.round(center.x),
+		y: Math.round(center.y),
+	});
+}
+
+function addTexture() {
+	if (!viewport) return;
+	const center = viewport.center;
+	vscode.postMessage({
+		type: "requestAddTexture",
+		x: Math.round(center.x),
+		y: Math.round(center.y),
+	});
+}
+
+// ---------- Copy / Paste / Duplicate ----------
+function copySelection() {
+	if (selectedIds.length === 0 || !scene) return;
+	clipboard = [];
+	for (const id of selectedIds) {
+		const obj = findObject(scene, id);
+		if (obj) clipboard.push(structuredClone(obj) as GameObject);
+	}
+	updateToolbarInfo(`Copied ${clipboard.length} object(s)`);
+	setTimeout(() => updateToolbarInfo(""), 1500);
+}
+
+function pasteClipboard() {
+	if (clipboard.length === 0) return;
+	// هر پیست با آفست بیشتر
+	const offsetX = 20;
+	const offsetY = 20;
+	for (const obj of clipboard) {
+		obj.transform.x += offsetX;
+		obj.transform.y += offsetY;
+	}
+	// درخواست افزودن از extension
+	for (const obj of clipboard) {
+		// پیام updateObject برای افزودن آبجکت جدید (با id جدید)
+		const clone = structuredClone(obj) as GameObject;
+		clone.id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+		clone.name = `${obj.name}_copy`;
+		vscode.postMessage({ type: "updateObject", object: clone });
+	}
+	updateToolbarInfo(`Pasted ${clipboard.length} object(s)`);
+	setTimeout(() => updateToolbarInfo(""), 1500);
+}
+
+function duplicateSelection() {
+	if (selectedIds.length === 0) return;
+	vscode.postMessage({ type: "duplicateObjects", objectIds: selectedIds, offsetX: 20, offsetY: 20 });
+	updateToolbarInfo(`Duplicated ${selectedIds.length} object(s)`);
+	setTimeout(() => updateToolbarInfo(""), 1500);
+}
+
+// ---------- Context Menu ----------
 function setupContextMenu() {
 	const menu = document.createElement("div");
 	menu.id = "context-menu";
@@ -149,6 +241,12 @@ function setupContextMenu() {
 		<div class="context-menu-item" data-action="add-shape-here">⭕ Add Shape Here</div>
 		<div class="context-menu-item" data-action="add-text-here">🔤 Add Text Here</div>
 		<div class="context-menu-item" data-action="add-texture-here">🖼️ Add Texture Here</div>
+		<div class="context-menu-separator"></div>
+		<div class="context-menu-item" data-action="copy">📋 Copy (Ctrl+C)</div>
+		<div class="context-menu-item" data-action="paste">📥 Paste (Ctrl+V)</div>
+		<div class="context-menu-item" data-action="duplicate">📑 Duplicate (Ctrl+D)</div>
+		<div class="context-menu-separator"></div>
+		<div class="context-menu-item" data-action="delete">🗑️ Delete (Del)</div>
 	`;
 	menu.style.display = "none";
 	document.body.appendChild(menu);
@@ -206,36 +304,172 @@ function setupContextMenu() {
 			case "add-texture-here":
 				vscode.postMessage({ type: "requestAddTexture", x: contextWorldX, y: contextWorldY });
 				break;
+			case "copy":
+				copySelection();
+				break;
+			case "paste":
+				pasteClipboard();
+				break;
+			case "duplicate":
+				duplicateSelection();
+				break;
+			case "delete":
+				if (selectedIds.length > 0) {
+					vscode.postMessage({ type: "deleteObjects", objectIds: selectedIds });
+					selectObjects([]);
+				}
+				break;
 		}
 	});
 }
 
-function updateToolbarInfo(text: string) {
-	const el = document.getElementById("toolbar-info");
-	if (el) el.textContent = text;
+// ---------- Rulers ----------
+function setupRulers() {
+	rulerH = document.createElement("canvas");
+	rulerH.id = "ruler-h";
+	rulerH.style.position = "fixed";
+	rulerH.style.top = "0";
+	rulerH.style.left = "0";
+	rulerH.style.width = "100%";
+	rulerH.style.height = "20px";
+	rulerH.style.background = "var(--vscode-editorWidget-background)";
+	rulerH.style.borderBottom = "1px solid var(--vscode-editorWidget-border)";
+	rulerH.style.zIndex = "50";
+	rulerH.style.pointerEvents = "none";
+	document.body.appendChild(rulerH);
+
+	rulerV = document.createElement("canvas");
+	rulerV.id = "ruler-v";
+	rulerV.style.position = "fixed";
+	rulerV.style.top = "0";
+	rulerV.style.left = "0";
+	rulerV.style.width = "20px";
+	rulerV.style.height = "100%";
+	rulerV.style.background = "var(--vscode-editorWidget-background)";
+	rulerV.style.borderRight = "1px solid var(--vscode-editorWidget-border)";
+	rulerV.style.zIndex = "50";
+	rulerV.style.pointerEvents = "none";
+	document.body.appendChild(rulerV);
+
+	rulerInfo = document.createElement("div");
+	rulerInfo.id = "ruler-info";
+	rulerInfo.style.position = "fixed";
+	rulerInfo.style.bottom = "6px";
+	rulerInfo.style.right = "6px";
+	rulerInfo.style.padding = "2px 8px";
+	rulerInfo.style.background = "var(--vscode-editorWidget-background)";
+	rulerInfo.style.border = "1px solid var(--vscode-editorWidget-border)";
+	rulerInfo.style.borderRadius = "3px";
+	rulerInfo.style.fontSize = "11px";
+	rulerInfo.style.fontFamily = "monospace";
+	rulerInfo.style.color = "var(--vscode-descriptionForeground)";
+	rulerInfo.style.zIndex = "50";
+	rulerInfo.style.pointerEvents = "none";
+	rulerInfo.textContent = "0, 0";
+	document.body.appendChild(rulerInfo);
+
+	drawRulers();
+	window.addEventListener("resize", drawRulers);
+	// هر ۱۰۰ms رفرش کن (وقتی pan/zoom تغییر می‌کند)
+	setInterval(drawRulers, 100);
 }
 
-function addObject(type: GameObject["type"]) {
-	if (!viewport) return;
-	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddObject",
-		objectType: type,
-		x: Math.round(center.x),
-		y: Math.round(center.y),
+function drawRulers() {
+	if (!rulerH || !rulerV || !viewport) return;
+
+	const dpr = window.devicePixelRatio || 1;
+
+	// افقی
+	const hw = window.innerWidth;
+	const hh = 20;
+	rulerH.width = hw * dpr;
+	rulerH.height = hh * dpr;
+	const ctxH = rulerH.getContext("2d")!;
+	ctxH.scale(dpr, dpr);
+	ctxH.clearRect(0, 0, hw, hh);
+
+	// عمودی
+	const vw = 20;
+	const vh = window.innerHeight;
+	rulerV.width = vw * dpr;
+	rulerV.height = vh * dpr;
+	const ctxV = rulerV.getContext("2d")!;
+	ctxV.scale(dpr, dpr);
+	ctxV.clearRect(0, 0, vw, vh);
+
+	const textColor = getComputedStyle(document.body).color || "#888";
+	const scale = viewport.scale.x;
+
+	// محاسبه فاصله برچسب بر اساس scale
+	let step = 100;
+	if (scene?.gridSize) step = scene.gridSize;
+	while (step * scale < 40) step *= 2;
+	while (step * scale > 200) step /= 2;
+
+	// خطوط افقی
+	const worldLeft = viewport.toWorld(20, 0).x;
+	const worldRight = viewport.toWorld(hw, 0).x;
+	const startX = Math.floor(worldLeft / step) * step;
+
+	ctxH.fillStyle = textColor;
+	ctxH.font = "9px monospace";
+	ctxH.strokeStyle = textColor;
+	ctxH.lineWidth = 1;
+
+	for (let wx = startX; wx <= worldRight; wx += step) {
+		const sx = viewport.toScreen(wx, 0).x;
+		if (sx < 20 || sx > hw) continue;
+		ctxH.beginPath();
+		ctxH.moveTo(sx, hh - 6);
+		ctxH.lineTo(sx, hh);
+		ctxH.stroke();
+		ctxH.fillText(String(wx), sx + 2, 10);
+	}
+
+	// خطوط عمودی
+	const worldTop = viewport.toWorld(0, 20).y;
+	const worldBottom = viewport.toWorld(0, vh).y;
+	const startY = Math.floor(worldTop / step) * step;
+
+	ctxV.fillStyle = textColor;
+	ctxV.font = "9px monospace";
+	ctxV.strokeStyle = textColor;
+
+	for (let wy = startY; wy <= worldBottom; wy += step) {
+		const sy = viewport.toScreen(0, wy).y;
+		if (sy < 20 || sy > vh) continue;
+		ctxV.beginPath();
+		ctxV.moveTo(vw - 6, sy);
+		ctxV.lineTo(vw, sy);
+		ctxV.stroke();
+		// متن را ۹۰ درجه بچرخان
+		ctxV.save();
+		ctxV.translate(10, sy + 2);
+		ctxV.rotate(-Math.PI / 2);
+		ctxV.fillText(String(wy), 0, 0);
+		ctxV.restore();
+	}
+}
+
+// ---------- Mouse Tracker ----------
+function setupMouseTracker() {
+	app.canvas.addEventListener("mousemove", (e) => {
+		if (!viewport) return;
+		const rect = app.canvas.getBoundingClientRect();
+		const world = viewport.toWorld(e.clientX - rect.left, e.clientY - rect.top);
+		mouseWorldX = Math.round(world.x);
+		mouseWorldY = Math.round(world.y);
+		if (rulerInfo) {
+			rulerInfo.textContent = `${mouseWorldX}, ${mouseWorldY}`;
+		}
+	});
+
+	app.canvas.addEventListener("mouseleave", () => {
+		if (rulerInfo) rulerInfo.textContent = "";
 	});
 }
 
-function addTexture() {
-	if (!viewport) return;
-	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddTexture",
-		x: Math.round(center.x),
-		y: Math.round(center.y),
-	});
-}
-
+// ---------- Grid ----------
 function redrawGrid() {
 	if (!scene) return;
 	gridLayer.removeChildren();
@@ -263,6 +497,7 @@ function redrawGrid() {
 	gridLayer.addChild(border);
 }
 
+// ---------- Textures ----------
 async function loadTexture(path: string, dataUrl: string): Promise<Texture> {
 	if (textureCache.has(path)) return textureCache.get(path)!;
 	const texture = await Assets.load<Texture>(dataUrl);
@@ -298,7 +533,6 @@ function renderObject(obj: GameObject, layerLocked = false) {
 
 	let rendered = false;
 
-	// اول تلاش کن texture را رندر کن
 	if (obj.type === "sprite" && obj.texture) {
 		const cached = textureCache.get(obj.texture);
 		if (cached) {
@@ -324,7 +558,6 @@ function renderObject(obj: GameObject, layerLocked = false) {
 			});
 			container.addChild(txt);
 		} else {
-			// sprite بدون texture، یا group
 			const g = new Graphics();
 			const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
 			g.rect(0, 0, t.width, t.height);
@@ -375,6 +608,7 @@ function renderObject(obj: GameObject, layerLocked = false) {
 	objectSprites.set(obj.id, container);
 }
 
+// ---------- Drag ----------
 function startDrag(e: any, primaryObj: GameObject) {
 	isDraggingObject = true;
 
@@ -449,6 +683,7 @@ function startDrag(e: any, primaryObj: GameObject) {
 	app.stage.on("pointerupoutside", onUp);
 }
 
+// ---------- Selection ----------
 function selectObjects(ids: string[], primaryId?: string | null) {
 	selectedIds = ids;
 	primarySelectedId = primaryId ?? (ids.length > 0 ? ids[ids.length - 1] : null);
@@ -467,6 +702,7 @@ function selectObjects(ids: string[], primaryId?: string | null) {
 	vscode.postMessage({ type: "selectObjects", objectIds: ids });
 }
 
+// ---------- Selection Outlines + Resize + Rotate ----------
 function drawSelectionOutlines() {
 	selectionLayer.removeChildren();
 	if (selectedIds.length === 0 || !scene) return;
@@ -487,6 +723,7 @@ function drawSelectionOutlines() {
 
 		if (selectedIds.length === 1) {
 			drawResizeHandles(obj, t);
+			drawRotateHandle(obj, t);
 		} else {
 			const dot = new Graphics();
 			dot.circle(0, 0, 4);
@@ -538,6 +775,45 @@ function drawResizeHandles(obj: GameObject, t: GameObject["transform"]) {
 
 		selectionLayer.addChild(handle);
 	}
+}
+
+function drawRotateHandle(obj: GameObject, t: GameObject["transform"]) {
+	// نقطه چرخش بالای کادر انتخاب
+	const top = -t.height * t.originY;
+	const centerY = top - 25;
+
+	const handle = new Graphics();
+	handle.circle(0, 0, 6);
+	handle.fill({ color: 0x4aff9b });
+	handle.stroke({ width: 2, color: 0x1a1a1a, alpha: 0.7 });
+
+	// خط اتصال
+	const line = new Graphics();
+	line.moveTo(0, top);
+	line.lineTo(0, centerY);
+	line.stroke({ width: 1, color: 0x4aff9b, alpha: 0.5 });
+
+	// کانتینر برای اعمال rotation و scale
+	const rotateContainer = new Container();
+	rotateContainer.x = t.x;
+	rotateContainer.y = t.y;
+	rotateContainer.rotation = (t.rotation * Math.PI) / 180;
+	rotateContainer.scale.set(t.scaleX, t.scaleY);
+
+	const lineContainer = new Container();
+	lineContainer.addChild(line);
+	lineContainer.addChild(handle);
+	lineContainer.y = centerY;
+	lineContainer.eventMode = "static";
+	lineContainer.cursor = "grab";
+
+	lineContainer.on("pointerdown", (e) => {
+		e.stopPropagation();
+		startRotate(e, obj);
+	});
+
+	rotateContainer.addChild(lineContainer);
+	selectionLayer.addChild(rotateContainer);
 }
 
 function startResize(e: any, obj: GameObject, handle: HandleType) {
@@ -635,6 +911,50 @@ function startResize(e: any, obj: GameObject, handle: HandleType) {
 	app.stage.on("pointerupoutside", onUp);
 }
 
+// ---------- Rotate ----------
+function startRotate(e: any, obj: GameObject) {
+	isRotating = true;
+
+	const t = obj.transform;
+	const centerWorld = { x: t.x, y: t.y };
+
+	const onMove = (moveEvent: any) => {
+		if (!isRotating || !viewport) return;
+
+		// موقعیت ماوس در world
+		const world = viewport.toWorld(moveEvent.global.x, moveEvent.global.y);
+		// زاویه نسبت به مرکز
+		const dx = world.x - centerWorld.x;
+		const dy = world.y - centerWorld.y;
+		let angleDeg = (Math.atan2(dy, dx) * 180) / Math.PI;
+		// چون نقطه چرخش بالای آبجکت است، ۹۰ درجه اضافه می‌کنیم
+		angleDeg += 90;
+
+		// Shift → snap به ۱۵ درجه
+		if (moveEvent.shiftKey) {
+			angleDeg = Math.round(angleDeg / 15) * 15;
+		}
+
+		obj.transform.rotation = angleDeg;
+
+		rerenderObject(obj);
+		drawSelectionOutlines();
+	};
+
+	const onUp = () => {
+		isRotating = false;
+		app.stage.off("pointermove", onMove);
+		app.stage.off("pointerup", onUp);
+		app.stage.off("pointerupoutside", onUp);
+
+		vscode.postMessage({ type: "updateObject", object: structuredClone(obj) as GameObject });
+	};
+
+	app.stage.on("pointermove", onMove);
+	app.stage.on("pointerup", onUp);
+	app.stage.on("pointerupoutside", onUp);
+}
+
 function rerenderObject(obj: GameObject) {
 	const old = objectSprites.get(obj.id);
 	if (old) {
@@ -659,7 +979,7 @@ function setupDeselect() {
 	app.stage.eventMode = "static";
 	app.stage.hitArea = new Rectangle(0, 0, window.innerWidth, window.innerHeight);
 	app.stage.on("pointerdown", () => {
-		if (!isDraggingObject && !isResizing) {
+		if (!isDraggingObject && !isResizing && !isRotating) {
 			selectObjects([]);
 		}
 	});
@@ -671,6 +991,7 @@ window.addEventListener("resize", () => {
 	}
 });
 
+// ---------- Messages ----------
 window.addEventListener("message", async (event) => {
 	const msg = event.data;
 	switch (msg.type) {
@@ -687,7 +1008,6 @@ window.addEventListener("message", async (event) => {
 					console.error("Failed to load texture:", path, err);
 				}
 			}
-			// بعد از لود همه textureها، scene را دوباره رندر کن
 			if (scene) renderScene(scene);
 			break;
 		}

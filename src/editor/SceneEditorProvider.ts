@@ -158,6 +158,43 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		return false;
 	}
 
+	public static duplicateObjects(objectIds: string[], offsetX: number, offsetY: number): void {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentScene) continue;
+			const updated = structuredClone(inst.currentScene) as Scene;
+			const newIds: string[] = [];
+
+			for (const layer of updated.layers) {
+				const objectsToClone: GameObject[] = [];
+				for (const obj of layer.objects) {
+					if (objectIds.includes(obj.id)) {
+						const clone = structuredClone(obj) as GameObject;
+						clone.id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+						clone.name = `${obj.name}_copy`;
+						clone.transform.x += offsetX;
+						clone.transform.y += offsetY;
+						objectsToClone.push(clone);
+						newIds.push(clone.id);
+					}
+				}
+				layer.objects.push(...objectsToClone);
+			}
+
+			inst.currentScene = updated;
+			inst.markDirty();
+			inst.broadcastUpdate(updated);
+
+			// انتخاب آبجکت‌های جدید
+			setTimeout(() => {
+				try {
+					inst.activeWebview?.postMessage({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
+				} catch {
+					// ignore
+				}
+			}, 50);
+		}
+	}
+
 	public static async importTextureAt(x: number, y: number): Promise<void> {
 		for (const inst of SceneEditorProvider.instances) {
 			if (!inst.currentDocument || !inst.currentScene) continue;
@@ -302,6 +339,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(updated);
 					}
+					break;
+				}
+				case "duplicateObjects": {
+					SceneEditorProvider.duplicateObjects(msg.objectIds, msg.offsetX, msg.offsetY);
 					break;
 				}
 				case "openSceneSettings": {

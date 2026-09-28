@@ -7,3 +7,12 @@ body,
     height: 100%;
     overflow: hidden;
 }
+
+#ruler-h,
+#ruler-v {
+    display: block;
+}
+
+#ruler-info {
+    user-select: none;
+}
