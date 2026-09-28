@@ -28,7 +28,6 @@ function applySceneTheme(scene: Scene | null): void {
 }
 
 function render(force = false): void {
-	// تم را قبل از هر رندر اعمال کن
 	applySceneTheme(currentScene);
 
 	if (sceneMode && currentScene) {
@@ -190,11 +189,6 @@ function attachSceneListeners(): void {
 
 		if (input instanceof HTMLSelectElement) {
 			input.addEventListener("change", () => {
-				// تم را بلافاصله در inspector اعمال کن
-				if (field === "theme" && currentScene) {
-					currentScene = { ...currentScene, theme: input.value };
-					applySceneTheme(currentScene);
-				}
 				vscode.postMessage({ type: "updateSceneField", field, value: input.value, historyLabel: `scene: ${field}` });
 			});
 		} else if (input.type === "number") {
@@ -475,7 +469,12 @@ window.addEventListener("message", (event) => {
 			currentScene = msg.scene;
 			applySceneTheme(currentScene);
 			if (sceneMode) {
-				render(false);
+				// اگر select تم focus است، دست نزن
+				const activeEl = document.activeElement;
+				if (activeEl instanceof HTMLSelectElement && activeEl.dataset.sceneField === "theme") {
+					break;
+				}
+				updateSceneFieldValues();
 			}
 			break;
 		case "showSceneSettings":

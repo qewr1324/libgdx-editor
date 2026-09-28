@@ -11,11 +11,14 @@ export function getCurrentTheme(): Theme {
 	return getTheme(currentThemeName);
 }
 
-/**
- * تم را اعمال می‌کند. برای اطمینان، styleEl را کاملاً جایگزین می‌کند.
- */
 export function applyTheme(name: string): void {
 	const theme = getTheme(name);
+
+	// اگر همان تم قبلی است و style وجود دارد، هیچ کاری نکن
+	if (theme.name === currentThemeName && document.getElementById("viewport-theme")) {
+		return;
+	}
+
 	currentThemeName = theme.name;
 
 	// پاک کردن style قدیمی
@@ -30,10 +33,8 @@ export function applyTheme(name: string): void {
 	styleEl.textContent = buildThemeCss(theme);
 	document.head.appendChild(styleEl);
 
-	// color-scheme
 	document.documentElement.style.colorScheme = theme.name === "win98" ? "light" : "dark";
 
-	// رویداد سفارشی برای کسانی که می‌خواهند بدانند تم عوض شده
 	window.dispatchEvent(new CustomEvent("theme-changed", { detail: { theme } }));
 }
 

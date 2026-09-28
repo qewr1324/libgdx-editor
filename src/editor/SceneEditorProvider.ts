@@ -23,7 +23,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	private isDirty = false;
 	private autoSaveTimer: NodeJS.Timeout | null = null;
 	private history: HistoryManager = new HistoryManager();
-	private isInitialLoad = true;
 	private isProgrammaticChange = false;
 
 	constructor(private readonly context: vscode.ExtensionContext) {
@@ -217,9 +216,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			inst.markDirty();
 			inst.broadcastUpdate(scene);
 			inst.broadcastHistoryState();
-			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-				handler(scene);
-			}
 		}
 	}
 
@@ -232,9 +228,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			inst.markDirty();
 			inst.broadcastUpdate(scene);
 			inst.broadcastHistoryState();
-			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-				handler(scene);
-			}
 		}
 	}
 
@@ -262,10 +255,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 		this.activeWebview = webviewPanel.webview;
 		this.currentDocument = document;
-		this.isInitialLoad = true;
 
-		// فقط بار اول history را reset می‌کند
-		const sendSceneInitial = async () => {
+		const sendScene = async () => {
 			const scene = this.parseDocument(document);
 			this.currentScene = scene;
 			this.history.reset(scene);
@@ -282,9 +273,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			}
 		};
 
-		// برای تغییرات بیرونی — history را reset نمی‌کند
 		const sendSceneUpdate = async () => {
-			// اگر تغییر از سمت خودمان بوده، نادیده بگیر
 			if (this.isProgrammaticChange) {
 				this.isProgrammaticChange = false;
 				return;
@@ -306,14 +295,12 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		webviewPanel.webview.onDidReceiveMessage(async (msg: WebviewToExtensionMessage) => {
 			switch (msg.type) {
 				case "ready":
-					await sendSceneInitial();
-					this.isInitialLoad = false;
+					await sendScene();
 					break;
 				case "save":
 					await this.writeDocument(document, msg.scene);
 					this.currentScene = msg.scene;
 					this.isDirty = false;
-					// بعد از save، تغییرات از بیرون نیاید
 					this.isProgrammaticChange = true;
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(msg.scene);
@@ -348,11 +335,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					this.currentScene = updated;
 					this.markDirty();
 					this.history.push(updated, `add ${msg.objectType}`);
-					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.broadcastUpdate(updated);
 					this.broadcastHistoryState();
-					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-						handler(updated);
-					}
 					break;
 				}
 				case "requestAddTexture": {
@@ -369,10 +353,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					this.currentScene = updated;
 					this.markDirty();
 					this.history.push(updated, msg.historyLabel ?? "update object");
+					this.broadcastUpdate(updated);
 					this.broadcastHistoryState();
-					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-						handler(updated);
-					}
 					break;
 				}
 				case "updateObjects": {
@@ -384,10 +366,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					this.currentScene = updated;
 					this.markDirty();
 					this.history.push(updated, msg.historyLabel ?? "update objects");
+					this.broadcastUpdate(updated);
 					this.broadcastHistoryState();
-					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-						handler(updated);
-					}
 					break;
 				}
 				case "updateSceneField": {
@@ -400,11 +380,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					this.currentScene = updated;
 					this.markDirty();
 					this.history.push(updated, "delete object");
-					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.broadcastUpdate(updated);
 					this.broadcastHistoryState();
-					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-						handler(updated);
-					}
 					break;
 				}
 				case "deleteObjects": {
@@ -416,11 +393,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					this.currentScene = updated;
 					this.markDirty();
 					this.history.push(updated, "delete objects");
-					this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					this.broadcastUpdate(updated);
 					this.broadcastHistoryState();
-					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-						handler(updated);
-					}
 					break;
 				}
 				case "duplicateObjects": {
@@ -447,14 +421,11 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 		const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
 			if (e.document.uri.toString() === document.uri.toString()) {
-				// اگر تغییر از auto-save خودمان است، نادیده بگیر
 				if (this.isProgrammaticChange) {
 					this.isProgrammaticChange = false;
 					return;
 				}
-				if (!this.isInitialLoad) {
-					void sendSceneUpdate();
-				}
+				void sendSceneUpdate();
 			}
 		});
 
@@ -475,11 +446,15 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	}
 
 	private broadcastUpdate(scene: Scene): void {
-		try {
-			this.activeWebview?.postMessage({ type: "update", scene } satisfies ExtensionToWebviewMessage);
-		} catch {
-			// ignore
+		// به همه نمونه‌ها بفرست (viewport)
+		for (const inst of SceneEditorProvider.instances) {
+			try {
+				inst.activeWebview?.postMessage({ type: "update", scene } satisfies ExtensionToWebviewMessage);
+			} catch {
+				// ignore
+			}
 		}
+		// به handlerهای scene (inspector)
 		for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 			handler(scene);
 		}
@@ -508,7 +483,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	private async autoSave(): Promise<void> {
 		if (!this.currentDocument || !this.currentScene || !this.isDirty) return;
 		try {
-			// قبل از نوشتن، flag را set کن
 			this.isProgrammaticChange = true;
 			await this.writeDocument(this.currentDocument, this.currentScene);
 			this.isDirty = false;
@@ -572,16 +546,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			this.markDirty();
 			this.history.push(updated, "import texture");
 
-			this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
-
 			const textures = await AssetManager.loadTexturesAsDataUrls(this.currentDocument.uri, updated);
 			this.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
-
+			this.broadcastUpdate(updated);
 			this.broadcastHistoryState();
-
-			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
-				handler(updated);
-			}
 		} catch (err) {
 			vscode.window.showErrorMessage(`Failed to import texture: ${err instanceof Error ? err.message : String(err)}`);
 		}
@@ -663,6 +631,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		}
 		try {
 			const parsed = JSON.parse(text) as Scene;
+			if (!parsed.theme) parsed.theme = "win98";
 			if (!parsed.camera) parsed.camera = { x: 0, y: 0, zoom: 1 };
 			if (typeof parsed.snapToGrid !== "boolean") parsed.snapToGrid = false;
 			if (typeof parsed.snapToObjects !== "boolean") parsed.snapToObjects = false;
