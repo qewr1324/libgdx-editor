@@ -23,6 +23,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	private isDirty = false;
 	private autoSaveTimer: NodeJS.Timeout | null = null;
 	private history: HistoryManager = new HistoryManager();
+	private isInitialLoad = true;
+	private isProgrammaticChange = false;
 
 	constructor(private readonly context: vscode.ExtensionContext) {
 		SceneEditorProvider.instances.add(this);
@@ -260,8 +262,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 		this.activeWebview = webviewPanel.webview;
 		this.currentDocument = document;
+		this.isInitialLoad = true;
 
-		const sendScene = async () => {
+		// فقط بار اول history را reset می‌کند
+		const sendSceneInitial = async () => {
 			const scene = this.parseDocument(document);
 			this.currentScene = scene;
 			this.history.reset(scene);
@@ -278,15 +282,39 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			}
 		};
 
+		// برای تغییرات بیرونی — history را reset نمی‌کند
+		const sendSceneUpdate = async () => {
+			// اگر تغییر از سمت خودمان بوده، نادیده بگیر
+			if (this.isProgrammaticChange) {
+				this.isProgrammaticChange = false;
+				return;
+			}
+
+			const scene = this.parseDocument(document);
+			this.currentScene = scene;
+			const msg: ExtensionToWebviewMessage = { type: "load", scene };
+			webviewPanel.webview.postMessage(msg);
+
+			const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
+			webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+				handler(scene);
+			}
+		};
+
 		webviewPanel.webview.onDidReceiveMessage(async (msg: WebviewToExtensionMessage) => {
 			switch (msg.type) {
 				case "ready":
-					await sendScene();
+					await sendSceneInitial();
+					this.isInitialLoad = false;
 					break;
 				case "save":
 					await this.writeDocument(document, msg.scene);
 					this.currentScene = msg.scene;
 					this.isDirty = false;
+					// بعد از save، تغییرات از بیرون نیاید
+					this.isProgrammaticChange = true;
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 						handler(msg.scene);
 					}
@@ -419,7 +447,14 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 		const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
 			if (e.document.uri.toString() === document.uri.toString()) {
-				void sendScene();
+				// اگر تغییر از auto-save خودمان است، نادیده بگیر
+				if (this.isProgrammaticChange) {
+					this.isProgrammaticChange = false;
+					return;
+				}
+				if (!this.isInitialLoad) {
+					void sendSceneUpdate();
+				}
 			}
 		});
 
@@ -473,10 +508,13 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	private async autoSave(): Promise<void> {
 		if (!this.currentDocument || !this.currentScene || !this.isDirty) return;
 		try {
+			// قبل از نوشتن، flag را set کن
+			this.isProgrammaticChange = true;
 			await this.writeDocument(this.currentDocument, this.currentScene);
 			this.isDirty = false;
 		} catch (err) {
 			console.error("Auto-save failed:", err);
+			this.isProgrammaticChange = false;
 		}
 	}
 
