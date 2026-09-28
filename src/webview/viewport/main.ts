@@ -22,7 +22,6 @@ let clipboard: GameObject[] = [];
 type InteractionMode = "idle" | "drag" | "resize" | "rotate";
 let interactionMode: InteractionMode = "idle";
 
-// data برای interaction فعلی
 interface InteractionData {
 	startGlobalX: number;
 	startGlobalY: number;
@@ -36,6 +35,7 @@ interface InteractionData {
 }
 
 let currentInteraction: InteractionData | null = null;
+let isFinishingInteraction = false;
 
 const textureCache = new Map<string, Texture>();
 
@@ -94,11 +94,19 @@ async function initPixi() {
 	setupRulers();
 	setupMouseTracker();
 	setupGlobalInteractionListeners();
+
+	// fallback: PixiJS هم pointerup را بگیرد
+	app.stage.eventMode = "static";
+	app.stage.on("pointerup", () => {
+		finishInteractionSafely();
+	});
+	app.stage.on("pointerupoutside", () => {
+		finishInteractionSafely();
+	});
 }
 
 // ---------- Global Interaction Listeners (یک بار برای همیشه) ----------
 function setupGlobalInteractionListeners() {
-	// pointermove روی window — نه روی app.stage
 	window.addEventListener("pointermove", (e) => {
 		if (interactionMode === "idle" || !currentInteraction || !viewport || !scene) return;
 
@@ -118,22 +126,12 @@ function setupGlobalInteractionListeners() {
 		}
 	});
 
-	window.addEventListener("pointerup", () => {
-		if (interactionMode === "idle") return;
-		finishInteraction();
-	});
-
-	window.addEventListener("pointercancel", () => {
-		if (interactionMode === "idle") return;
-		finishInteraction();
-	});
-
-	window.addEventListener("blur", () => {
-		// اگر کاربر پنجره را ترک کرد، interaction را تمام کن
-		if (interactionMode !== "idle") {
-			finishInteraction();
-		}
-	});
+	const onPointerUp = () => {
+		finishInteractionSafely();
+	};
+	window.addEventListener("pointerup", onPointerUp);
+	window.addEventListener("pointercancel", onPointerUp);
+	window.addEventListener("blur", onPointerUp);
 }
 
 // ---------- Toolbar ----------
@@ -605,7 +603,6 @@ function renderObject(obj: GameObject, layerLocked = false) {
 			const sprite = new Sprite(cached);
 			sprite.width = t.width;
 			sprite.height = t.height;
-			// ⭐ مهم: sprite را غیرفعال کن تا کلیک به container برسد
 			sprite.eventMode = "none";
 			container.addChild(sprite);
 			rendered = true;
@@ -638,7 +635,6 @@ function renderObject(obj: GameObject, layerLocked = false) {
 		}
 	}
 
-	// ⭐ مهم: یک hitArea مستطیلی صریح روی container تنظیم کن
 	container.hitArea = new Rectangle(0, 0, t.width, t.height);
 
 	container.x = t.x;
@@ -893,6 +889,21 @@ function handleRotateMove(e: PointerEvent, globalX: number, globalY: number) {
 }
 
 // ---------- Interaction: finish ----------
+function finishInteractionSafely() {
+	if (isFinishingInteraction) return;
+	if (interactionMode === "idle") return;
+
+	isFinishingInteraction = true;
+
+	try {
+		finishInteraction();
+	} finally {
+		setTimeout(() => {
+			isFinishingInteraction = false;
+		}, 50);
+	}
+}
+
 function finishInteraction() {
 	if (!currentInteraction) {
 		interactionMode = "idle";
@@ -902,7 +913,7 @@ function finishInteraction() {
 	const data = currentInteraction;
 	const mode = interactionMode;
 
-	// reset state
+	// reset state — قبل از هر چیز
 	interactionMode = "idle";
 	currentInteraction = null;
 	clearGizmo();
