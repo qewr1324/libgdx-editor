@@ -8,10 +8,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 
 	const sharedCss = `
 		html, body, #app {
-			margin: 0;
-			padding: 0;
-			width: 100%;
-			height: 100%;
+			margin: 0; padding: 0; width: 100%; height: 100%;
 			overflow: hidden;
 			background: var(--vscode-editor-background);
 			color: var(--vscode-foreground);
@@ -49,21 +46,17 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		.empty-hint { font-size: 11px; opacity: 0.7; }
 		.inspector { padding: 8px; }
 		.section {
-			margin-bottom: 12px;
-			padding: 8px;
+			margin-bottom: 12px; padding: 8px;
 			background: var(--vscode-editorWidget-background);
 			border-radius: 6px;
 		}
 		.section-title {
 			font-size: 11px; font-weight: 600; text-transform: uppercase;
 			color: var(--vscode-descriptionForeground);
-			margin-bottom: 8px;
-			letter-spacing: 0.5px;
+			margin-bottom: 8px; letter-spacing: 0.5px;
 		}
 		.header-section { padding: 10px; }
-		.header-top {
-			display: flex; gap: 6px; align-items: center; margin-bottom: 6px;
-		}
+		.header-top { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
 		.object-type-badge {
 			font-size: 10px; padding: 2px 8px; border-radius: 10px;
 			background: var(--vscode-badge-background);
@@ -81,8 +74,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 		.btn-icon {
 			background: transparent; border: none; cursor: pointer;
 			font-size: 14px; padding: 4px; border-radius: 4px;
-			color: var(--vscode-foreground);
-			margin-left: auto;
+			color: var(--vscode-foreground); margin-left: auto;
 		}
 		.btn-icon:hover { background: var(--vscode-toolbar-hoverBackground); }
 		.btn-icon.btn-danger:hover { background: #ff4a4a33; }

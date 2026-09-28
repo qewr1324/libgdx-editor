@@ -3,7 +3,7 @@ import { createEmptyScene, type GameObject, type Scene } from "../types/scene.js
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { getWebviewHtml } from "./webviewHtml.js";
 
-export type ObjectSelectionHandler = (objectId: string | null, scene: Scene) => void;
+export type ObjectSelectionHandler = (objectIds: string[], scene: Scene) => void;
 export type SceneChangeHandler = (scene: Scene) => void;
 
 export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
@@ -53,19 +53,16 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		};
 	}
 
-	// متدهای استاتیک که از Inspector صدا زده می‌شوند
 	public static updateObject(obj: GameObject): void {
 		for (const inst of SceneEditorProvider.instances) {
 			if (!inst.currentScene) continue;
 			const updated = inst.updateObjectInScene(inst.currentScene, obj);
 			inst.currentScene = updated;
-			// به viewport پیام بفرست
 			try {
 				inst.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 			} catch {
 				// ignore
 			}
-			// به سایر handlerها
 			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 				handler(updated);
 			}
@@ -139,8 +136,16 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					break;
 				case "selectObject": {
 					const scene = this.currentScene ?? this.parseDocument(document);
+					const ids = msg.objectId ? [msg.objectId] : [];
 					for (const handler of SceneEditorProvider.selectionHandlers) {
-						handler(msg.objectId, scene);
+						handler(ids, scene);
+					}
+					break;
+				}
+				case "selectObjects": {
+					const scene = this.currentScene ?? this.parseDocument(document);
+					for (const handler of SceneEditorProvider.selectionHandlers) {
+						handler(msg.objectIds, scene);
 					}
 					break;
 				}
@@ -164,9 +169,34 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					}
 					break;
 				}
+				case "updateObjects": {
+					if (!this.currentScene) break;
+					let updated = this.currentScene;
+					for (const obj of msg.objects) {
+						updated = this.updateObjectInScene(updated, obj);
+					}
+					this.currentScene = updated;
+					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+						handler(updated);
+					}
+					break;
+				}
 				case "deleteObject": {
 					if (!this.currentScene) break;
 					const updated = this.deleteObjectFromScene(this.currentScene, msg.objectId);
+					this.currentScene = updated;
+					webviewPanel.webview.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+					for (const handler of SceneEditorProvider.sceneChangeHandlers) {
+						handler(updated);
+					}
+					break;
+				}
+				case "deleteObjects": {
+					if (!this.currentScene) break;
+					let updated = this.currentScene;
+					for (const id of msg.objectIds) {
+						updated = this.deleteObjectFromScene(updated, id);
+					}
 					this.currentScene = updated;
 					webviewPanel.webview.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 					for (const handler of SceneEditorProvider.sceneChangeHandlers) {

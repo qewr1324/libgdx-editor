@@ -10,21 +10,18 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(vscode.window.registerWebviewViewProvider(InspectorProvider.viewType, inspector, { webviewOptions: { retainContextWhenHidden: true } }), SceneEditorProvider.register(context));
 
-	// Viewport → Inspector
 	context.subscriptions.push(
-		SceneEditorProvider.onDidSelectObject((objectId, scene) => {
-			inspector.setSelection(objectId, scene);
+		SceneEditorProvider.onDidSelectObject((objectIds, scene) => {
+			inspector.setSelection(objectIds, scene);
 		}),
 	);
 
-	// Scene → Inspector (وقتی scene تغییر می‌کند)
 	context.subscriptions.push(
 		SceneEditorProvider.onDidChangeScene((scene) => {
 			inspector.setScene(scene);
 		}),
 	);
 
-	// Inspector → Scene
 	inspector.setHandlers({
 		onUpdateObject: (obj) => {
 			SceneEditorProvider.updateObject(obj);

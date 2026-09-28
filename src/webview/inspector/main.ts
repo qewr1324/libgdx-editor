@@ -12,9 +12,24 @@ const app = document.getElementById("app")!;
 
 let currentObject: GameObject | null = null;
 let currentObjectId: string | null = null;
+let multiSelection: { count: number; ids: string[] } | null = null;
 
 // ---------- Render ----------
 function render(force = false): void {
+	// چند انتخاب
+	if (multiSelection) {
+		app.innerHTML = `
+			<div class="empty-state">
+				<div class="empty-icon">▣▣</div>
+				<div class="empty-text">${multiSelection.count} objects selected</div>
+				<div class="empty-hint">Multi-edit coming soon<br/>Select a single object to edit its properties</div>
+			</div>
+		`;
+		currentObject = null;
+		currentObjectId = null;
+		return;
+	}
+
 	if (!currentObject) {
 		app.innerHTML = `
 			<div class="empty-state">
@@ -27,7 +42,6 @@ function render(force = false): void {
 		return;
 	}
 
-	// اگر همان آبجکت قبلی است و force نیست، فقط مقادیر را به‌روزرسانی کن
 	if (!force && currentObjectId === currentObject.id && app.querySelector(".inspector")) {
 		updateFieldValues();
 		return;
@@ -42,7 +56,6 @@ function buildInspectorHtml(obj: GameObject): string {
 	const t = obj.transform;
 	return `
 		<div class="inspector">
-			<!-- Header -->
 			<div class="section header-section">
 				<div class="header-top">
 					<div class="object-type-badge type-${obj.type}">${obj.type}</div>
@@ -52,7 +65,6 @@ function buildInspectorHtml(obj: GameObject): string {
 				<div class="object-id">${escapeHtml(obj.id)}</div>
 			</div>
 
-			<!-- Identity -->
 			<div class="section">
 				<div class="section-title">Identity</div>
 				<div class="field">
@@ -67,7 +79,6 @@ function buildInspectorHtml(obj: GameObject): string {
 				</div>
 			</div>
 
-			<!-- Transform -->
 			<div class="section">
 				<div class="section-title">Transform</div>
 				<div class="field-row">
@@ -118,7 +129,6 @@ function buildInspectorHtml(obj: GameObject): string {
 				</div>
 			</div>
 
-			<!-- Appearance -->
 			<div class="section">
 				<div class="section-title">Appearance</div>
 				<div class="field">
@@ -130,7 +140,6 @@ function buildInspectorHtml(obj: GameObject): string {
 				</div>
 			</div>
 
-			<!-- Properties (JSON) -->
 			<div class="section">
 				<div class="section-title">Properties</div>
 				<textarea class="properties-json" data-field="properties" rows="4">${escapeHtml(JSON.stringify(obj.properties || {}, null, 2))}</textarea>
@@ -139,20 +148,14 @@ function buildInspectorHtml(obj: GameObject): string {
 	`;
 }
 
-/**
- * فقط مقادیر فیلدها را به‌روزرسانی می‌کند، بدون از دست دادن focus.
- * فیلدهایی که در حال focus هستند نادیده گرفته می‌شوند.
- */
 function updateFieldValues(): void {
 	if (!currentObject) return;
 	const obj = currentObject;
 	const t = obj.transform;
 
-	// فیلدهای top-level
 	setFieldValue("name", obj.name, "string");
 	setFieldValue("type", obj.type, "select");
 
-	// Transform
 	setFieldValue("transform.x", t.x, "number");
 	setFieldValue("transform.y", t.y, "number");
 	setFieldValue("transform.width", t.width, "number");
@@ -163,14 +166,10 @@ function updateFieldValues(): void {
 	setFieldValue("transform.originX", t.originX, "number");
 	setFieldValue("transform.originY", t.originY, "number");
 
-	// Color - هر دو color picker و text input
 	setFieldValue("color", obj.color || "#4a9eff", "color");
 	setFieldValue("color", obj.color || "#4a9eff", "text");
-
-	// Properties
 	setFieldValue("properties", JSON.stringify(obj.properties || {}, null, 2), "textarea");
 
-	// Type badge
 	const badge = app.querySelector(".object-type-badge");
 	if (badge) {
 		badge.className = `object-type-badge type-${obj.type}`;
@@ -182,10 +181,8 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 	const elements = app.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[data-field="${field}"]`);
 
 	for (const el of elements) {
-		// اگر این المنت در حال focus است، دست نزن
 		if (document.activeElement === el) continue;
 
-		// اگر نوع المنت با kind نمی‌خواند، رد کن
 		if (kind === "color" && el.type !== "color") continue;
 		if (kind === "text" && el.type !== "text") continue;
 		if (kind === "number" && el.type !== "number") continue;
@@ -193,7 +190,6 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 		if (kind === "select" && el.tagName !== "SELECT") continue;
 		if (kind === "string" && el.tagName !== "INPUT") continue;
 
-		// اگر همان مقدار قبلی است، دست نزن
 		if (el.value === String(value)) continue;
 
 		el.value = String(value);
@@ -201,7 +197,6 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 }
 
 function attachEventListeners() {
-	// دکمه حذف
 	const deleteBtn = document.getElementById("btn-delete");
 	deleteBtn?.addEventListener("click", () => {
 		if (currentObject) {
@@ -209,7 +204,6 @@ function attachEventListeners() {
 		}
 	});
 
-	// دکمه focus
 	const focusBtn = document.getElementById("btn-focus");
 	focusBtn?.addEventListener("click", () => {
 		if (currentObject) {
@@ -217,12 +211,10 @@ function attachEventListeners() {
 		}
 	});
 
-	// همه input/select/textarea ها
 	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("[data-field]");
 	for (const input of inputs) {
 		const field = input.dataset.field!;
 
-		// برای input عددی: هنگام تغییر
 		if (input instanceof HTMLInputElement && input.type === "number") {
 			input.addEventListener("change", () => {
 				const value = Number.parseFloat(input.value);
@@ -230,33 +222,23 @@ function attachEventListeners() {
 					sendFieldUpdate(field, value);
 				}
 			});
-			// Enter → commit
 			input.addEventListener("keydown", (e) => {
-				if (e.key === "Enter") {
-					input.blur();
-				}
+				if (e.key === "Enter") input.blur();
 			});
-		}
-		// برای color picker
-		else if (input instanceof HTMLInputElement && input.type === "color") {
+		} else if (input instanceof HTMLInputElement && input.type === "color") {
 			input.addEventListener("input", () => {
-				// همگام‌سازی با فیلد متنی کنارش (بدون رندر مجدد)
 				const textInput = input.parentElement?.querySelector<HTMLInputElement>('input[type="text"]');
 				if (textInput && document.activeElement !== textInput) {
 					textInput.value = input.value;
 				}
 				sendFieldUpdate(field, input.value);
 			});
-		}
-		// برای input متنی
-		else if (input instanceof HTMLInputElement) {
+		} else if (input instanceof HTMLInputElement) {
 			input.addEventListener("change", () => {
 				sendFieldUpdate(field, input.value);
 			});
 			input.addEventListener("keydown", (e) => {
-				if (e.key === "Enter") {
-					input.blur();
-				}
+				if (e.key === "Enter") input.blur();
 			});
 		} else if (input instanceof HTMLSelectElement) {
 			input.addEventListener("change", () => {
@@ -301,10 +283,16 @@ window.addEventListener("message", (event) => {
 	const msg = event.data;
 	switch (msg.type) {
 		case "showObject":
+			multiSelection = null;
 			currentObject = msg.object;
 			render(false);
 			break;
+		case "showMultiSelection":
+			multiSelection = { count: msg.count, ids: msg.ids };
+			render(true);
+			break;
 		case "clearSelection":
+			multiSelection = null;
 			currentObject = null;
 			render(true);
 			break;

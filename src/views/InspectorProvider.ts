@@ -8,16 +8,14 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 
 	private view: vscode.WebviewView | null = null;
 	private currentScene: Scene | null = null;
-	private selectedId: string | null = null;
+	private selectedIds: string[] = [];
 
-	// Callbackهایی که از بیرون set می‌شوند
 	private onUpdateObject: ((object: GameObject) => void) | null = null;
 	private onDeleteObject: ((objectId: string) => void) | null = null;
 	private onFocusObject: ((objectId: string) => void) | null = null;
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
-	// ثبت callbackها از extension.ts
 	public setHandlers(handlers: { onUpdateObject: (object: GameObject) => void; onDeleteObject: (objectId: string) => void; onFocusObject: (objectId: string) => void }): void {
 		this.onUpdateObject = handlers.onUpdateObject;
 		this.onDeleteObject = handlers.onDeleteObject;
@@ -62,8 +60,8 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
-	setSelection(objectId: string | null, scene: Scene): void {
-		this.selectedId = objectId;
+	setSelection(objectIds: string[], scene: Scene): void {
+		this.selectedIds = objectIds;
 		this.currentScene = scene;
 		this.pushSelectionToWebview();
 	}
@@ -76,18 +74,28 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private pushSelectionToWebview(): void {
 		if (!this.view) return;
 
-		if (!this.selectedId || !this.currentScene) {
+		if (this.selectedIds.length === 0 || !this.currentScene) {
 			const msg: ExtensionToInspectorMessage = { type: "clearSelection" };
 			this.view.webview.postMessage(msg);
 			return;
 		}
 
-		const obj = this.findObject(this.currentScene, this.selectedId);
-		if (obj) {
-			const msg: ExtensionToInspectorMessage = { type: "showObject", object: obj };
-			this.view.webview.postMessage(msg);
+		if (this.selectedIds.length === 1) {
+			const obj = this.findObject(this.currentScene, this.selectedIds[0]);
+			if (obj) {
+				const msg: ExtensionToInspectorMessage = { type: "showObject", object: obj };
+				this.view.webview.postMessage(msg);
+			} else {
+				const msg: ExtensionToInspectorMessage = { type: "clearSelection" };
+				this.view.webview.postMessage(msg);
+			}
 		} else {
-			const msg: ExtensionToInspectorMessage = { type: "clearSelection" };
+			// چند انتخاب
+			const msg: ExtensionToInspectorMessage = {
+				type: "showMultiSelection",
+				count: this.selectedIds.length,
+				ids: this.selectedIds,
+			};
 			this.view.webview.postMessage(msg);
 		}
 	}
@@ -97,7 +105,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		const obj = this.findObject(this.currentScene, objectId);
 		if (!obj) return null;
 
-		// فیلدهای top-level
 		if (field === "name" && typeof value === "string") {
 			obj.name = value;
 		} else if (field === "type" && typeof value === "string") {
@@ -105,7 +112,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		} else if (field === "color" && typeof value === "string") {
 			obj.color = value;
 		} else if (field.startsWith("transform.")) {
-			// فیلدهای transform
 			const key = field.slice("transform.".length) as keyof GameObject["transform"];
 			const numValue = typeof value === "number" ? value : Number.parseFloat(String(value));
 			if (!Number.isNaN(numValue)) {
