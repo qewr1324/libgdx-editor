@@ -15,7 +15,9 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     content="default-src 'none';
              img-src ${webview.cspSource} data: blob:;
              style-src ${webview.cspSource} 'unsafe-inline';
-             script-src 'nonce-${nonce}';" />
+             script-src 'nonce-${nonce}' 'wasm-unsafe-eval';
+             worker-src blob:;
+             connect-src ${webview.cspSource};" />
   <title>LibGDX Editor</title>
   <style>
     html, body, #app {
@@ -28,6 +30,9 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
       color: var(--vscode-foreground);
       font-family: var(--vscode-font-family);
       font-size: var(--vscode-font-size);
+    }
+    canvas {
+      display: block;
     }
   </style>
 </head>
