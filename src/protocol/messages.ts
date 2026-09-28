@@ -10,6 +10,8 @@ export type WebviewToExtensionMessage =
 			objectType: GameObject["type"];
 			x: number;
 			y: number;
-	  };
+	  }
+	| { type: "updateObject"; object: GameObject }
+	| { type: "deleteObject"; objectId: string };
 
-export type ExtensionToWebviewMessage = { type: "load"; scene: Scene } | { type: "update"; scene: Scene } | { type: "selectObject"; objectId: string | null } | { type: "selectFromOutliner"; objectId: string | null } | { type: "objectUpdated"; object: GameObject };
+export type ExtensionToWebviewMessage = { type: "load"; scene: Scene } | { type: "update"; scene: Scene } | { type: "selectObject"; objectId: string | null } | { type: "selectFromOutliner"; objectId: string | null } | { type: "objectUpdated"; object: GameObject } | { type: "focusObject"; objectId: string };

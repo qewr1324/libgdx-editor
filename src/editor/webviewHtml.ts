@@ -34,6 +34,39 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
     canvas {
       display: block;
     }
+    #toolbar {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      z-index: 100;
+      display: flex;
+      gap: 6px;
+      padding: 6px;
+      background: var(--vscode-editorWidget-background);
+      border: 1px solid var(--vscode-editorWidget-border);
+      border-radius: 6px;
+      align-items: center;
+      font-family: var(--vscode-font-family);
+      font-size: 12px;
+    }
+    #toolbar button {
+      background: var(--vscode-button-secondaryBackground);
+      color: var(--vscode-button-secondaryForeground);
+      border: none;
+      padding: 4px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: inherit;
+    }
+    #toolbar button:hover {
+      background: var(--vscode-button-secondaryHoverBackground);
+    }
+    #toolbar-info {
+      margin-left: 8px;
+      color: var(--vscode-descriptionForeground);
+      font-size: 11px;
+    }
   </style>
 </head>
 <body>
