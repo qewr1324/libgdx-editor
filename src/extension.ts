@@ -23,11 +23,28 @@ export function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 
-	// راست‌کلیک روی صحنه → Scene Settings
 	context.subscriptions.push(
 		SceneEditorProvider.onDidRequestSceneSettings((scene) => {
 			inspector.showSceneSettings(scene);
 			void vscode.commands.executeCommand("libgdx-editor.inspector.focus");
+		}),
+	);
+
+	// وقتی کاربر بین tab ها جابجا می‌شود، instance فعال را عوض کن
+	context.subscriptions.push(
+		vscode.window.onDidChangeActiveTextEditor((editor) => {
+			if (!editor) return;
+			const instances = SceneEditorProvider.getAllInstances();
+			for (const inst of instances) {
+				if (inst.matchesDocument(editor.document)) {
+					SceneEditorProvider.setActiveInstance(inst);
+					const scene = inst.getCurrentScene();
+					if (scene) {
+						inspector.setScene(scene);
+					}
+					break;
+				}
+			}
 		}),
 	);
 
