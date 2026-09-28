@@ -5,7 +5,7 @@ import { AssetManager } from "./assetManager.js";
 import { ConfigManager } from "../config/config-manager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
-import { parseDocument, writeDocument } from "./scene-parser.js";
+import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
 import { addObjectToScene, createObjectAt, deleteObjectFromScene, updateObjectsInScene } from "./scene-mutations.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
@@ -19,7 +19,7 @@ export interface MessageHandlerContext {
 	webviewPanel: vscode.WebviewPanel;
 	markNotDirty(): void;
 	getIsProgrammaticChange(): boolean;
-	clearProgrammaticChange(): void;
+	setProgrammaticChange(value: boolean): void;
 }
 
 export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: MessageHandlerContext): Promise<void> {
@@ -185,29 +185,66 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 
 export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void> {
 	if (ctx.getIsProgrammaticChange()) {
-		ctx.clearProgrammaticChange();
 		return;
 	}
 
 	const host = ctx.host;
-	const scene = parseDocument(ctx.document);
-	host.setScene(scene);
-	ctx.webviewPanel.webview.postMessage({ type: "load", scene } satisfies ExtensionToWebviewMessage);
+	const fileScene = parseDocument(ctx.document);
 
-	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, scene);
+	// ✅ چک امنیتی: اگر scene فایل با scene فعلی host یکسان است، کاری نکن
+	// (جلوگیری از overwrite بی‌مورد)
+	const currentScene = host.getScene();
+	if (currentScene) {
+		try {
+			if (JSON.stringify(currentScene) === JSON.stringify(fileScene)) {
+				return;
+			}
+		} catch {
+			// ignore — اگر serialize نشد، ادامه بده
+		}
+	}
+
+	host.setScene(fileScene);
+	ctx.webviewPanel.webview.postMessage({ type: "load", scene: fileScene } satisfies ExtensionToWebviewMessage);
+
+	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, fileScene);
 	ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
 	if (host.isActive()) {
-		SceneRegistry.emitSceneChange(host, scene);
+		SceneRegistry.emitSceneChange(host, fileScene);
 	}
 }
 
 async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Promise<void> {
-	await writeDocument(ctx.document, msg.scene);
-	ctx.host.setScene(msg.scene);
-	ctx.markNotDirty();
-	if (ctx.host.isActive()) {
-		SceneRegistry.emitSceneChange(ctx.host, msg.scene);
+	// ✅ مهم: قبل از write، isProgrammaticChange را true کن
+	// تا onDidChangeTextDocument trigger نشود
+	ctx.setProgrammaticChange(true);
+
+	try {
+		// ۱) scene فعلی host را با scene ای که کاربر ذخیره کرده یکی کن
+		ctx.host.setScene(msg.scene);
+
+		// ۲) محتوای فایل را با scene جدید جایگزین کن
+		await writeDocument(ctx.document, msg.scene);
+
+		// ۳) فایل را ذخیره کن
+		await saveDocument(ctx.document);
+
+		// ۴) dirty flag را پاک کن
+		ctx.markNotDirty();
+
+		// ۵) اگر فعال هستیم، به Inspector اطلاع بده
+		if (ctx.host.isActive()) {
+			SceneRegistry.emitSceneChange(ctx.host, msg.scene);
+		}
+
+		console.log(`[handleSave] saved: ${ctx.document.uri.fsPath}, objects: ${msg.scene.layers.reduce((n, l) => n + l.objects.length, 0)}`);
+	} finally {
+		// ✅ در finally ریست کن تا حتی در صورت خطا هم دوباره trigger شود
+		// (با یک تأخیر کوچک تا onDidChangeTextDocument قطعاً trigger و رد شود)
+		setTimeout(() => {
+			ctx.setProgrammaticChange(false);
+		}, 50);
 	}
 }
 

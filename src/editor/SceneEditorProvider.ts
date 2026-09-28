@@ -4,7 +4,7 @@ import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../pr
 import { getWebviewHtml } from "./webviewHtml.js";
 import { HistoryManager } from "./historyManager.js";
 import { SceneRegistry } from "./scene-registry.js";
-import { parseDocument, writeDocument } from "./scene-parser.js";
+import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
 import type { SceneHost } from "./scene-types.js";
 import { handleWebviewMessage, sendScene, sendSceneUpdate, type MessageHandlerContext } from "./message-handler.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
@@ -12,20 +12,7 @@ import type { LibGdxEditorConfig } from "../config/config-types.js";
 export type { ObjectSelectionHandler, SceneChangeHandler, OpenSceneSettingsHandler } from "./scene-types.js";
 
 /**
- * ✅ State مخصوص هر document — به جای currentScene/currentDocument مشترک.
- */
-interface DocumentState {
-	document: vscode.TextDocument;
-	scene: Scene | null;
-	webviews: Set<vscode.Webview>;
-	history: HistoryManager;
-	isDirty: boolean;
-	autoSaveTimer: NodeJS.Timeout | null;
-	isProgrammaticChange: boolean;
-}
-
-/**
- * ✅ یک host مجزا برای هر document — تا op ها بین فایل‌ها قاطی نشوند.
+ * ✅ یک host مجزا برای هر document.
  */
 class DocumentHost implements SceneHost {
 	public readonly document: vscode.TextDocument;
@@ -36,10 +23,7 @@ class DocumentHost implements SceneHost {
 	public autoSaveTimer: NodeJS.Timeout | null = null;
 	public isProgrammaticChange = false;
 
-	constructor(
-		document: vscode.TextDocument,
-		private readonly parent: SceneEditorProvider,
-	) {
+	constructor(document: vscode.TextDocument) {
 		this.document = document;
 	}
 
@@ -82,21 +66,26 @@ class DocumentHost implements SceneHost {
 	public async autoSave(): Promise<void> {
 		if (!this.scene || !this.isDirty) return;
 
-		// چک امنیتی
+		// چک امنیتی: نام scene با نام فایل بخواند
 		const docName = this.document.uri.path.split("/").pop()?.replace(".lgdx.json", "");
 		if (docName && this.scene.name !== docName) {
 			console.warn(`[DocumentHost] autoSave skip: scene.name (${this.scene.name}) != doc name (${docName})`);
 			return;
 		}
 
+		// ✅ isProgrammaticChange را قبل از write ست کن
+		this.isProgrammaticChange = true;
 		try {
-			this.isProgrammaticChange = true;
 			await writeDocument(this.document, this.scene);
+			await saveDocument(this.document);
 			this.isDirty = false;
 		} catch (err) {
 			console.error("Auto-save failed:", err);
 		} finally {
-			this.isProgrammaticChange = false;
+			// با تأخیر کوچک ریست کن تا onDidChangeTextDocument رد شود
+			setTimeout(() => {
+				this.isProgrammaticChange = false;
+			}, 50);
 		}
 	}
 
@@ -142,7 +131,6 @@ class DocumentHost implements SceneHost {
 export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	public static readonly viewType = "libgdx-editor.sceneEditor";
 
-	/** ✅ map document.uri → DocumentHost */
 	private hosts = new Map<string, DocumentHost>();
 
 	public static onDidSelectObject(handler: Parameters<typeof SceneRegistry.onDidSelectObject>[0]): vscode.Disposable {
@@ -187,9 +175,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		SceneRegistry.setActiveInstance(instance);
 	}
 
-	/**
-	 * ✅ instance فعال را برمی‌گرداند (برای command ها).
-	 */
 	public static getActiveProvider(): SceneHost | null {
 		return SceneRegistry.getActiveInstance();
 	}
@@ -212,11 +197,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 
 		webviewPanel.webview.html = getWebviewHtml(webviewPanel.webview, this.context.extensionUri, "viewport");
 
-		// ✅ host مخصوص این document
 		const uriKey = document.uri.toString();
 		let host = this.hosts.get(uriKey);
 		if (!host) {
-			host = new DocumentHost(document, this);
+			host = new DocumentHost(document);
 			this.hosts.set(uriKey, host);
 			SceneRegistry.addInstance(host);
 		}
@@ -232,8 +216,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 				host.isDirty = false;
 			},
 			getIsProgrammaticChange: () => host.isProgrammaticChange,
-			clearProgrammaticChange: () => {
-				host.isProgrammaticChange = false;
+			setProgrammaticChange: (value: boolean) => {
+				host.isProgrammaticChange = value;
 			},
 		};
 
