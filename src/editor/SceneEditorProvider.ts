@@ -126,20 +126,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		}
 	}
 
-	public static async importTextureAt(x: number, y: number): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentDocument || !inst.currentScene) continue;
-			await inst.doImportTexture(x, y, false);
-		}
-	}
-
-	public static async importTextureDialog(): Promise<void> {
-		for (const inst of SceneEditorProvider.instances) {
-			if (!inst.currentDocument || !inst.currentScene) continue;
-			await inst.doImportTexture(0, 0, true);
-		}
-	}
-
 	public static async addSpriteWithTexture(texturePath: string, width?: number, height?: number): Promise<boolean> {
 		for (const inst of SceneEditorProvider.instances) {
 			if (!inst.currentScene) continue;
@@ -170,6 +156,20 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			return true;
 		}
 		return false;
+	}
+
+	public static async importTextureAt(x: number, y: number): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentDocument || !inst.currentScene) continue;
+			await inst.doImportTexture(x, y, false);
+		}
+	}
+
+	public static async importTextureDialog(): Promise<void> {
+		for (const inst of SceneEditorProvider.instances) {
+			if (!inst.currentDocument || !inst.currentScene) continue;
+			await inst.doImportTexture(0, 0, true);
+		}
 	}
 
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
@@ -376,10 +376,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		if (!uris || uris.length === 0) return;
 
 		try {
-			// ۱. ابعاد واقعی تصویر را بخوان
 			const dims = await AssetManager.getImageDimensions(uris[0]);
 
-			// ۲. از کاربر scale را بپرس (اگر dialogOnly نبود، به معنی افزودن sprite است)
 			let scale = 1.0;
 			if (!dialogOnly && dims) {
 				const scaleInput = await vscode.window.showInputBox({
@@ -393,12 +391,11 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 						return null;
 					},
 				});
-				if (scaleInput === undefined) return; // کاربر لغو کرد
+				if (scaleInput === undefined) return;
 				scale = Number.parseFloat(scaleInput);
 				if (Number.isNaN(scale) || scale <= 0) scale = 1.0;
 			}
 
-			// ۳. فایل را کپی کن به assets/
 			const relativePath = await AssetManager.importTexture(this.currentDocument.uri, uris[0]);
 
 			if (dialogOnly) {
@@ -408,7 +405,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 				return;
 			}
 
-			// ۴. یک sprite با ابعاد واقعی تصویر و scale بساز
 			const newObj = this.createObjectAt("sprite", x, y);
 			newObj.texture = relativePath;
 			newObj.name = `sprite_${newObj.id.slice(-4)}`;
@@ -422,7 +418,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			this.currentScene = updated;
 			this.markDirty();
 
-			// ۵. اول scene جدید، بعد textureها
 			this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 
 			const textures = await AssetManager.loadTexturesAsDataUrls(this.currentDocument.uri, updated);
