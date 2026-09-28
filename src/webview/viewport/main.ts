@@ -1,3 +1,5 @@
+import "pixi.js/unsafe-eval";
+
 import { Application, Container, Graphics, Rectangle, Text, TextStyle } from "pixi.js";
 import { Viewport } from "pixi-viewport";
 import type { Scene, GameObject } from "../../types/scene.js";

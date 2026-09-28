@@ -9,7 +9,10 @@ export default defineConfig([
 		outExtensions: () => ({ js: ".cjs" }),
 	},
 	{
-		entry: ["src/webview/viewport/main.ts", "src/webview/inspector/main.ts"],
+		entry: {
+			viewport: "src/webview/viewport/main.ts",
+			inspector: "src/webview/inspector/main.ts",
+		},
 		format: "esm",
 		outDir: "dist/webview",
 		noExternal: [/.*/],
