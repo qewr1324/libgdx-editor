@@ -1,4 +1,5 @@
 import { viewport, scene, setRulerH, setRulerV, setRulerInfo, rulerH, rulerV } from "../state.js";
+import { getCurrentTheme } from "../theme/theme-manager.js";
 
 export function setupRulers(): void {
 	const rh = document.createElement("canvas");
@@ -31,13 +32,8 @@ export function setupRulers(): void {
 	info.style.bottom = "4px";
 	info.style.right = "4px";
 	info.style.padding = "2px 8px";
-	info.style.background = "#c0c0c0";
-	info.style.border = "2px solid";
-	info.style.borderColor = "#808080 #ffffff #ffffff #808080";
-	info.style.boxShadow = "inset 1px 1px 0 #404040";
 	info.style.fontSize = "11px";
-	info.style.fontFamily = "Tahoma, 'MS Sans Serif', sans-serif";
-	info.style.color = "#000000";
+	info.style.fontFamily = "monospace";
 	info.style.zIndex = "50";
 	info.style.pointerEvents = "none";
 	info.style.minWidth = "70px";
@@ -48,11 +44,17 @@ export function setupRulers(): void {
 	drawRulers();
 	window.addEventListener("resize", drawRulers);
 	setInterval(drawRulers, 100);
+
+	// وقتی تم عوض شد، دوباره رسم کن
+	window.addEventListener("theme-changed", () => {
+		drawRulers();
+	});
 }
 
 export function drawRulers(): void {
 	if (!rulerH || !rulerV || !viewport) return;
 
+	const theme = getCurrentTheme();
 	const dpr = window.devicePixelRatio || 1;
 
 	const hw = window.innerWidth;
@@ -73,10 +75,13 @@ export function drawRulers(): void {
 	ctxV.scale(dpr, dpr);
 	ctxV.clearRect(0, 0, vw, vh);
 
-	// پس‌زمینه Win98 خاکستری با پترن نقطه‌ای
-	const bgColor = "#c0c0c0";
-	const textColor = "#000000";
-	const notchColor = "#808080";
+	// رنگ‌ها از تم جاری
+	const bgColor = theme.bg;
+	const textColor = theme.fg;
+	const notchColor = theme.border;
+	const borderLight = theme.borderLight;
+
+	const isClassic = theme.isClassic === true;
 
 	ctxH.fillStyle = bgColor;
 	ctxH.fillRect(0, 0, hw, hh);
@@ -97,7 +102,7 @@ export function drawRulers(): void {
 	const startX = Math.floor(worldLeft / step) * step;
 
 	ctxH.fillStyle = textColor;
-	ctxH.font = "11px Tahoma, 'MS Sans Serif', sans-serif";
+	ctxH.font = `${isClassic ? "11px Tahoma, 'MS Sans Serif', sans-serif" : "10px " + theme.fontFamily}`;
 	ctxH.strokeStyle = textColor;
 	ctxH.lineWidth = 1;
 
@@ -105,13 +110,11 @@ export function drawRulers(): void {
 		const sx = viewport.toScreen(wx, 0).x;
 		if (sx < 20 || sx > hw - 2) continue;
 
-		// notch بزرگ
 		ctxH.beginPath();
 		ctxH.moveTo(sx, hh - 8);
 		ctxH.lineTo(sx, hh - 2);
 		ctxH.stroke();
 
-		// notch های کوچک
 		for (let i = 1; i < 5; i++) {
 			const subX = sx + (step * scale * i) / 5;
 			if (subX > hw - 2) break;
@@ -124,11 +127,16 @@ export function drawRulers(): void {
 		ctxH.fillText(String(wx), sx + 2, 10);
 	}
 
-	// خط جداکننده پایین
-	ctxH.fillStyle = "#ffffff";
-	ctxH.fillRect(0, hh - 2, hw, 1);
-	ctxH.fillStyle = "#808080";
-	ctxH.fillRect(0, hh - 1, hw, 1);
+	// خط جداکننده
+	if (isClassic) {
+		ctxH.fillStyle = borderLight;
+		ctxH.fillRect(0, hh - 2, hw, 1);
+		ctxH.fillStyle = notchColor;
+		ctxH.fillRect(0, hh - 1, hw, 1);
+	} else {
+		ctxH.fillStyle = notchColor;
+		ctxH.fillRect(0, hh - 1, hw, 1);
+	}
 
 	// خطوط عمودی
 	const worldTop = viewport.toWorld(0, 20).y;
@@ -136,7 +144,7 @@ export function drawRulers(): void {
 	const startY = Math.floor(worldTop / step) * step;
 
 	ctxV.fillStyle = textColor;
-	ctxV.font = "11px Tahoma, 'MS Sans Serif', sans-serif";
+	ctxV.font = `${isClassic ? "11px Tahoma, 'MS Sans Serif', sans-serif" : "10px " + theme.fontFamily}`;
 	ctxV.strokeStyle = textColor;
 
 	for (let wy = startY; wy <= worldBottom; wy += step) {
@@ -165,8 +173,13 @@ export function drawRulers(): void {
 	}
 
 	// خط جداکننده راست
-	ctxV.fillStyle = "#ffffff";
-	ctxV.fillRect(vw - 2, 0, 1, vh);
-	ctxV.fillStyle = "#808080";
-	ctxV.fillRect(vw - 1, 0, 1, vh);
+	if (isClassic) {
+		ctxV.fillStyle = borderLight;
+		ctxV.fillRect(vw - 2, 0, 1, vh);
+		ctxV.fillStyle = notchColor;
+		ctxV.fillRect(vw - 1, 0, 1, vh);
+	} else {
+		ctxV.fillStyle = notchColor;
+		ctxV.fillRect(vw - 1, 0, 1, vh);
+	}
 }
