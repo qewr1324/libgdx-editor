@@ -6,6 +6,7 @@ import { AssetManager } from "./assetManager.js";
 
 export type ObjectSelectionHandler = (objectIds: string[], scene: Scene) => void;
 export type SceneChangeHandler = (scene: Scene) => void;
+export type OpenSceneSettingsHandler = (scene: Scene) => void;
 
 export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	public static readonly viewType = "libgdx-editor.sceneEditor";
@@ -13,6 +14,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 	private static instances = new Set<SceneEditorProvider>();
 	private static selectionHandlers = new Set<ObjectSelectionHandler>();
 	private static sceneChangeHandlers = new Set<SceneChangeHandler>();
+	private static openSceneSettingsHandlers = new Set<OpenSceneSettingsHandler>();
 
 	private activeWebview: vscode.Webview | null = null;
 	private currentScene: Scene | null = null;
@@ -53,6 +55,13 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		SceneEditorProvider.sceneChangeHandlers.add(handler);
 		return {
 			dispose: () => SceneEditorProvider.sceneChangeHandlers.delete(handler),
+		};
+	}
+
+	public static onDidRequestSceneSettings(handler: OpenSceneSettingsHandler): vscode.Disposable {
+		SceneEditorProvider.openSceneSettingsHandlers.add(handler);
+		return {
+			dispose: () => SceneEditorProvider.openSceneSettingsHandlers.delete(handler),
 		};
 	}
 
@@ -290,6 +299,13 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					}
 					break;
 				}
+				case "openSceneSettings": {
+					const scene = this.currentScene ?? this.parseDocument(document);
+					for (const handler of SceneEditorProvider.openSceneSettingsHandlers) {
+						handler(scene);
+					}
+					break;
+				}
 			}
 		});
 
@@ -372,9 +388,12 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			this.currentScene = updated;
 			this.markDirty();
 
+			// ۱. اول scene جدید را بفرست (تا viewport sprite را با texture اضافه کند)
+			this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
+
+			// ۲. بعد textureها را بفرست (تا viewport texture را لود کند)
 			const textures = await AssetManager.loadTexturesAsDataUrls(this.currentDocument.uri, updated);
 			this.activeWebview?.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
-			this.activeWebview?.postMessage({ type: "update", scene: updated } satisfies ExtensionToWebviewMessage);
 
 			for (const handler of SceneEditorProvider.sceneChangeHandlers) {
 				handler(updated);

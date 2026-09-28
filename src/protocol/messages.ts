@@ -13,7 +13,8 @@ export type WebviewToExtensionMessage =
 	| { type: "updateSceneField"; field: string; value: unknown }
 	| { type: "deleteObject"; objectId: string }
 	| { type: "deleteObjects"; objectIds: string[] }
-	| { type: "requestImportTexture" };
+	| { type: "requestImportTexture" }
+	| { type: "openSceneSettings" };
 
 export type ExtensionToWebviewMessage =
 	| { type: "load"; scene: Scene }
@@ -26,7 +27,5 @@ export type ExtensionToWebviewMessage =
 	| { type: "texturesLoaded"; textures: Record<string, string> };
 
 export type InspectorToExtensionMessage = { type: "inspectorReady" } | { type: "updateObjectField"; objectId: string; field: string; value: unknown } | { type: "updateSceneField"; field: string; value: unknown } | { type: "deleteObject"; objectId: string } | { type: "focusObject"; objectId: string };
-
-export type InspectorMode = "object" | "scene" | "multi" | "empty";
 
 export type ExtensionToInspectorMessage = { type: "showObject"; object: GameObject } | { type: "showMultiSelection"; count: number; ids: string[] } | { type: "showScene"; scene: Scene } | { type: "showSceneSettings"; scene: Scene } | { type: "clearSelection" } | { type: "switchToSceneMode" };

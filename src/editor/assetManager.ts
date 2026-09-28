@@ -7,21 +7,28 @@ export class AssetManager {
 		return vscode.Uri.joinPath(sceneDir, "assets");
 	}
 
-	private static async generateUniqueName(assetsDir: vscode.Uri, originalName: string): Promise<string> {
-		const ext = path.extname(originalName).toLowerCase();
-		const baseName = path.basename(originalName, ext).replace(/[^\w-]/g, "_");
-
-		let counter = 1;
-		for (;;) {
-			const candidate = `${baseName}_${counter}${ext}`;
-			const candidateUri = vscode.Uri.joinPath(assetsDir, candidate);
-			try {
-				await vscode.workspace.fs.stat(candidateUri);
-				counter++;
-			} catch {
-				return candidate;
+	/**
+	 * یک نام عددی یکتا می‌سازد: 0.png, 1.png, 2.png, ...
+	 */
+	private static async generateUniqueName(assetsDir: vscode.Uri, ext: string): Promise<string> {
+		// پیدا کردن بزرگ‌ترین شماره موجود
+		let maxNum = -1;
+		try {
+			const entries = await vscode.workspace.fs.readDirectory(assetsDir);
+			for (const [name] of entries) {
+				const nameExt = path.extname(name).toLowerCase();
+				if (nameExt !== ext) continue;
+				const base = path.basename(name, nameExt);
+				const num = Number.parseInt(base, 10);
+				if (!Number.isNaN(num) && num > maxNum) {
+					maxNum = num;
+				}
 			}
+		} catch {
+			// پوشه وجود ندارد
 		}
+
+		return `${maxNum + 1}${ext}`;
 	}
 
 	public static async importTexture(sceneUri: vscode.Uri, sourceUri: vscode.Uri): Promise<string> {
@@ -34,7 +41,8 @@ export class AssetManager {
 		}
 
 		const originalName = path.basename(sourceUri.fsPath);
-		const uniqueName = await AssetManager.generateUniqueName(assetsDir, originalName);
+		const ext = path.extname(originalName).toLowerCase();
+		const uniqueName = await AssetManager.generateUniqueName(assetsDir, ext);
 		const targetUri = vscode.Uri.joinPath(assetsDir, uniqueName);
 
 		const content = await vscode.workspace.fs.readFile(sourceUri);

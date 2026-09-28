@@ -13,7 +13,6 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 
-// ---------- State ----------
 let scene: Scene | null = null;
 let selectedIds: string[] = [];
 let primarySelectedId: string | null = null;
@@ -22,7 +21,6 @@ let isResizing = false;
 
 const textureCache = new Map<string, Texture>();
 
-// ---------- Pixi setup ----------
 const app = new Application();
 
 let viewport: Viewport;
@@ -66,7 +64,6 @@ async function initPixi() {
 	setupContextMenu();
 }
 
-// ---------- Toolbar ----------
 function setupToolbar() {
 	const toolbar = document.createElement("div");
 	toolbar.id = "toolbar";
@@ -142,7 +139,6 @@ function setupToolbar() {
 	});
 }
 
-// ---------- Context Menu (Right-click) ----------
 function setupContextMenu() {
 	const menu = document.createElement("div");
 	menu.id = "context-menu";
@@ -164,7 +160,6 @@ function setupContextMenu() {
 		e.preventDefault();
 		if (!viewport) return;
 
-		// موقعیت در world coordinates
 		const rect = app.canvas.getBoundingClientRect();
 		const screenX = e.clientX - rect.left;
 		const screenY = e.clientY - rect.top;
@@ -241,7 +236,6 @@ function addTexture() {
 	});
 }
 
-// ---------- Grid (فقط یک‌بار رسم می‌شود) ----------
 function redrawGrid() {
 	if (!scene) return;
 	gridLayer.removeChildren();
@@ -269,7 +263,6 @@ function redrawGrid() {
 	gridLayer.addChild(border);
 }
 
-// ---------- Textures ----------
 async function loadTexture(path: string, dataUrl: string): Promise<Texture> {
 	if (textureCache.has(path)) return textureCache.get(path)!;
 	const texture = await Assets.load<Texture>(dataUrl);
@@ -303,38 +296,42 @@ function renderObject(obj: GameObject, layerLocked = false) {
 	const container = new Container();
 	const t = obj.transform;
 
-	if (obj.type === "sprite" && obj.texture && textureCache.has(obj.texture)) {
-		const texture = textureCache.get(obj.texture)!;
-		const sprite = new Sprite(texture);
-		sprite.width = t.width;
-		sprite.height = t.height;
-		container.addChild(sprite);
-	} else if (obj.type === "sprite") {
-		const g = new Graphics();
-		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
-		g.rect(0, 0, t.width, t.height);
-		g.fill({ color, alpha: 1 });
-		g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
-		container.addChild(g);
-	} else if (obj.type === "shape") {
-		const g = new Graphics();
-		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0xff4a4a;
-		g.circle(t.width / 2, t.height / 2, Math.min(t.width, t.height) / 2);
-		g.fill({ color, alpha: 1 });
-		container.addChild(g);
-	} else if (obj.type === "text") {
-		const txt = new Text({
-			text: obj.name,
-			style: new TextStyle({ fill: obj.color || "#ffffff", fontSize: 16 }),
-		});
-		container.addChild(txt);
-	} else {
-		const g = new Graphics();
-		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x9b59b6;
-		g.rect(0, 0, t.width, t.height);
-		g.fill({ color, alpha: 0.3 });
-		g.stroke({ width: 1, color, alpha: 1 });
-		container.addChild(g);
+	let rendered = false;
+
+	// اول تلاش کن texture را رندر کن
+	if (obj.type === "sprite" && obj.texture) {
+		const cached = textureCache.get(obj.texture);
+		if (cached) {
+			const sprite = new Sprite(cached);
+			sprite.width = t.width;
+			sprite.height = t.height;
+			container.addChild(sprite);
+			rendered = true;
+		}
+	}
+
+	if (!rendered) {
+		if (obj.type === "shape") {
+			const g = new Graphics();
+			const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0xff4a4a;
+			g.circle(t.width / 2, t.height / 2, Math.min(t.width, t.height) / 2);
+			g.fill({ color, alpha: 1 });
+			container.addChild(g);
+		} else if (obj.type === "text") {
+			const txt = new Text({
+				text: obj.name,
+				style: new TextStyle({ fill: obj.color || "#ffffff", fontSize: 16 }),
+			});
+			container.addChild(txt);
+		} else {
+			// sprite بدون texture، یا group
+			const g = new Graphics();
+			const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
+			g.rect(0, 0, t.width, t.height);
+			g.fill({ color, alpha: 1 });
+			g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
+			container.addChild(g);
+		}
 	}
 
 	container.x = t.x;
@@ -378,7 +375,6 @@ function renderObject(obj: GameObject, layerLocked = false) {
 	objectSprites.set(obj.id, container);
 }
 
-// ---------- Drag with Snap to Grid only ----------
 function startDrag(e: any, primaryObj: GameObject) {
 	isDraggingObject = true;
 
@@ -453,7 +449,6 @@ function startDrag(e: any, primaryObj: GameObject) {
 	app.stage.on("pointerupoutside", onUp);
 }
 
-// ---------- Selection ----------
 function selectObjects(ids: string[], primaryId?: string | null) {
 	selectedIds = ids;
 	primarySelectedId = primaryId ?? (ids.length > 0 ? ids[ids.length - 1] : null);
@@ -472,7 +467,6 @@ function selectObjects(ids: string[], primaryId?: string | null) {
 	vscode.postMessage({ type: "selectObjects", objectIds: ids });
 }
 
-// ---------- Selection Outlines + Resize ----------
 function drawSelectionOutlines() {
 	selectionLayer.removeChildren();
 	if (selectedIds.length === 0 || !scene) return;
@@ -677,7 +671,6 @@ window.addEventListener("resize", () => {
 	}
 });
 
-// ---------- Messages ----------
 window.addEventListener("message", async (event) => {
 	const msg = event.data;
 	switch (msg.type) {
@@ -694,6 +687,7 @@ window.addEventListener("message", async (event) => {
 					console.error("Failed to load texture:", path, err);
 				}
 			}
+			// بعد از لود همه textureها، scene را دوباره رندر کن
 			if (scene) renderScene(scene);
 			break;
 		}

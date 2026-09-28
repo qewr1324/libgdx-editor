@@ -23,23 +23,20 @@ export function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 
+	// راست‌کلیک روی صحنه → Scene Settings
+	context.subscriptions.push(
+		SceneEditorProvider.onDidRequestSceneSettings((scene) => {
+			inspector.showSceneSettings(scene);
+			void vscode.commands.executeCommand("libgdx-editor.inspector.focus");
+		}),
+	);
+
 	inspector.setHandlers({
 		onUpdateObject: (obj) => SceneEditorProvider.updateObject(obj),
 		onDeleteObject: (objectId) => SceneEditorProvider.deleteObject(objectId),
 		onFocusObject: (objectId) => SceneEditorProvider.focusObject(objectId),
 		onUpdateSceneField: (field, value) => SceneEditorProvider.updateSceneField(field, value),
 	});
-
-	// دستور باز کردن Scene Settings در Inspector
-	context.subscriptions.push(
-		vscode.commands.registerCommand("libgdx-editor.openSceneSettings", () => {
-			const scene = SceneEditorProvider.getScene();
-			if (scene) {
-				inspector.showSceneSettings(scene);
-				void vscode.commands.executeCommand("libgdx-editor.inspector.focus");
-			}
-		}),
-	);
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand("libgdx-editor.newScene", (uri?: vscode.Uri) => newSceneCommand(context, uri)),
