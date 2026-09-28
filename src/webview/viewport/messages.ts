@@ -4,9 +4,13 @@ import { renderScene } from "./render/scene.js";
 import { interactionMode, scene, selectedIds, viewport } from "./state.js";
 import { selectObjects } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
-import { applyThemeFromScene } from "./theme/theme-manager.js";
+import { applyTheme } from "./theme/theme-manager.js";
+import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
+import type { Scene } from "../../types/scene.js";
 
 let pendingRender: (() => void) | null = null;
+let currentConfig: LibGdxEditorConfigMessage | null = null;
+let currentSceneFromMessage: Scene | null = null;
 
 function scheduleRender(callback: () => void): void {
 	if (interactionMode !== "idle") {
@@ -24,13 +28,19 @@ export function flushPendingRender(): void {
 	}
 }
 
+function applyEffectiveTheme(): void {
+	const themeName = currentSceneFromMessage?.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
+	applyTheme(themeName);
+}
+
 export function setupMessages(): void {
 	window.addEventListener("message", async (event) => {
 		const msg = event.data;
 		switch (msg.type) {
 			case "load":
 			case "update":
-				applyThemeFromScene(msg.scene?.theme);
+				currentSceneFromMessage = msg.scene;
+				applyEffectiveTheme();
 				scheduleRender(() => renderScene(msg.scene));
 				break;
 			case "texturesLoaded": {
@@ -47,7 +57,10 @@ export function setupMessages(): void {
 				});
 				break;
 			}
-			case "historyState":
+			case "configLoaded":
+			case "configUpdated":
+				currentConfig = msg.config;
+				applyEffectiveTheme();
 				break;
 			case "selectFromOutliner":
 				if (msg.objectId) {
@@ -75,4 +88,6 @@ export function setupMessages(): void {
 				break;
 		}
 	});
+
+	vscode.postMessage({ type: "requestConfig" });
 }

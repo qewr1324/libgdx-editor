@@ -1,7 +1,9 @@
 import type * as vscode from "vscode";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
-import type { GameObject, Scene } from "../types/scene.js";
+import type { Scene } from "../types/scene.js";
 import { AssetManager } from "./assetManager.js";
+import { ConfigManager } from "../config/config-manager.js";
+import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument } from "./scene-parser.js";
 import { addObjectToScene, createObjectAt, deleteObjectFromScene, updateObjectInScene } from "./scene-mutations.js";
@@ -120,6 +122,26 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "redo":
 			redoOp();
 			break;
+		case "updateConfig": {
+			const config = ConfigManager.getInstance();
+			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
+			break;
+		}
+		case "requestConfig": {
+			const config = ConfigManager.getInstance().get();
+			ctx.webviewPanel.webview.postMessage({
+				type: "configLoaded",
+				config: {
+					version: config.version,
+					defaultTheme: config.defaultTheme,
+					autoSaveDelayMs: config.autoSaveDelayMs,
+					showRulers: config.showRulers,
+					showGrid: config.showGrid,
+					defaultGridSize: config.defaultGridSize,
+				},
+			} satisfies ExtensionToWebviewMessage);
+			break;
+		}
 	}
 }
 
@@ -132,6 +154,20 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, scene);
 	ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+	// ارسال config به webview
+	const config = ConfigManager.getInstance().get();
+	ctx.webviewPanel.webview.postMessage({
+		type: "configLoaded",
+		config: {
+			version: config.version,
+			defaultTheme: config.defaultTheme,
+			autoSaveDelayMs: config.autoSaveDelayMs,
+			showRulers: config.showRulers,
+			showGrid: config.showGrid,
+			defaultGridSize: config.defaultGridSize,
+		},
+	} satisfies ExtensionToWebviewMessage);
 
 	ctx.host.broadcastHistoryState();
 

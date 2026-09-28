@@ -1,4 +1,5 @@
 import type { GameObject, Scene } from "../../types/scene.js";
+import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 import { THEMES, THEME_ORDER } from "../viewport/theme/themes.js";
 import { applyTheme } from "../viewport/theme/theme-manager.js";
 
@@ -15,20 +16,20 @@ const app = document.getElementById("app")!;
 let currentObject: GameObject | null = null;
 let currentObjectId: string | null = null;
 let currentScene: Scene | null = null;
+let currentConfig: LibGdxEditorConfigMessage | null = null;
 let multiSelection: { count: number; ids: string[] } | null = null;
 let sceneMode = false;
 let lastAppliedTheme: string | null = null;
 
-function applySceneTheme(scene: Scene | null): void {
-	if (!scene) return;
-	const themeName = scene.theme ?? "win98";
+function applyEffectiveTheme(): void {
+	const themeName = currentScene?.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
 	if (themeName === lastAppliedTheme) return;
 	lastAppliedTheme = themeName;
 	applyTheme(themeName);
 }
 
 function render(force = false): void {
-	applySceneTheme(currentScene);
+	applyEffectiveTheme();
 
 	if (sceneMode && currentScene) {
 		if (!force && app.querySelector(".inspector-scene")) {
@@ -77,6 +78,9 @@ function render(force = false): void {
 
 // ---------- Scene Settings ----------
 function buildSceneSettingsHtml(scene: Scene): string {
+	const effectiveTheme = scene.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
+	const isOverride = scene.themeOverride !== null && scene.themeOverride !== undefined;
+
 	return `
 		<div class="inspector inspector-scene">
 			<div class="section header-section">
@@ -90,15 +94,35 @@ function buildSceneSettingsHtml(scene: Scene): string {
 			<div class="section">
 				<div class="section-title">Theme</div>
 				<div class="field">
-					<label>UI Theme</label>
-					<select data-scene-field="theme">
+					<label class="checkbox-row">
+						<input type="checkbox" data-special="theme-override-enabled" ${isOverride ? "checked" : ""} />
+						<span>Override theme for this scene</span>
+					</label>
+				</div>
+				<div class="field">
+					<label>UI Theme (Global)</label>
+					<select data-config-field="defaultTheme" ${isOverride ? "disabled" : ""}>
 						${THEME_ORDER.map((key) => {
 							const theme = THEMES[key];
-							const selected = (scene.theme ?? "win98") === key ? "selected" : "";
+							const selected = (currentConfig?.defaultTheme ?? "win98") === key ? "selected" : "";
 							return `<option value="${key}" ${selected}>${theme.label}</option>`;
 						}).join("")}
 					</select>
 				</div>
+				${
+					isOverride
+						? `<div class="field">
+							<label>Scene Theme (Override)</label>
+							<select data-scene-field="themeOverride">
+								${THEME_ORDER.map((key) => {
+									const theme = THEMES[key];
+									const selected = (scene.themeOverride ?? "win98") === key ? "selected" : "";
+									return `<option value="${key}" ${selected}>${theme.label}</option>`;
+								}).join("")}
+							</select>
+						</div>`
+						: ""
+				}
 			</div>
 
 			<div class="section">
@@ -145,7 +169,6 @@ function buildSceneSettingsHtml(scene: Scene): string {
 
 function updateSceneFieldValues(): void {
 	if (!currentScene) return;
-	setSceneFieldValue("theme", currentScene.theme ?? "win98", "select");
 	setSceneFieldValue("worldSize.width", currentScene.worldSize.width, "number");
 	setSceneFieldValue("worldSize.height", currentScene.worldSize.height, "number");
 	setSceneFieldValue("backgroundColor", currentScene.backgroundColor, "color");
@@ -183,6 +206,24 @@ function attachSceneListeners(): void {
 		render(true);
 	});
 
+	// theme override checkbox
+	const overrideCheckbox = app.querySelector<HTMLInputElement>('[data-special="theme-override-enabled"]');
+	overrideCheckbox?.addEventListener("change", () => {
+		const checked = overrideCheckbox.checked;
+		const value = checked ? (currentConfig?.defaultTheme ?? "win98") : null;
+		vscode.postMessage({ type: "updateSceneField", field: "themeOverride", value, historyLabel: "toggle theme override" });
+	});
+
+	// config field (defaultTheme)
+	const configInputs = app.querySelectorAll<HTMLSelectElement>("[data-config-field]");
+	for (const input of configInputs) {
+		const field = input.dataset.configField!;
+		input.addEventListener("change", () => {
+			vscode.postMessage({ type: "updateConfig", key: field, value: input.value });
+		});
+	}
+
+	// scene fields
 	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-scene-field]");
 	for (const input of inputs) {
 		const field = input.dataset.sceneField!;
@@ -467,11 +508,10 @@ window.addEventListener("message", (event) => {
 			break;
 		case "showScene":
 			currentScene = msg.scene;
-			applySceneTheme(currentScene);
+			applyEffectiveTheme();
 			if (sceneMode) {
-				// اگر select تم focus است، دست نزن
 				const activeEl = document.activeElement;
-				if (activeEl instanceof HTMLSelectElement && activeEl.dataset.sceneField === "theme") {
+				if (activeEl instanceof HTMLSelectElement && activeEl.dataset.sceneField === "themeOverride") {
 					break;
 				}
 				updateSceneFieldValues();
@@ -490,8 +530,17 @@ window.addEventListener("message", (event) => {
 			sceneMode = false;
 			render(true);
 			break;
+		case "configLoaded":
+		case "configUpdated":
+			currentConfig = msg.config;
+			applyEffectiveTheme();
+			if (sceneMode) {
+				render(true);
+			}
+			break;
 	}
 });
 
 render(true);
 vscode.postMessage({ type: "inspectorReady" });
+vscode.postMessage({ type: "requestConfig" });

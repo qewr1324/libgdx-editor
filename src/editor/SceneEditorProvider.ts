@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { Scene } from "../types/scene.js";
+import type { GameObject, Scene } from "../types/scene.js";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { getWebviewHtml } from "./webviewHtml.js";
 import { HistoryManager } from "./historyManager.js";
@@ -8,14 +8,13 @@ import { parseDocument, writeDocument } from "./scene-parser.js";
 import type { SceneHost } from "./scene-types.js";
 import { handleWebviewMessage, sendScene, sendSceneUpdate } from "./message-handler.js";
 import { addSpriteWithTextureOp, deleteObjectOp, duplicateObjectsOp, focusObjectOp, importTextureAtOp, importTextureDialogOp, redoOp, undoOp, updateObjectOp, updateSceneFieldOp } from "./scene-ops.js";
-import type { GameObject } from "../types/scene.js";
+import type { LibGdxEditorConfig } from "../config/config-types.js";
 
 export type { ObjectSelectionHandler, SceneChangeHandler, OpenSceneSettingsHandler } from "./scene-types.js";
 
 export class SceneEditorProvider implements vscode.CustomTextEditorProvider, SceneHost {
 	public static readonly viewType = "libgdx-editor.sceneEditor";
 
-	// ---------- Static Registration API ----------
 	public static onDidSelectObject(handler: Parameters<typeof SceneRegistry.onDidSelectObject>[0]): vscode.Disposable {
 		return SceneRegistry.onDidSelectObject(handler);
 	}
@@ -36,7 +35,27 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		SceneRegistry.setActiveInstance(instance);
 	}
 
-	// ---------- Static Ops (delegate به scene-ops) ----------
+	public static broadcastConfigChange(config: LibGdxEditorConfig): void {
+		for (const inst of SceneRegistry.getInstances()) {
+			const instance = inst as unknown as SceneEditorProvider;
+			try {
+				instance.activeWebview?.postMessage({
+					type: "configUpdated",
+					config: {
+						version: config.version,
+						defaultTheme: config.defaultTheme,
+						autoSaveDelayMs: config.autoSaveDelayMs,
+						showRulers: config.showRulers,
+						showGrid: config.showGrid,
+						defaultGridSize: config.defaultGridSize,
+					},
+				} satisfies ExtensionToWebviewMessage);
+			} catch {
+				// ignore
+			}
+		}
+	}
+
 	public static updateObject(obj: GameObject, historyLabel?: string): void {
 		updateObjectOp(obj, historyLabel);
 	}
@@ -77,7 +96,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		await importTextureDialogOp();
 	}
 
-	// ---------- Instance State ----------
 	private activeWebview: vscode.Webview | null = null;
 	private currentScene: Scene | null = null;
 	private currentDocument: vscode.TextDocument | null = null;
@@ -98,7 +116,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		});
 	}
 
-	// ---------- SceneHost implementation ----------
 	public getScene(): Scene | null {
 		return this.currentScene;
 	}
@@ -182,7 +199,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		return SceneRegistry.isActive(this);
 	}
 
-	// ---------- Helpers ----------
 	public matchesDocument(document: vscode.TextDocument): boolean {
 		return this.currentDocument?.uri.toString() === document.uri.toString();
 	}
@@ -191,7 +207,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 		return this.currentScene;
 	}
 
-	// ---------- Custom Editor ----------
 	public async resolveCustomTextEditor(document: vscode.TextDocument, webviewPanel: vscode.WebviewPanel, _token: vscode.CancellationToken): Promise<void> {
 		webviewPanel.webview.options = {
 			enableScripts: true,
@@ -205,7 +220,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 
 		SceneRegistry.setActiveInstance(this);
 
-		// context برای message handler
 		const ctx = {
 			host: this as SceneHost,
 			document,
@@ -219,12 +233,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 			},
 		};
 
-		// پیام‌ها
 		webviewPanel.webview.onDidReceiveMessage(async (msg: WebviewToExtensionMessage) => {
 			await handleWebviewMessage(msg, ctx);
 		});
 
-		// تغییرات view state
 		const viewStateSub = webviewPanel.onDidChangeViewState(() => {
 			if (webviewPanel.active) {
 				SceneRegistry.setActiveInstance(this);
@@ -234,14 +246,12 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider, Sce
 			}
 		});
 
-		// تغییرات فایل
 		const changeSub = vscode.workspace.onDidChangeTextDocument((e) => {
 			if (e.document.uri.toString() === document.uri.toString()) {
 				void sendSceneUpdate(ctx);
 			}
 		});
 
-		// dispose
 		webviewPanel.onDidDispose(() => {
 			changeSub.dispose();
 			viewStateSub.dispose();

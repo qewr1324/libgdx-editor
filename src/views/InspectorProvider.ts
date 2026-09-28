@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 import type { GameObject, Scene } from "../types/scene.js";
 import { getWebviewHtml } from "../editor/webviewHtml.js";
-import type { ExtensionToInspectorMessage } from "../protocol/messages.js";
+import type { ExtensionToInspectorMessage, LibGdxEditorConfigMessage } from "../protocol/messages.js";
+import type { LibGdxEditorConfig } from "../config/config-types.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -23,6 +24,25 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.onDeleteObject = handlers.onDeleteObject;
 		this.onFocusObject = handlers.onFocusObject;
 		this.onUpdateSceneField = handlers.onUpdateSceneField;
+	}
+
+	public broadcastConfigChange(config: LibGdxEditorConfig): void {
+		if (!this.view) return;
+		try {
+			this.view.webview.postMessage({
+				type: "configUpdated",
+				config: {
+					version: config.version,
+					defaultTheme: config.defaultTheme,
+					autoSaveDelayMs: config.autoSaveDelayMs,
+					showRulers: config.showRulers,
+					showGrid: config.showGrid,
+					defaultGridSize: config.defaultGridSize,
+				},
+			} satisfies ExtensionToInspectorMessage);
+		} catch {
+			// ignore
+		}
 	}
 
 	resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void {

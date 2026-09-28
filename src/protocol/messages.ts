@@ -1,5 +1,14 @@
 import type { GameObject, Scene } from "../types/scene.js";
 
+export interface LibGdxEditorConfigMessage {
+	version: string;
+	defaultTheme: string;
+	autoSaveDelayMs: number;
+	showRulers: boolean;
+	showGrid: boolean;
+	defaultGridSize: number;
+}
+
 export type WebviewToExtensionMessage =
 	| { type: "ready" }
 	| { type: "save"; scene: Scene }
@@ -17,7 +26,9 @@ export type WebviewToExtensionMessage =
 	| { type: "openSceneSettings" }
 	| { type: "duplicateObjects"; objectIds: string[]; offsetX: number; offsetY: number }
 	| { type: "undo" }
-	| { type: "redo" };
+	| { type: "redo" }
+	| { type: "updateConfig"; key: string; value: unknown }
+	| { type: "requestConfig" };
 
 export type ExtensionToWebviewMessage =
 	| { type: "load"; scene: Scene }
@@ -28,13 +39,24 @@ export type ExtensionToWebviewMessage =
 	| { type: "objectUpdated"; object: GameObject }
 	| { type: "focusObject"; objectId: string }
 	| { type: "texturesLoaded"; textures: Record<string, string> }
-	| { type: "historyState"; canUndo: boolean; canRedo: boolean };
+	| { type: "historyState"; canUndo: boolean; canRedo: boolean }
+	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
+	| { type: "configUpdated"; config: LibGdxEditorConfigMessage };
 
 export type InspectorToExtensionMessage =
 	| { type: "inspectorReady" }
 	| { type: "updateObjectField"; objectId: string; field: string; value: unknown; historyLabel?: string }
 	| { type: "updateSceneField"; field: string; value: unknown; historyLabel?: string }
 	| { type: "deleteObject"; objectId: string }
-	| { type: "focusObject"; objectId: string };
+	| { type: "focusObject"; objectId: string }
+	| { type: "updateConfig"; key: string; value: unknown }
+	| { type: "requestConfig" };
 
-export type ExtensionToInspectorMessage = { type: "showObject"; object: GameObject } | { type: "showMultiSelection"; count: number; ids: string[] } | { type: "showScene"; scene: Scene } | { type: "showSceneSettings"; scene: Scene } | { type: "clearSelection" } | { type: "switchToSceneMode" };
+export type ExtensionToInspectorMessage =
+	| { type: "showObject"; object: GameObject }
+	| { type: "showMultiSelection"; count: number; ids: string[] }
+	| { type: "showScene"; scene: Scene }
+	| { type: "showSceneSettings"; scene: Scene }
+	| { type: "clearSelection" }
+	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
+	| { type: "configUpdated"; config: LibGdxEditorConfigMessage };

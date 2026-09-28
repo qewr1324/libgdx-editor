@@ -3,9 +3,14 @@ import { SceneEditorProvider } from "./editor/SceneEditorProvider.js";
 import { InspectorProvider } from "./views/InspectorProvider.js";
 import { newSceneCommand } from "./commands/newScene.js";
 import { importTextureCommand, cleanupAssetsCommand } from "./commands/importTexture.js";
+import { ConfigManager } from "./config/config-manager.js";
 
-export function activate(context: vscode.ExtensionContext) {
+export async function activate(context: vscode.ExtensionContext) {
 	console.log("LibGDX Editor activated");
+
+	const configManager = ConfigManager.getInstance();
+	await configManager.load();
+	console.log("LibGDX Editor config loaded:", configManager.get());
 
 	const inspector = new InspectorProvider(context.extensionUri);
 
@@ -30,7 +35,6 @@ export function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 
-	// وقتی کاربر بین tab ها جابجا می‌شود، instance فعال را عوض کن
 	context.subscriptions.push(
 		vscode.window.onDidChangeActiveTextEditor((editor) => {
 			if (!editor) return;
@@ -45,6 +49,13 @@ export function activate(context: vscode.ExtensionContext) {
 					break;
 				}
 			}
+		}),
+	);
+
+	context.subscriptions.push(
+		configManager.onChange((config) => {
+			SceneEditorProvider.broadcastConfigChange(config);
+			inspector.broadcastConfigChange(config);
 		}),
 	);
 
