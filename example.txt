@@ -1,0 +1,13 @@
+public class SceneLoader {
+    public static Scene load(String jsonPath) {
+        Json json = new Json();
+        SceneData data = json.fromJson(SceneData.class, Gdx.files.internal(jsonPath));
+        Scene scene = new Scene();
+        for (LayerData layer : data.layers) {
+            for (GameObjectData obj : layer.objects) {
+                // ساخت sprite یا body
+            }
+        }
+        return scene;
+    }
+}

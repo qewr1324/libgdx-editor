@@ -1,0 +1,40 @@
+{
+	"version": "1.0",
+	"name": "level-01",
+	"worldSize": { "width": 1920, "height": 1080 },
+	"backgroundColor": "#1a1a1a",
+	"layers": [
+		{
+			"name": "background",
+			"zIndex": 0,
+			"objects": []
+		},
+		{
+			"name": "gameplay",
+			"zIndex": 10,
+			"objects": [
+				{
+					"id": "obj_1",
+					"type": "sprite",
+					"name": "player",
+					"texture": "textures/player.png",
+					"transform": {
+						"x": 100,
+						"y": 200,
+						"width": 64,
+						"height": 64,
+						"rotation": 0,
+						"scaleX": 1,
+						"scaleY": 1,
+						"originX": 0.5,
+						"originY": 0.5
+					},
+					"properties": {
+						"bodyType": "dynamic",
+						"density": 1.0
+					}
+				}
+			]
+		}
+	]
+}
