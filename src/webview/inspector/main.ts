@@ -11,9 +11,10 @@ const vscode = acquireVsCodeApi();
 const app = document.getElementById("app")!;
 
 let currentObject: GameObject | null = null;
+let currentObjectId: string | null = null;
 
 // ---------- Render ----------
-function render(): void {
+function render(force = false): void {
 	if (!currentObject) {
 		app.innerHTML = `
 			<div class="empty-state">
@@ -22,13 +23,24 @@ function render(): void {
 				<div class="empty-hint">Click on an object in the viewport</div>
 			</div>
 		`;
+		currentObjectId = null;
 		return;
 	}
 
-	const obj = currentObject;
-	const t = obj.transform;
+	// اگر همان آبجکت قبلی است و force نیست، فقط مقادیر را به‌روزرسانی کن
+	if (!force && currentObjectId === currentObject.id && app.querySelector(".inspector")) {
+		updateFieldValues();
+		return;
+	}
 
-	app.innerHTML = `
+	currentObjectId = currentObject.id;
+	app.innerHTML = buildInspectorHtml(currentObject);
+	attachEventListeners();
+}
+
+function buildInspectorHtml(obj: GameObject): string {
+	const t = obj.transform;
+	return `
 		<div class="inspector">
 			<!-- Header -->
 			<div class="section header-section">
@@ -125,8 +137,67 @@ function render(): void {
 			</div>
 		</div>
 	`;
+}
 
-	attachEventListeners();
+/**
+ * فقط مقادیر فیلدها را به‌روزرسانی می‌کند، بدون از دست دادن focus.
+ * فیلدهایی که در حال focus هستند نادیده گرفته می‌شوند.
+ */
+function updateFieldValues(): void {
+	if (!currentObject) return;
+	const obj = currentObject;
+	const t = obj.transform;
+
+	// فیلدهای top-level
+	setFieldValue("name", obj.name, "string");
+	setFieldValue("type", obj.type, "select");
+
+	// Transform
+	setFieldValue("transform.x", t.x, "number");
+	setFieldValue("transform.y", t.y, "number");
+	setFieldValue("transform.width", t.width, "number");
+	setFieldValue("transform.height", t.height, "number");
+	setFieldValue("transform.rotation", t.rotation, "number");
+	setFieldValue("transform.scaleX", t.scaleX, "number");
+	setFieldValue("transform.scaleY", t.scaleY, "number");
+	setFieldValue("transform.originX", t.originX, "number");
+	setFieldValue("transform.originY", t.originY, "number");
+
+	// Color - هر دو color picker و text input
+	setFieldValue("color", obj.color || "#4a9eff", "color");
+	setFieldValue("color", obj.color || "#4a9eff", "text");
+
+	// Properties
+	setFieldValue("properties", JSON.stringify(obj.properties || {}, null, 2), "textarea");
+
+	// Type badge
+	const badge = app.querySelector(".object-type-badge");
+	if (badge) {
+		badge.className = `object-type-badge type-${obj.type}`;
+		badge.textContent = obj.type;
+	}
+}
+
+function setFieldValue(field: string, value: unknown, kind: "number" | "string" | "select" | "color" | "text" | "textarea"): void {
+	const elements = app.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[data-field="${field}"]`);
+
+	for (const el of elements) {
+		// اگر این المنت در حال focus است، دست نزن
+		if (document.activeElement === el) continue;
+
+		// اگر نوع المنت با kind نمی‌خواند، رد کن
+		if (kind === "color" && el.type !== "color") continue;
+		if (kind === "text" && el.type !== "text") continue;
+		if (kind === "number" && el.type !== "number") continue;
+		if (kind === "textarea" && el.tagName !== "TEXTAREA") continue;
+		if (kind === "select" && el.tagName !== "SELECT") continue;
+		if (kind === "string" && el.tagName !== "INPUT") continue;
+
+		// اگر همان مقدار قبلی است، دست نزن
+		if (el.value === String(value)) continue;
+
+		el.value = String(value);
+	}
 }
 
 function attachEventListeners() {
@@ -151,7 +222,7 @@ function attachEventListeners() {
 	for (const input of inputs) {
 		const field = input.dataset.field!;
 
-		// برای input عددی: هنگام تایپ یا تغییر
+		// برای input عددی: هنگام تغییر
 		if (input instanceof HTMLInputElement && input.type === "number") {
 			input.addEventListener("change", () => {
 				const value = Number.parseFloat(input.value);
@@ -159,21 +230,33 @@ function attachEventListeners() {
 					sendFieldUpdate(field, value);
 				}
 			});
+			// Enter → commit
+			input.addEventListener("keydown", (e) => {
+				if (e.key === "Enter") {
+					input.blur();
+				}
+			});
 		}
 		// برای color picker
 		else if (input instanceof HTMLInputElement && input.type === "color") {
 			input.addEventListener("input", () => {
-				// همگام‌سازی با فیلد متنی کنارش
+				// همگام‌سازی با فیلد متنی کنارش (بدون رندر مجدد)
 				const textInput = input.parentElement?.querySelector<HTMLInputElement>('input[type="text"]');
-				if (textInput) textInput.value = input.value;
+				if (textInput && document.activeElement !== textInput) {
+					textInput.value = input.value;
+				}
 				sendFieldUpdate(field, input.value);
 			});
 		}
-		// برای سایر input/text/textarea
+		// برای input متنی
 		else if (input instanceof HTMLInputElement) {
 			input.addEventListener("change", () => {
-				if (field === "properties") return; // جداگانه
 				sendFieldUpdate(field, input.value);
+			});
+			input.addEventListener("keydown", (e) => {
+				if (e.key === "Enter") {
+					input.blur();
+				}
 			});
 		} else if (input instanceof HTMLSelectElement) {
 			input.addEventListener("change", () => {
@@ -219,15 +302,15 @@ window.addEventListener("message", (event) => {
 	switch (msg.type) {
 		case "showObject":
 			currentObject = msg.object;
-			render();
+			render(false);
 			break;
 		case "clearSelection":
 			currentObject = null;
-			render();
+			render(true);
 			break;
 	}
 });
 
 // ---------- Boot ----------
-render();
+render(true);
 vscode.postMessage({ type: "inspectorReady" });
