@@ -30,7 +30,6 @@ export function setupMessages(): void {
 		switch (msg.type) {
 			case "load":
 			case "update":
-				// تم صحنه را اعمال کن
 				applyThemeFromScene(msg.scene?.theme);
 				scheduleRender(() => renderScene(msg.scene));
 				break;
@@ -49,7 +48,6 @@ export function setupMessages(): void {
 				break;
 			}
 			case "historyState":
-				console.log("History state:", msg.canUndo, msg.canRedo);
 				break;
 			case "selectFromOutliner":
 				if (msg.objectId) {

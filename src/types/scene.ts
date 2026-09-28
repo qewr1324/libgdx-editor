@@ -45,7 +45,7 @@ export interface Camera {
 export interface Scene {
 	version: string;
 	name: string;
-	theme?: string; // ← اضافه شد
+	theme?: string;
 	worldSize: { width: number; height: number };
 	backgroundColor: string;
 	gridSize: number;
@@ -59,7 +59,7 @@ export function createEmptyScene(name = "untitled"): Scene {
 	return {
 		version: "1.0",
 		name,
-		theme: "win98", // ← پیش‌فرض
+		theme: "win98",
 		worldSize: { width: 1920, height: 1080 },
 		backgroundColor: "#1a1a1a",
 		gridSize: 32,

@@ -7,11 +7,9 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 	const nonce = getNonce();
 
 	const baseCss = `
-		* { box-sizing: border-box; }
+		* { box-sizing: border-box; margin: 0; padding: 0; }
 
 		html, body, #app {
-			margin: 0;
-			padding: 0;
 			width: 100%;
 			height: 100%;
 			overflow: hidden;
@@ -20,20 +18,19 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 
 		canvas { display: block; }
 
-		/* ============ Toolbar ============ */
+		/* ============ Toolbar layout ============ */
 		#toolbar {
 			position: fixed;
 			z-index: 100;
 			display: flex;
 			align-items: center;
-			gap: 4px;
 		}
 
 		#toolbar button {
 			cursor: pointer;
+			min-height: 22px;
 			font-family: inherit;
 			font-size: inherit;
-			min-height: 22px;
 		}
 
 		#toolbar button:focus {
@@ -42,28 +39,26 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 
 		#toolbar-info {
 			margin-left: 8px;
-			padding: 2px 8px;
 			font-size: 11px;
 			min-height: 20px;
 			line-height: 16px;
+			padding: 2px 8px;
 		}
 
 		#toolbar-info:empty {
 			display: none;
 		}
 
-		/* ============ Context Menu ============ */
+		/* ============ Context Menu layout ============ */
 		#context-menu {
 			position: fixed;
 			z-index: 1000;
-			padding: 4px 0;
 			min-width: 180px;
 			font-family: inherit;
 			font-size: 11px;
 		}
 
 		.context-menu-item {
-			padding: 4px 20px 4px 24px;
 			cursor: pointer;
 			display: flex;
 			align-items: center;
@@ -71,12 +66,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			white-space: nowrap;
 		}
 
-		.context-menu-separator {
-			height: 1px;
-			margin: 4px 0;
-		}
-
-		/* ============ Rulers ============ */
+		/* ============ Rulers layout ============ */
 		#ruler-h, #ruler-v {
 			display: block;
 			user-select: none;
@@ -111,7 +101,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			min-width: 70px;
 		}
 
-		/* ============ Inspector ============ */
+		/* ============ Inspector layout ============ */
 		#app { overflow-y: auto; }
 
 		.empty-state {
@@ -124,27 +114,10 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			text-align: center;
 		}
 
-		.empty-icon { font-size: 48px; margin-bottom: 12px; }
-		.empty-text { font-size: 12px; font-weight: bold; margin-bottom: 6px; }
-		.empty-hint { font-size: 11px; opacity: 0.7; line-height: 1.5; }
-
 		.inspector { padding: 4px; }
 
 		.section {
-			margin-bottom: 10px;
-			padding: 8px;
 			position: relative;
-		}
-
-		.section-title {
-			font-size: 10px;
-			font-weight: 600;
-			margin-bottom: 8px;
-			display: block;
-		}
-
-		.header-section {
-			padding: 10px;
 		}
 
 		.header-top {
@@ -154,51 +127,37 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			margin-bottom: 4px;
 		}
 
-		.object-type-badge {
-			font-size: 10px;
-			padding: 2px 8px;
-			font-weight: 600;
-			text-transform: uppercase;
-		}
-
-		.object-id {
-			font-size: 10px;
-			font-family: monospace;
-			word-break: break-all;
-		}
-
 		.btn-icon {
-			background: transparent;
-			border: none;
 			cursor: pointer;
-			font-size: 14px;
-			padding: 4px;
 			margin-left: auto;
-			color: inherit;
 		}
 
 		.field {
-			margin-bottom: 6px;
 			display: flex;
 			flex-direction: column;
 			gap: 2px;
 			flex: 1;
+			margin-bottom: 6px;
 		}
 
-		.field label {
-			font-size: 11px;
+		.field-row {
+			display: flex;
+			gap: 6px;
 		}
 
-		.field input, .field select, .field textarea {
-			font-family: inherit;
-			font-size: inherit;
-			outline: none;
+		.color-row {
+			display: flex;
+			gap: 4px;
+			align-items: center;
 		}
 
-		.field-row { display: flex; gap: 6px; }
+		.color-row input[type="color"] {
+			width: 32px;
+			height: 22px;
+			padding: 1px;
+			cursor: pointer;
+		}
 
-		.color-row { display: flex; gap: 4px; align-items: center; }
-		.color-row input[type="color"] { width: 32px; height: 22px; padding: 1px; cursor: pointer; }
 		.color-row input[type="text"] { flex: 1; }
 
 		.properties-json {
@@ -222,6 +181,15 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			font-family: monospace;
 			font-size: 11px;
 			word-break: break-all;
+		}
+
+		.field input,
+		.field select,
+		.field textarea {
+			width: 100%;
+			font-family: inherit;
+			font-size: inherit;
+			outline: none;
 		}
 	`;
 

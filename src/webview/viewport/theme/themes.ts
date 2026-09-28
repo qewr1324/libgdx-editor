@@ -2,19 +2,16 @@ export interface Theme {
 	name: string;
 	label: string;
 
-	// رنگ‌های کلی
 	bg: string;
 	fg: string;
 	border: string;
 	borderLight: string;
 	borderDark: string;
 
-	// Panel
 	panelBg: string;
 	panelBorder: string;
 	panelRadius: string;
 
-	// Button
 	btnBg: string;
 	btnFg: string;
 	btnBorder: string;
@@ -27,7 +24,6 @@ export interface Theme {
 	btnBoxShadow: string;
 	btnActiveBoxShadow: string;
 
-	// Input
 	inputBg: string;
 	inputFg: string;
 	inputBorder: string;
@@ -35,20 +31,16 @@ export interface Theme {
 	inputRadius: string;
 	inputPadding: string;
 
-	// Font
 	fontFamily: string;
 	fontSize: string;
 	fontWeight: string;
 
-	// Title bar
 	titleBg: string;
 	titleFg: string;
 
-	// Accent
 	accent: string;
 	accentFg: string;
 
-	// Toolbar
 	toolbarBg: string;
 	toolbarBorder: string;
 	toolbarRadius: string;
@@ -56,7 +48,6 @@ export interface Theme {
 	toolbarPadding: string;
 	toolbarGap: string;
 
-	// Context menu
 	menuBg: string;
 	menuFg: string;
 	menuHoverBg: string;
@@ -65,10 +56,12 @@ export interface Theme {
 	menuRadius: string;
 	menuShadow: string;
 
-	// Scrollbar
 	scrollTrack: string;
 	scrollThumb: string;
 	scrollThumbBorder: string;
+
+	// برای مرزهای 3D کلاسیک
+	isClassic?: boolean;
 }
 
 export const THEMES: Record<string, Theme> = {
@@ -86,8 +79,8 @@ export const THEMES: Record<string, Theme> = {
 		btnBg: "#c0c0c0",
 		btnFg: "#000000",
 		btnBorder: "#808080",
-		btnHoverBg: "#c0c0c0",
-		btnActiveBg: "#c0c0c0",
+		btnHoverBg: "#d4d4d4",
+		btnActiveBg: "#b0b0b0",
 		btnRadius: "0",
 		btnPadding: "3px 10px",
 		btnFontWeight: "normal",
@@ -123,6 +116,7 @@ export const THEMES: Record<string, Theme> = {
 		scrollTrack: "#dfdfdf",
 		scrollThumb: "#c0c0c0",
 		scrollThumbBorder: "#808080",
+		isClassic: true,
 	},
 
 	unity5: {
@@ -341,3 +335,8 @@ export const THEMES: Record<string, Theme> = {
 export const THEME_ORDER: string[] = ["win98", "unity5", "unity6", "ue4", "ue5"];
 
 export const DEFAULT_THEME = "win98";
+
+export function getTheme(name: string | undefined): Theme {
+	if (name && THEMES[name]) return THEMES[name];
+	return THEMES[DEFAULT_THEME];
+}

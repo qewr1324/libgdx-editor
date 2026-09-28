@@ -11,7 +11,6 @@ import { applyTheme } from "./theme/theme-manager.js";
 import { DEFAULT_THEME } from "./theme/themes.js";
 
 (async () => {
-	// تم پیش‌فرض قبل از هر چیز اعمال شود
 	applyTheme(DEFAULT_THEME);
 
 	await initPixi();

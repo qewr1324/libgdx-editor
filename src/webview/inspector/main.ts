@@ -1,5 +1,6 @@
 import type { GameObject, Scene } from "../../types/scene.js";
 import { THEMES, THEME_ORDER } from "../viewport/theme/themes.js";
+import { applyTheme } from "../viewport/theme/theme-manager.js";
 
 interface VsCodeApi {
 	postMessage(msg: unknown): void;
@@ -16,9 +17,20 @@ let currentObjectId: string | null = null;
 let currentScene: Scene | null = null;
 let multiSelection: { count: number; ids: string[] } | null = null;
 let sceneMode = false;
+let lastAppliedTheme: string | null = null;
+
+function applySceneTheme(scene: Scene | null): void {
+	if (!scene) return;
+	const themeName = scene.theme ?? "win98";
+	if (themeName === lastAppliedTheme) return;
+	lastAppliedTheme = themeName;
+	applyTheme(themeName);
+}
 
 function render(force = false): void {
-	// حالت Scene Settings
+	// تم را قبل از هر رندر اعمال کن
+	applySceneTheme(currentScene);
+
 	if (sceneMode && currentScene) {
 		if (!force && app.querySelector(".inspector-scene")) {
 			updateSceneFieldValues();
@@ -178,6 +190,11 @@ function attachSceneListeners(): void {
 
 		if (input instanceof HTMLSelectElement) {
 			input.addEventListener("change", () => {
+				// تم را بلافاصله در inspector اعمال کن
+				if (field === "theme" && currentScene) {
+					currentScene = { ...currentScene, theme: input.value };
+					applySceneTheme(currentScene);
+				}
 				vscode.postMessage({ type: "updateSceneField", field, value: input.value, historyLabel: `scene: ${field}` });
 			});
 		} else if (input.type === "number") {
@@ -456,6 +473,7 @@ window.addEventListener("message", (event) => {
 			break;
 		case "showScene":
 			currentScene = msg.scene;
+			applySceneTheme(currentScene);
 			if (sceneMode) {
 				render(false);
 			}

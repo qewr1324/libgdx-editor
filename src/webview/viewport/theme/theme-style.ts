@@ -1,177 +1,20 @@
 import type { Theme } from "./themes.js";
 
 /**
- * CSS را بر اساس تم می‌سازد.
+ * CSS کامل را از تم می‌سازد. تمام استایل‌های UI را شامل می‌شود.
  */
 export function buildThemeCss(theme: Theme): string {
-	// اگر تم win98 است، CSS کلاسیک استفاده کن
-	if (theme.name === "win98") {
-		return buildWin98Css(theme);
-	}
-	return buildModernCss(theme);
-}
-
-function buildWin98Css(theme: Theme): string {
 	return `
+		/* ============ Base ============ */
 		:root {
-			--win-bg: ${theme.bg};
-			--win-text: ${theme.fg};
-			--win-title-active: #000080;
-			--win-highlight: ${theme.accent};
-		}
-
-		html, body, #app {
-			background: ${theme.bg};
-			color: ${theme.fg};
-			font-family: ${theme.fontFamily};
-			font-size: ${theme.fontSize};
-		}
-
-		#toolbar {
-			background: ${theme.toolbarBg};
-			border: 2px solid;
-			border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};
-			box-shadow: ${theme.toolbarShadow};
-			padding: ${theme.toolbarPadding};
-			gap: ${theme.toolbarGap};
-			border-radius: ${theme.toolbarRadius};
-		}
-
-		#toolbar button {
-			background: ${theme.btnBg};
-			color: ${theme.btnFg};
-			border: 2px solid;
-			border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};
-			box-shadow: ${theme.btnBoxShadow};
-			padding: ${theme.btnPadding};
-			border-radius: ${theme.btnRadius};
-			font-weight: ${theme.btnFontWeight};
-			text-transform: ${theme.btnTextTransform};
-		}
-
-		#toolbar button.active {
-			border-color: ${theme.borderDark} ${theme.borderLight} ${theme.borderLight} ${theme.borderDark};
-			box-shadow: ${theme.btnActiveBoxShadow};
-		}
-
-		#context-menu {
-			background: ${theme.menuBg};
-			color: ${theme.menuFg};
-			border: 2px solid;
-			border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};
-			box-shadow: ${theme.menuShadow};
-			border-radius: ${theme.menuRadius};
-		}
-
-		.context-menu-item:hover {
-			background: ${theme.menuHoverBg};
-			color: ${theme.menuHoverFg};
-		}
-
-		.section {
-			background: ${theme.panelBg};
-			border: 2px solid;
-			border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border};
-			box-shadow: inset 1px 1px 0 ${theme.borderDark};
-			border-radius: ${theme.panelRadius};
-		}
-
-		.section-title {
-			background: ${theme.panelBg};
-			color: ${theme.fg};
-		}
-
-		.header-section {
-			background: ${theme.titleBg};
-			border: 2px solid;
-			border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};
-			box-shadow: inset -1px -1px 0 ${theme.border}, inset 1px 1px 0 #dfdfdf;
-		}
-
-		.header-section .object-id {
-			color: ${theme.titleFg};
-		}
-
-		.object-type-badge {
-			background: ${theme.bg};
-			color: ${theme.fg};
-			border: 2px solid;
-			border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};
-		}
-
-		.type-sprite { background: #000080; color: #ffffff; }
-		.type-shape { background: #800000; color: #ffffff; }
-		.type-text { background: #ffffff; color: #000000; }
-		.type-group { background: #800080; color: #ffffff; }
-		.type-scene { background: #000080; color: #ffffff; }
-
-		.btn-icon {
-			background: ${theme.btnBg};
-			color: ${theme.btnFg};
-			border: 2px solid;
-			border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};
-			box-shadow: ${theme.btnBoxShadow};
-		}
-
-		.field input, .field select, .field textarea {
-			background: ${theme.inputBg};
-			color: ${theme.inputFg};
-			border: 2px solid;
-			border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border};
-			box-shadow: inset 1px 1px 0 ${theme.borderDark};
-			padding: ${theme.inputPadding};
-			border-radius: ${theme.inputRadius};
-		}
-
-		.field input:focus, .field select:focus, .field textarea:focus {
-			outline: 1px dotted ${theme.fg};
-			outline-offset: -4px;
-		}
-
-		.color-row input[type="color"] {
-			border: 2px solid;
-			border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border};
-			background: ${theme.bg};
-		}
-
-		.texture-row {
-			background: ${theme.inputBg};
-			color: ${theme.inputFg};
-			border: 2px solid;
-			border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border};
-		}
-
-		.checkbox-row input[type="checkbox"] {
-			background: ${theme.inputBg};
-			border: 2px solid;
-			border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border};
-		}
-
-		.checkbox-row input[type="checkbox"]:checked::after {
-			color: ${theme.fg};
-		}
-
-		#ruler-h, #ruler-v {
-			background: ${theme.bg};
-		}
-
-		#ruler-info {
-			background: ${theme.bg};
-			color: ${theme.fg};
-			border: 2px solid;
-			border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border};
-			box-shadow: inset 1px 1px 0 ${theme.borderDark};
-		}
-	`;
-}
-
-function buildModernCss(theme: Theme): string {
-	return `
-		:root {
-			--modern-bg: ${theme.bg};
-			--modern-panel: ${theme.panelBg};
-			--modern-border: ${theme.panelBorder};
-			--modern-accent: ${theme.accent};
+			--theme-bg: ${theme.bg};
+			--theme-fg: ${theme.fg};
+			--theme-border: ${theme.border};
+			--theme-accent: ${theme.accent};
+			--theme-accent-fg: ${theme.accentFg};
+			--theme-panel-bg: ${theme.panelBg};
+			--theme-title-bg: ${theme.titleBg};
+			--theme-title-fg: ${theme.titleFg};
 		}
 
 		html, body, #app {
@@ -182,9 +25,11 @@ function buildModernCss(theme: Theme): string {
 			font-weight: ${theme.fontWeight};
 		}
 
+		/* ============ Toolbar ============ */
 		#toolbar {
 			background: ${theme.toolbarBg};
-			border: 1px solid ${theme.toolbarBorder};
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.toolbarBorder};
+			${theme.isClassic ? `border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : ""}
 			box-shadow: ${theme.toolbarShadow};
 			padding: ${theme.toolbarPadding};
 			gap: ${theme.toolbarGap};
@@ -194,42 +39,66 @@ function buildModernCss(theme: Theme): string {
 		#toolbar button {
 			background: ${theme.btnBg};
 			color: ${theme.btnFg};
-			border: 1px solid ${theme.btnBorder};
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.btnBorder};
+			${theme.isClassic ? `border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : ""}
 			box-shadow: ${theme.btnBoxShadow};
 			padding: ${theme.btnPadding};
 			border-radius: ${theme.btnRadius};
 			font-weight: ${theme.btnFontWeight};
 			text-transform: ${theme.btnTextTransform};
-			transition: background 0.15s, box-shadow 0.15s;
+			font-family: inherit;
+			font-size: inherit;
+			cursor: pointer;
+			transition: background 0.1s, color 0.1s;
 		}
 
 		#toolbar button:hover {
 			background: ${theme.btnHoverBg};
 		}
 
-		#toolbar button:active {
-			background: ${theme.btnActiveBg};
-			color: ${theme.accentFg};
-		}
-
+		#toolbar button:active,
 		#toolbar button.active {
 			background: ${theme.btnActiveBg};
 			color: ${theme.accentFg};
 			box-shadow: ${theme.btnActiveBoxShadow};
+			${theme.isClassic ? `border-color: ${theme.borderDark} ${theme.borderLight} ${theme.borderLight} ${theme.borderDark};` : ""}
 		}
 
-		#toolbar button:focus {
-			outline: 1px solid ${theme.accent};
-			outline-offset: 1px;
+		#toolbar-info {
+			margin-left: 8px;
+			padding: 2px 8px;
+			color: ${theme.fg};
+			font-size: 11px;
+			background: ${theme.isClassic ? theme.bg : "transparent"};
+			${theme.isClassic ? `border: 2px solid; border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border}; box-shadow: inset 1px 1px 0 ${theme.borderDark};` : ""}
+			min-height: 20px;
+			line-height: 16px;
+		}
+		#toolbar-info:empty {
+			display: none;
 		}
 
+		/* ============ Context Menu ============ */
 		#context-menu {
 			background: ${theme.menuBg};
 			color: ${theme.menuFg};
-			border: 1px solid ${theme.menuBorder};
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.menuBorder};
+			${theme.isClassic ? `border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : ""}
 			box-shadow: ${theme.menuShadow};
 			border-radius: ${theme.menuRadius};
-			padding: 4px 0;
+			padding: 2px;
+			font-family: inherit;
+			font-size: 11px;
+		}
+
+		.context-menu-item {
+			padding: 4px 20px 4px 24px;
+			cursor: pointer;
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			color: ${theme.menuFg};
+			white-space: nowrap;
 		}
 
 		.context-menu-item:hover {
@@ -238,51 +107,66 @@ function buildModernCss(theme: Theme): string {
 		}
 
 		.context-menu-separator {
-			background: ${theme.menuBorder};
-			margin: 4px 0;
+			height: 2px;
+			background: ${theme.isClassic ? theme.bg : theme.menuBorder};
+			${theme.isClassic ? `border-top: 1px solid ${theme.borderDark}; border-bottom: 1px solid ${theme.borderLight};` : ""}
+			margin: 3px 0;
 		}
 
+		/* ============ Inspector ============ */
+		.empty-state {
+			color: ${theme.fg};
+			background: ${theme.bg};
+		}
+
+		.empty-icon { font-size: 48px; opacity: 0.4; margin-bottom: 12px; }
+		.empty-text { font-size: 12px; font-weight: bold; margin-bottom: 6px; }
+		.empty-hint { font-size: 11px; opacity: 0.7; line-height: 1.5; }
+
+		.inspector { padding: 4px; }
+
 		.section {
-			background: ${theme.panelBg};
-			border: 1px solid ${theme.panelBorder};
-			border-radius: ${theme.panelRadius};
 			margin-bottom: 10px;
-			padding: 8px;
+			padding: ${theme.isClassic ? "14px 8px 8px 8px" : "8px"};
+			background: ${theme.panelBg};
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.panelBorder};
+			${theme.isClassic ? `border-color: ${theme.borderDark} ${theme.borderLight} ${theme.borderLight} ${theme.borderDark}; box-shadow: inset 1px 1px 0 ${theme.borderDark};` : ""}
+			border-radius: ${theme.panelRadius};
+			position: relative;
 		}
 
 		.section-title {
+			${theme.isClassic ? `position: absolute; top: -8px; left: 8px; padding: 0 4px; background: ${theme.panelBg};` : "position: static; padding: 0; background: transparent; margin-bottom: 8px;"}
+			font-size: 11px;
+			font-weight: ${theme.isClassic ? "bold" : "600"};
 			color: ${theme.fg};
-			opacity: 0.7;
-			font-size: 10px;
-			font-weight: 600;
-			text-transform: uppercase;
-			letter-spacing: 0.5px;
-			margin-bottom: 8px;
-			background: transparent;
-			position: static;
-			padding: 0;
+			${theme.isClassic ? "text-transform: none; letter-spacing: 0;" : "text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7;"}
 		}
 
 		.header-section {
 			background: ${theme.titleBg};
-			border: 1px solid ${theme.panelBorder};
+			padding: ${theme.isClassic ? "6px" : "10px"};
+			border: ${theme.isClassic ? `2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight}; box-shadow: inset -1px -1px 0 ${theme.border}, inset 1px 1px 0 #dfdfdf;` : `1px solid ${theme.panelBorder};`}
 			border-radius: ${theme.panelRadius};
-			padding: 10px;
 		}
 
 		.header-section .object-id {
 			color: ${theme.titleFg};
-			opacity: 0.7;
+			${theme.isClassic ? "" : "opacity: 0.7;"}
+		}
+
+		.header-top {
+			display: flex;
+			gap: 6px;
+			align-items: center;
+			margin-bottom: 4px;
 		}
 
 		.object-type-badge {
-			background: ${theme.accent};
-			color: ${theme.accentFg};
-			border: none;
-			border-radius: 10px;
+			${theme.isClassic ? `background: ${theme.bg}; color: ${theme.fg}; border: 2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight}; box-shadow: inset -1px -1px 0 ${theme.borderDark}, inset 1px 1px 0 ${theme.borderLight};` : `background: ${theme.accent}; color: ${theme.accentFg}; border: none; border-radius: 10px;`}
 			font-size: 10px;
-			padding: 2px 8px;
-			font-weight: 600;
+			padding: ${theme.isClassic ? "1px 8px" : "2px 8px"};
+			font-weight: bold;
 			text-transform: uppercase;
 		}
 
@@ -292,113 +176,169 @@ function buildModernCss(theme: Theme): string {
 		.type-group { background: #9b59b6; color: #ffffff; }
 		.type-scene { background: #f39c12; color: #ffffff; }
 
-		.btn-icon {
-			background: transparent;
+		.object-id {
+			font-size: 10px;
 			color: ${theme.fg};
-			border: none;
-			border-radius: 4px;
+			font-family: monospace;
+			word-break: break-all;
+		}
+
+		.btn-icon {
+			background: ${theme.isClassic ? theme.bg : "transparent"};
+			border: ${theme.isClassic ? `2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight}; box-shadow: inset -1px -1px 0 ${theme.border}, inset 1px 1px 0 ${theme.borderLight};` : "none"};
+			border-radius: ${theme.isClassic ? "0" : "4px"};
 			cursor: pointer;
-			padding: 4px;
-			font-size: 14px;
+			font-size: 11px;
+			padding: ${theme.isClassic ? "2px 6px" : "4px"};
+			min-width: 24px;
+			min-height: 22px;
+			color: ${theme.fg};
+			margin-left: auto;
 		}
 
 		.btn-icon:hover {
-			background: ${theme.btnHoverBg};
+			background: ${theme.isClassic ? theme.bg : theme.btnHoverBg};
 		}
 
-		.field input, .field select, .field textarea {
+		.field {
+			margin-bottom: 6px;
+			display: flex;
+			flex-direction: column;
+			gap: 2px;
+			flex: 1;
+		}
+
+		.field label {
+			font-size: 11px;
+			color: ${theme.fg};
+		}
+
+		.field input,
+		.field select,
+		.field textarea {
 			background: ${theme.inputBg};
 			color: ${theme.inputFg};
-			border: 1px solid ${theme.inputBorder};
-			border-radius: ${theme.inputRadius};
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.inputBorder};
+			${theme.isClassic ? `border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border}; box-shadow: inset 1px 1px 0 ${theme.borderDark};` : ""}
 			padding: ${theme.inputPadding};
+			border-radius: ${theme.inputRadius};
 			font-family: inherit;
-			font-size: ${theme.fontSize};
+			font-size: inherit;
 			width: 100%;
 			box-sizing: border-box;
 			outline: none;
-			transition: border-color 0.15s, box-shadow 0.15s;
 		}
 
-		.field input:focus, .field select:focus, .field textarea:focus {
-			border-color: ${theme.inputFocusBorder};
-			box-shadow: 0 0 0 2px ${hexToRgba(theme.inputFocusBorder, 0.2)};
+		.field input:focus,
+		.field select:focus,
+		.field textarea:focus {
+			${theme.isClassic ? `outline: 1px dotted ${theme.fg}; outline-offset: -4px;` : `border-color: ${theme.inputFocusBorder}; box-shadow: 0 0 0 2px ${hexToRgba(theme.inputFocusBorder, 0.2)};`}
+		}
+
+		.field-row {
+			display: flex;
+			gap: 6px;
+		}
+
+		.color-row {
+			display: flex;
+			gap: 4px;
+			align-items: center;
 		}
 
 		.color-row input[type="color"] {
-			border: 1px solid ${theme.inputBorder};
+			width: 32px;
+			height: 22px;
+			padding: 1px;
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.inputBorder};
 			border-radius: ${theme.inputRadius};
-			background: ${theme.inputBg};
+			background: ${theme.isClassic ? theme.bg : theme.inputBg};
+			cursor: pointer;
 		}
 
-		.texture-row {
-			background: ${theme.inputBg};
-			color: ${theme.inputFg};
-			border: 1px solid ${theme.inputBorder};
-			border-radius: ${theme.inputRadius};
-			padding: 4px 8px;
+		.color-row input[type="text"] { flex: 1; }
+
+		.properties-json {
+			font-family: "Courier New", monospace !important;
+			font-size: 11px !important;
+			resize: vertical;
+			min-height: 60px;
+		}
+
+		.checkbox-row {
+			display: flex;
+			gap: 6px;
+			align-items: center;
+			cursor: pointer;
 		}
 
 		.checkbox-row input[type="checkbox"] {
-			width: 14px;
-			height: 14px;
+			width: 13px;
+			height: 13px;
+			min-height: 13px;
 			appearance: none;
 			-webkit-appearance: none;
 			background: ${theme.inputBg};
-			border: 1px solid ${theme.inputBorder};
-			border-radius: 2px;
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.inputBorder};
+			${theme.isClassic ? `border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border};` : ""}
+			border-radius: ${theme.isClassic ? "0" : "2px"};
 			position: relative;
 			cursor: pointer;
 		}
 
 		.checkbox-row input[type="checkbox"]:checked {
-			background: ${theme.accent};
-			border-color: ${theme.accent};
+			${theme.isClassic ? "" : `background: ${theme.accent}; border-color: ${theme.accent};`}
 		}
 
 		.checkbox-row input[type="checkbox"]:checked::after {
 			content: "✓";
 			position: absolute;
-			left: 1px;
-			top: -2px;
-			font-size: 12px;
+			left: ${theme.isClassic ? "0" : "1px"};
+			top: ${theme.isClassic ? "-3px" : "-2px"};
+			font-size: ${theme.isClassic ? "13px" : "12px"};
 			font-weight: bold;
-			color: ${theme.accentFg};
+			color: ${theme.isClassic ? theme.fg : theme.accentFg};
 		}
 
+		.texture-row {
+			display: flex;
+			gap: 6px;
+			align-items: center;
+			font-family: monospace;
+			font-size: 11px;
+			color: ${theme.fg};
+			word-break: break-all;
+			background: ${theme.inputBg};
+			padding: 4px 6px;
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.inputBorder};
+			border-radius: ${theme.inputRadius};
+		}
+
+		/* ============ Rulers ============ */
 		#ruler-h, #ruler-v {
-			background: ${theme.bg};
-			border-color: ${theme.border};
+			background: ${theme.isClassic ? theme.bg : theme.bg};
 		}
 
 		#ruler-h {
-			border-bottom: 1px solid ${theme.border};
-			box-shadow: none;
+			border-bottom: ${theme.isClassic ? `2px solid ${theme.borderLight}; box-shadow: 0 1px 0 ${theme.border};` : `1px solid ${theme.border};`};
 		}
 
 		#ruler-v {
-			border-right: 1px solid ${theme.border};
-			box-shadow: none;
+			border-right: ${theme.isClassic ? `2px solid ${theme.borderLight}; box-shadow: 1px 0 0 ${theme.border};` : `1px solid ${theme.border};`};
 		}
 
 		#ruler-info {
-			background: ${theme.panelBg};
+			background: ${theme.isClassic ? theme.bg : theme.panelBg};
 			color: ${theme.fg};
-			border: 1px solid ${theme.border};
+			border: ${theme.isClassic ? `2px solid; border-color: ${theme.border} ${theme.borderLight} ${theme.borderLight} ${theme.border}; box-shadow: inset 1px 1px 0 ${theme.borderDark};` : `1px solid ${theme.border};`};
 			border-radius: ${theme.inputRadius};
-			padding: 2px 8px;
 		}
 
-		.empty-state {
-			color: ${theme.fg};
-		}
-
-		.empty-icon { opacity: 0.3; }
-
+		/* ============ Scrollbar ============ */
 		body::-webkit-scrollbar,
 		#app::-webkit-scrollbar {
-			width: 10px;
-			height: 10px;
+			width: 16px;
+			height: 16px;
 		}
 
 		body::-webkit-scrollbar-track,
@@ -409,13 +349,7 @@ function buildModernCss(theme: Theme): string {
 		body::-webkit-scrollbar-thumb,
 		#app::-webkit-scrollbar-thumb {
 			background: ${theme.scrollThumb};
-			border: 1px solid ${theme.scrollThumbBorder};
-			border-radius: 5px;
-		}
-
-		body::-webkit-scrollbar-thumb:hover,
-		#app::-webkit-scrollbar-thumb:hover {
-			background: ${theme.btnHoverBg};
+			border: ${theme.isClassic ? `2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : `1px solid ${theme.scrollThumbBorder}; border-radius: 5px;`};
 		}
 	`;
 }
@@ -429,7 +363,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 /**
- * CSS تم را به document تزریق می‌کند.
+ * CSS تم را به document تزریق می‌کند. اگر style موجود باشد، محتوایش را عوض می‌کند.
  */
 export function applyThemeCss(theme: Theme): void {
 	let styleEl = document.getElementById("viewport-theme") as HTMLStyleElement | null;
@@ -439,4 +373,6 @@ export function applyThemeCss(theme: Theme): void {
 		document.head.appendChild(styleEl);
 	}
 	styleEl.textContent = buildThemeCss(theme);
+	// برای تم روشن/تیره، color-scheme را ست کن
+	document.documentElement.style.colorScheme = theme.name === "win98" ? "light" : "dark";
 }
