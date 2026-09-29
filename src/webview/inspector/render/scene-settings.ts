@@ -1,8 +1,8 @@
 // src/webview/inspector/render/scene-settings.ts
 import type { Scene } from "../../../types/scene.js";
-import { THEMES, THEME_ORDER } from "../../viewport/theme/themes.js";
+import { THEMES, THEME_ORDER } from "../theme-types.js";   // ← تغییر: قبلاً ../viewport/theme/themes.js بود
 import { vscode } from "../vscode-api.js";
-import { currentConfig, setSceneMode, collapsedSections } from "../state.js";
+import { currentConfig, setSceneMode } from "../state.js";
 import { ICONS } from "../icons.js";
 import { escapeAttr, escapeHtml } from "../utils.js";
 import { sectionWrap, field, fieldRow, numberField } from "./section-helpers.js";
@@ -202,5 +202,3 @@ export function attachSceneListeners(): void {
 	attachDragHandles("scene");
 }
 
-// helper برای import داینامیک collapsedSections که warning نده
-export { collapsedSections };
