@@ -36,16 +36,17 @@ export function handleResizeMove(e: PointerEvent, worldX: number, worldY: number
 	const handle = data.resizeHandle!;
 	const startTransform = data.startTransforms.get(obj.id)!;
 
+	const originX = obj.transform.originX;
+	const originY = obj.transform.originY;
+
 	let dx = worldX - data.startWorldX;
 	let dy = worldY - data.startWorldY;
 
-	// ✅ در object mode، delta رو به محور محلی آبجکت تبدیل می‌کنیم
 	const isObjectMode = getConfig()?.gizmo.mode === "object";
 	if (isObjectMode && startTransform.r !== 0) {
 		const rad = (startTransform.r * Math.PI) / 180;
 		const cos = Math.cos(rad);
 		const sin = Math.sin(rad);
-		// rotation برعکس برای برگردوندن به محور محلی
 		const localDx = dx * cos + dy * sin;
 		const localDy = -dx * sin + dy * cos;
 		dx = localDx;
@@ -77,18 +78,18 @@ export function handleResizeMove(e: PointerEvent, worldX: number, worldY: number
 	} else {
 		if (isRight) {
 			newW = Math.max(1, startTransform.w + dx);
-			newX = startTransform.x + dx / 2;
+			newX = startTransform.x + dx * (1 - originX);
 		} else if (isLeft) {
 			newW = Math.max(1, startTransform.w - dx);
-			newX = startTransform.x + dx / 2;
+			newX = startTransform.x + dx * originX;
 		}
 
 		if (isBottom) {
 			newH = Math.max(1, startTransform.h + dy);
-			newY = startTransform.y + dy / 2;
+			newY = startTransform.y + dy * (1 - originY);
 		} else if (isTop) {
 			newH = Math.max(1, startTransform.h - dy);
-			newY = startTransform.y + dy / 2;
+			newY = startTransform.y + dy * originY;
 		}
 
 		if (!isHorizontal) newX = startTransform.x;
@@ -110,9 +111,7 @@ export function handleResizeMove(e: PointerEvent, worldX: number, worldY: number
 		newH = Math.round(newH / g) * g;
 	}
 
-	// ✅ در object mode، موقعیت جدید رو باید به محور جهانی برگردونیم
 	if (isObjectMode && startTransform.r !== 0) {
-		// delta موقعیت رو در محور محلی حساب کردیم، حالا برگردون به جهانی
 		const offsetX = newX - startTransform.x;
 		const offsetY = newY - startTransform.y;
 		const rad = (startTransform.r * Math.PI) / 180;

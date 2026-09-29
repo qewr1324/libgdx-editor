@@ -53,7 +53,7 @@ export function render(force = false): void {
 	}
 
 	// ---------- Same object, just update values ----------
-	if (!force && currentObjectId === currentObject.id && app.querySelector(".inspector")) {
+	if (!force && currentObjectId === currentObject.id && app.querySelector(".inspector:not(.inspector-scene)")) {
 		updateFieldValues(currentObject, currentScene);
 		return;
 	}

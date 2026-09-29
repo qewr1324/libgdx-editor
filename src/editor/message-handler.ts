@@ -56,9 +56,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "save":
 			await handleSave(msg, ctx);
 			break;
-		case "sceneChanged":
-			handleSceneChanged(msg, ctx);
-			break;
 		case "selectObject": {
 			SceneRegistry.setActiveInstance(host);
 			const scene = host.getScene() ?? parseDocument(ctx.document);
@@ -100,7 +97,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, "add empty object");
 
-			// آبجکت جدید رو انتخاب کن
 			setTimeout(() => {
 				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
 			}, 50);
@@ -182,7 +178,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 
 			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
 
-			// 🆕 component ها id جدید بگیرن
 			for (const obj of pasted) {
 				if (obj.components) {
 					obj.components = obj.components.map((c) => ({ ...c, id: createComponentId() }));
@@ -282,9 +277,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			} satisfies ExtensionToWebviewMessage);
 			break;
 		}
-		// ============================================================
-		// 🆕 Atlas region request
-		// ============================================================
 		case "requestAtlasRegions": {
 			const scene = host.getScene();
 			if (!scene) break;
@@ -324,14 +316,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 	}
 }
 
-// ============================================================
-// 🆕 Component Operations (از Inspector میاد)
-// ============================================================
-
-/**
- * این تابع از InspectorProvider صدا زده میشه.
- * یه component جدید به آبجکت اضافه می‌کنه.
- */
 export function handleAddComponent(host: SceneHost, objectId: string, componentType: Component["type"]): void {
 	const scene = host.getScene();
 	if (!scene) return;
@@ -341,9 +325,6 @@ export function handleAddComponent(host: SceneHost, objectId: string, componentT
 	host.getHistory().commit(updated, `add ${componentType} component`);
 }
 
-/**
- * یه component رو آپدیت می‌کنه.
- */
 export function handleUpdateComponent(host: SceneHost, objectId: string, componentId: string, updates: Partial<Component>): void {
 	const scene = host.getScene();
 	if (!scene) return;
@@ -352,9 +333,6 @@ export function handleUpdateComponent(host: SceneHost, objectId: string, compone
 	host.getHistory().commit(updated, "update component");
 }
 
-/**
- * یه component رو حذف می‌کنه.
- */
 export function handleRemoveComponent(host: SceneHost, objectId: string, componentId: string): void {
 	const scene = host.getScene();
 	if (!scene) return;
@@ -363,10 +341,6 @@ export function handleRemoveComponent(host: SceneHost, objectId: string, compone
 	host.getHistory().commit(updated, "remove component");
 }
 
-/**
- * یه component رو کامل جایگزین می‌کنه.
- * (مثلاً وقتی کاربر یه shape رو عوض می‌کنه، همون id بمونه)
- */
 export function handleReplaceComponent(host: SceneHost, objectId: string, component: Component): void {
 	const scene = host.getScene();
 	if (!scene) return;
@@ -374,10 +348,6 @@ export function handleReplaceComponent(host: SceneHost, objectId: string, compon
 	const updated = addComponentToObjectInScene(scene, objectId, component);
 	host.getHistory().commit(updated, "update component");
 }
-
-// ============================================================
-// Scene Send
-// ============================================================
 
 export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	const host = ctx.host;
@@ -449,14 +419,5 @@ async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Pr
 		}
 	} catch (err) {
 		log.error("[handleSave] failed:", err);
-	}
-}
-
-function handleSceneChanged(msg: { scene: Scene }, ctx: MessageHandlerContext): void {
-	ctx.host.setScene(msg.scene);
-	ctx.host.markDirty();
-	ctx.host.broadcastHistoryState();
-	if (ctx.host.isActive()) {
-		SceneRegistry.emitSceneChange(ctx.host, msg.scene);
 	}
 }

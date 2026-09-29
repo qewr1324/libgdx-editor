@@ -2,13 +2,29 @@
 import type { ComponentType } from "../../../types/components.js";
 import { currentObject, componentMenuOpen, setComponentMenuOpen } from "../state.js";
 import { app, vscode } from "../vscode-api.js";
-import { requestAtlasRegions } from "../atlas-cache.js";
+import { requestAtlasRegions, reloadAtlasRegions } from "../atlas-cache.js";
+
+let outsideClickInstalled = false;
+
+function installOutsideClickListenerOnce(): void {
+	if (outsideClickInstalled) return;
+	outsideClickInstalled = true;
+
+	document.addEventListener("click", () => {
+		if (componentMenuOpen) {
+			setComponentMenuOpen(false);
+			app.querySelector("[data-component-add-menu]")?.classList.remove("open");
+		}
+	});
+}
 
 // ============================================================
 // Add menu
 // ============================================================
 
 export function attachComponentAddMenu(): void {
+	installOutsideClickListenerOnce();
+
 	const toggle = app.querySelector<HTMLButtonElement>("[data-component-add-toggle]");
 	const menu = app.querySelector<HTMLDivElement>("[data-component-add-menu]");
 
@@ -35,14 +51,6 @@ export function attachComponentAddMenu(): void {
 			});
 		});
 	}
-
-	// کلیک بیرون → بستن
-	document.addEventListener("click", () => {
-		if (componentMenuOpen) {
-			setComponentMenuOpen(false);
-			app.querySelector("[data-component-add-menu]")?.classList.remove("open");
-		}
-	});
 }
 
 // ============================================================
@@ -50,7 +58,6 @@ export function attachComponentAddMenu(): void {
 // ============================================================
 
 export function attachComponentCards(): void {
-	// ---------- Remove buttons ----------
 	const removeButtons = app.querySelectorAll<HTMLButtonElement>("[data-component-remove]");
 	for (const btn of removeButtons) {
 		btn.addEventListener("click", (e) => {
@@ -65,7 +72,6 @@ export function attachComponentCards(): void {
 		});
 	}
 
-	// ---------- Field changes ----------
 	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("[data-component-field]");
 	for (const input of inputs) {
 		const componentId = input.dataset.componentId!;
@@ -118,19 +124,17 @@ export function attachComponentCards(): void {
 		}
 	}
 
-	// ---------- Reload regions buttons ----------
 	const reloadButtons = app.querySelectorAll<HTMLButtonElement>("[data-component-reload]");
 	for (const btn of reloadButtons) {
 		btn.addEventListener("click", (e) => {
 			e.stopPropagation();
 			const texPath = btn.dataset.componentTexture;
 			if (texPath) {
-				requestAtlasRegions(texPath);
+				reloadAtlasRegions(texPath);
 			}
 		});
 	}
 
-	// ---------- Atlas trigger on texture blur ----------
 	const atlasTriggers = app.querySelectorAll<HTMLInputElement>("[data-atlas-trigger]");
 	for (const input of atlasTriggers) {
 		input.addEventListener("blur", () => {

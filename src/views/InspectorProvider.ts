@@ -144,9 +144,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					}
 					break;
 
-				// ============================================================
-				// 🆕 Component handlers
-				// ============================================================
 				case "addComponent":
 					if (this.boundHost) {
 						handleAddComponent(this.boundHost, msg.objectId, msg.componentType as ComponentType);
@@ -171,9 +168,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					}
 					break;
 
-				// ============================================================
-				// Config
-				// ============================================================
 				case "updateConfig": {
 					const config = ConfigManager.getInstance();
 					await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
@@ -233,7 +227,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		if (this.currentScene) {
 			this.view.webview.postMessage({ type: "showScene", scene: this.currentScene } satisfies ExtensionToInspectorMessage);
 
-			// ارسال لیست لایه‌ها برای dropdown
 			const layersInfo = this.currentScene.layers.map((l) => ({
 				id: l.id ?? `layer_${l.name.replace(/[^a-z0-9]/gi, "_")}`,
 				name: l.name,
@@ -287,7 +280,7 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 			const key = field.slice("transform.".length) as keyof GameObject["transform"];
 			const numValue = typeof value === "number" ? value : Number.parseFloat(String(value));
 			if (!Number.isNaN(numValue)) {
-				obj.transform[key] = numValue;
+				(obj.transform as unknown as Record<string, number>)[key] = numValue;
 			}
 		} else if (field === "properties" && typeof value === "object" && value !== null) {
 			obj.properties = value as Record<string, unknown>;

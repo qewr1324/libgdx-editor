@@ -34,6 +34,8 @@ export function beginMultiResize(e: PointerEvent, objects: GameObject[], handle:
 			w: obj.transform.width,
 			h: obj.transform.height,
 			r: obj.transform.rotation,
+			sx: obj.transform.scaleX || 1,
+			sy: obj.transform.scaleY || 1,
 		});
 	}
 

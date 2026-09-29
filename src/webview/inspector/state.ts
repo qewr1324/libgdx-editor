@@ -58,6 +58,7 @@ export function setComponentMenuOpen(v: boolean): void {
 
 const atlasRegionsByTexture = new Map<string, AtlasRegionInfo[]>();
 const pendingAtlasRequests = new Set<string>();
+const negativeAtlasRequests = new Set<string>();
 
 export function getAtlasRegions(texturePath: string): AtlasRegionInfo[] | null {
 	return atlasRegionsByTexture.get(texturePath) ?? null;
@@ -66,6 +67,7 @@ export function getAtlasRegions(texturePath: string): AtlasRegionInfo[] | null {
 export function setAtlasRegions(texturePath: string, regions: AtlasRegionInfo[]): void {
 	atlasRegionsByTexture.set(texturePath, regions);
 	pendingAtlasRequests.delete(texturePath);
+	negativeAtlasRequests.delete(texturePath);
 }
 
 export function hasAtlasRegions(texturePath: string): boolean {
@@ -78,8 +80,14 @@ export function isAtlasPending(texturePath: string): boolean {
 
 export function markAtlasPending(texturePath: string): void {
 	pendingAtlasRequests.add(texturePath);
+	negativeAtlasRequests.delete(texturePath);
 }
 
 export function clearAtlasPending(texturePath: string): void {
 	pendingAtlasRequests.delete(texturePath);
+	negativeAtlasRequests.add(texturePath);
+}
+
+export function isAtlasNegative(texturePath: string): boolean {
+	return negativeAtlasRequests.has(texturePath);
 }

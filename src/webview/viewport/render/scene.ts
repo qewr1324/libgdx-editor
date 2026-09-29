@@ -25,14 +25,17 @@ function getSubTexture(texturePath: string, region: { x: number; y: number; widt
 	const baseTexture = textureCache.get(texturePath);
 	if (!baseTexture) return null;
 
-	// LibGDX atlas Y مختصاتش از پایین-چپه، Pixi از بالا-چپ
-	// پس باید flip بشه
 	const texHeight = baseTexture.height;
-	const flippedY = texHeight - region.y - region.height;
+
+	const isRotated = region.rotate === true;
+	const frameW = isRotated ? region.height : region.width;
+	const frameH = isRotated ? region.width : region.height;
+	const flippedY = texHeight - region.y - frameH;
 
 	const subTex = new Texture({
 		source: baseTexture.source,
-		frame: new Rectangle(region.x, flippedY, region.width, region.height),
+		frame: new Rectangle(region.x, flippedY, frameW, frameH),
+		rotate: isRotated ? 2 : 0,
 	});
 
 	subTextureCache.set(cacheKey, subTex);
@@ -85,10 +88,8 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	const isWireframe = getConfig()?.view.renderMode === "wireframe";
 	const broken = getBrokenAssets();
 
-	// ---------- Render all components in order ----------
 	const components = obj.components ?? [];
 
-	// اگه هیچ component ای نداشت، legacy rendering رو امتحان کن
 	if (components.length === 0) {
 		renderLegacy(obj, container, isWireframe);
 	} else {
@@ -97,12 +98,10 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 		}
 	}
 
-	// ---------- اگه هیچی رندر نشد، fallback نمایش بده ----------
 	if (container.children.length === 0) {
 		renderEmptyFallback(obj, container);
 	}
 
-	// ---------- Broken asset badge ----------
 	if (obj.texture && broken.includes(obj.texture)) {
 		const badge = new Text({
 			text: "❗",
@@ -114,13 +113,13 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 		container.addChild(badge);
 	}
 
-	// ---------- Transform + hitArea ----------
-	container.hitArea = new Rectangle(0, 0, t.width, t.height);
+	container.pivot.set(t.width * t.originX, t.height * t.originY);
 	container.x = t.x;
 	container.y = t.y;
 	container.rotation = (t.rotation * Math.PI) / 180;
 	container.scale.set(t.scaleX, t.scaleY);
-	container.pivot.set(t.width * t.originX, t.height * t.originY);
+
+	container.hitArea = new Rectangle(-t.width * t.originX, -t.height * t.originY, t.width, t.height);
 
 	container.eventMode = "static";
 	container.cursor = layerLocked ? "not-allowed" : "pointer";
@@ -170,13 +169,11 @@ function renderComponent(comp: Component, obj: GameObject, container: Container,
 			sprite.height = t.height;
 			sprite.eventMode = "none";
 
-			// tint
 			if (comp.tint) {
 				const color = parseInt(comp.tint.replace("#", "0x"));
 				if (!Number.isNaN(color)) sprite.tint = color;
 			}
 
-			// flip
 			if (comp.flipX) sprite.scale.x *= -1;
 			if (comp.flipY) sprite.scale.y *= -1;
 
@@ -204,7 +201,6 @@ function renderComponent(comp: Component, obj: GameObject, container: Container,
 		}
 
 		case "animation": {
-			// فقط فریم اول رو نشون بده (پیش‌نمایش ساده)
 			if (!comp.texture || comp.frames.length === 0) break;
 			const firstFrame = comp.frames[0];
 			const subTex = getSubTexture(comp.texture, getRegionFromAtlas(comp.texture, firstFrame) ?? { x: 0, y: 0, width: 0, height: 0 });
@@ -216,7 +212,6 @@ function renderComponent(comp: Component, obj: GameObject, container: Container,
 			sprite.eventMode = "none";
 			container.addChild(sprite);
 
-			// یه badge کوچیک که نشون بده انیمیشنه
 			const badge = new Text({
 				text: "🎬",
 				style: new TextStyle({ fontSize: 12 }),
@@ -267,14 +262,13 @@ function renderComponent(comp: Component, obj: GameObject, container: Container,
 }
 
 // ============================================================
-// Legacy rendering (برای backward-compat)
+// Legacy rendering
 // ============================================================
 
 function renderLegacy(obj: GameObject, container: Container, isWireframe: boolean): void {
 	const t = obj.transform;
 	let rendered = false;
 
-	// sprite قدیمی
 	if (obj.type === "sprite" && obj.texture) {
 		const cached = textureCache.get(obj.texture);
 		if (cached) {
@@ -287,7 +281,6 @@ function renderLegacy(obj: GameObject, container: Container, isWireframe: boolea
 		}
 	}
 
-	// shape/text قدیمی
 	if (!rendered) {
 		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
 		const g = new Graphics();
@@ -311,31 +304,27 @@ function renderLegacy(obj: GameObject, container: Container, isWireframe: boolea
 			txt.eventMode = "none";
 			container.addChild(txt);
 		} else if (obj.type === "sprite") {
-			// sprite بدون texture → fallback
 			renderEmptyFallback(obj, container);
 		} else {
-			// gameobject/group بدون component
 			renderEmptyFallback(obj, container);
 		}
 	}
 }
 
 // ============================================================
-// Empty fallback (آیکون وسط + خط دور)
+// Empty fallback
 // ============================================================
 
 function renderEmptyFallback(obj: GameObject, container: Container): void {
 	const t = obj.transform;
 	const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x9b59b6;
 
-	// ---------- dashed border ----------
 	const border = new Graphics();
 	drawDashedRect(border, 0, 0, t.width, t.height, 6, 4);
 	border.stroke({ width: 1.5, color, alpha: 0.55 });
 	border.eventMode = "none";
 	container.addChild(border);
 
-	// ---------- آیکون وسط ----------
 	const iconSize = Math.min(t.width, t.height) * 0.35;
 	const half = iconSize / 2;
 	const cx = t.width / 2;
@@ -343,12 +332,10 @@ function renderEmptyFallback(obj: GameObject, container: Container): void {
 
 	const icon = new Graphics();
 
-	// یه مربع کوچیک که با خط‌چین دورشه
 	icon.rect(cx - half, cy - half, iconSize, iconSize);
 	icon.fill({ color, alpha: 0.25 });
 	icon.stroke({ width: 1.5, color, alpha: 0.9 });
 
-	// یه نقطه‌ی کوچیک وسط
 	icon.circle(cx, cy, Math.max(1.5, iconSize * 0.08));
 	icon.fill({ color, alpha: 1 });
 
@@ -356,20 +343,13 @@ function renderEmptyFallback(obj: GameObject, container: Container): void {
 	container.addChild(icon);
 }
 
-/**
- * خط‌چین دور یه مستطیل می‌کشه.
- */
 function drawDashedRect(g: Graphics, x: number, y: number, w: number, h: number, dashLen: number, gapLen: number): void {
 	const x2 = x + w;
 	const y2 = y + h;
 
-	// بالا
 	dashLine(g, x, y, x2, y, dashLen, gapLen);
-	// راست
 	dashLine(g, x2, y, x2, y2, dashLen, gapLen);
-	// پایین
 	dashLine(g, x2, y2, x, y2, dashLen, gapLen);
-	// چپ
 	dashLine(g, x, y2, x, y, dashLen, gapLen);
 }
 
@@ -475,7 +455,7 @@ function drawStar(g: Graphics, cx: number, cy: number, outerR: number, innerR: n
 }
 
 // ============================================================
-// Atlas region lookup (از atlas-picker که cache می‌کنه)
+// Atlas region lookup
 // ============================================================
 
 import { findRegionByName as findAtlasRegion } from "../features/texture-atlas/atlas-picker.js";
