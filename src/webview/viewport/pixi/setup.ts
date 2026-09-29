@@ -27,7 +27,18 @@ export async function initPixi(): Promise<void> {
 	});
 
 	app.stage.addChild(viewport);
-	viewport.drag().pinch().wheel().decelerate();
+
+	// ✅ فقط wheel + pinch + decelerate — بدون drag پیش‌فرض
+	viewport.pinch().wheel({ smooth: 5, percent: 0.1 }).decelerate();
+
+	// ✅ drag فقط با دکمه‌ی وسط موس
+	viewport.drag({
+		mouseButtons: "middle",
+	});
+
+	// اختیاری: با دکمه‌ی راست هم drag نشه
+	// (right-click برای context menu استفاده می‌شه)
+
 	setViewport(viewport);
 
 	const gridLayer = new Container();
