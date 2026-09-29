@@ -21,21 +21,38 @@ let multiSelection: { count: number; ids: string[] } | null = null;
 let sceneMode = false;
 let lastAppliedTheme: string | null = null;
 
+// ============================================================
+// Theme
+// ============================================================
+
 function applyEffectiveTheme(): void {
 	const themeName = currentScene?.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
-	console.log("[Inspector] applyEffectiveTheme:", themeName, "(last:", lastAppliedTheme, ")");
 	if (themeName === lastAppliedTheme) return;
 	lastAppliedTheme = themeName;
-	console.log("[Inspector] applying theme:", themeName);
-	applyTheme(themeName, true);
+	// ✅ برای Inspector، force نکن تا CSS دوباره ساخته نشود و DOM نپرد
+	applyTheme(themeName, false);
 }
+
+// ============================================================
+// Render
+// ============================================================
 
 function render(force = false): void {
 	applyEffectiveTheme();
 
 	if (sceneMode && currentScene) {
+		// ✅ اگر DOM از قبل هست و force نیست، فقط مقادیر را آپدیت کن
 		if (!force && app.querySelector(".inspector-scene")) {
 			updateSceneFieldValues();
+			return;
+		}
+		// ✅ اگر کاربر در حال ویرایش یک input است، DOM را دوباره نساز
+		const active = document.activeElement;
+		if (active instanceof HTMLInputElement && (active.type === "color" || active.type === "number" || active.type === "text") && app.contains(active)) {
+			return;
+		}
+		// ✅ اگر کاربر روی یک select فوکوس دارد، DOM را دوباره نساز
+		if (active instanceof HTMLSelectElement && app.contains(active)) {
 			return;
 		}
 		app.innerHTML = buildSceneSettingsHtml(currentScene);
@@ -78,7 +95,10 @@ function render(force = false): void {
 	attachEventListeners();
 }
 
-// ---------- Scene Settings ----------
+// ============================================================
+// Scene Settings
+// ============================================================
+
 function buildSceneSettingsHtml(scene: Scene): string {
 	const isOverride = scene.themeOverride !== null && scene.themeOverride !== undefined;
 
@@ -181,7 +201,12 @@ function updateSceneFieldValues(): void {
 function setSceneFieldValue(field: string, value: unknown, kind: "number" | "text" | "color" | "checkbox" | "select"): void {
 	const elements = app.querySelectorAll<HTMLInputElement | HTMLSelectElement>(`[data-scene-field="${field}"]`);
 	for (const el of elements) {
+		// ✅ اگر فوکوس دارد، دست نزن
 		if (document.activeElement === el) continue;
+		// ✅ اگر داخل یک color-row هست و هم‌خانه‌اش فوکوس دارد، دست نزن
+		const colorRow = el.closest(".color-row");
+		if (colorRow && colorRow.contains(document.activeElement)) continue;
+
 		if (kind === "color" && el.type !== "color") continue;
 		if (kind === "text" && el.type !== "text") continue;
 		if (kind === "number" && el.type !== "number") continue;
@@ -211,7 +236,6 @@ function attachSceneListeners(): void {
 	overrideCheckbox?.addEventListener("change", () => {
 		const checked = overrideCheckbox.checked;
 		const value = checked ? (currentConfig?.defaultTheme ?? "win98") : null;
-		console.log("[Inspector] theme override toggled:", value);
 		vscode.postMessage({ type: "updateSceneField", field: "themeOverride", value, historyLabel: "toggle theme override" });
 	});
 
@@ -219,7 +243,6 @@ function attachSceneListeners(): void {
 	for (const input of configInputs) {
 		const field = input.dataset.configField!;
 		input.addEventListener("change", () => {
-			console.log("[Inspector] config field changed:", field, "=", input.value);
 			vscode.postMessage({ type: "updateConfig", key: field, value: input.value });
 		});
 	}
@@ -244,6 +267,7 @@ function attachSceneListeners(): void {
 				vscode.postMessage({ type: "updateSceneField", field, value: input.checked, historyLabel: `scene: ${field}` });
 			});
 		} else if (input.type === "color") {
+			// ✅ فقط روی input رنگ (نه change) تا live باشد
 			input.addEventListener("input", () => {
 				const textInput = input.parentElement?.querySelector<HTMLInputElement>('input[type="text"]');
 				if (textInput && document.activeElement !== textInput) {
@@ -259,7 +283,10 @@ function attachSceneListeners(): void {
 	}
 }
 
-// ---------- Object Inspector ----------
+// ============================================================
+// Object Inspector
+// ============================================================
+
 function buildInspectorHtml(obj: GameObject): string {
 	const t = obj.transform;
 	return `
@@ -399,6 +426,9 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 
 	for (const el of elements) {
 		if (document.activeElement === el) continue;
+		const colorRow = el.closest(".color-row");
+		if (colorRow && colorRow.contains(document.activeElement)) continue;
+
 		if (kind === "color" && el.type !== "color") continue;
 		if (kind === "text" && el.type !== "text") continue;
 		if (kind === "number" && el.type !== "number") continue;
@@ -482,6 +512,10 @@ function sendFieldUpdate(field: string, value: unknown): void {
 	});
 }
 
+// ============================================================
+// Utils
+// ============================================================
+
 function escapeHtml(s: string): string {
 	return s.replace(/[&<>"']/g, (c) => {
 		return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!;
@@ -492,6 +526,10 @@ function escapeAttr(s: string): string {
 	return escapeHtml(s);
 }
 
+// ============================================================
+// Messages
+// ============================================================
+
 window.addEventListener("message", (event) => {
 	const msg = event.data;
 	switch (msg.type) {
@@ -501,22 +539,22 @@ window.addEventListener("message", (event) => {
 			currentObject = msg.object;
 			render(false);
 			break;
+
 		case "showMultiSelection":
 			sceneMode = false;
 			multiSelection = { count: msg.count, ids: msg.ids };
 			render(true);
 			break;
+
 		case "showScene":
 			currentScene = msg.scene;
 			applyEffectiveTheme();
 			if (sceneMode) {
-				const activeEl = document.activeElement;
-				if (activeEl instanceof HTMLSelectElement && activeEl.dataset.sceneField === "themeOverride") {
-					break;
-				}
+				// ✅ فقط مقادیر را آپدیت کن، DOM را دوباره نساز
 				updateSceneFieldValues();
 			}
 			break;
+
 		case "showSceneSettings":
 			currentScene = msg.scene;
 			sceneMode = true;
@@ -524,21 +562,26 @@ window.addEventListener("message", (event) => {
 			multiSelection = null;
 			render(true);
 			break;
+
 		case "clearSelection":
 			multiSelection = null;
 			currentObject = null;
 			sceneMode = false;
 			render(true);
 			break;
+
 		case "configLoaded":
-		case "configUpdated":
-			console.log("[Inspector] configLoaded/configUpdated received:", msg.config);
+		case "configUpdated": {
 			currentConfig = msg.config;
+			const previousTheme = lastAppliedTheme;
 			applyEffectiveTheme();
-			if (sceneMode) {
+			const themeChanged = previousTheme !== lastAppliedTheme;
+			// ✅ فقط اگر تم عوض شده، DOM را دوباره بساز
+			if (sceneMode && themeChanged) {
 				render(true);
 			}
 			break;
+		}
 	}
 });
 

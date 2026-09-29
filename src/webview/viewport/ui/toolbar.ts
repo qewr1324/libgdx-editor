@@ -1,6 +1,6 @@
 import { vscode } from "../types.js";
 import { scene, setScene, viewport } from "../state.js";
-import { getConfig, onConfigChange } from "../config-store.js";
+import { getConfig } from "../config-store.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
 import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
 import type { ShapeType } from "../../../config/config-types.js";
@@ -16,11 +16,25 @@ export function setupToolbar(): void {
 	window.addEventListener("theme-changed", () => rebuildToolbar());
 	window.addEventListener("config-changed", () => rebuildToolbar());
 
-	document.addEventListener("click", (e) => {
-		if (openDropdown && !openDropdown.contains(e.target as Node)) {
+	// ✅ بستن dropdown ها با کلیک بیرون
+	document.addEventListener(
+		"click",
+		(e) => {
+			if (!openDropdown) return;
+			const target = e.target as Node;
+
+			// اگر داخل dropdown کلیک شد، کاری نکن (خود handler اصلی مدیریت می‌کند)
+			if (openDropdown.contains(target)) return;
+
+			// اگر روی trigger همان dropdown یا trigger هر dropdown دیگری کلیک شد،
+			// نگذار document listener آن را ببندد — handler اصلی toggle می‌کند
+			const trigger = (target as HTMLElement).closest?.("[data-action$='-menu']");
+			if (trigger) return;
+
 			closeDropdown();
-		}
-	});
+		},
+		false,
+	);
 }
 
 function installKeyboardShortcutsOnce(): void {
@@ -132,27 +146,37 @@ function buildToolbar(): HTMLDivElement {
 		if (!target) return;
 
 		const action = target.dataset.action;
+
+		// ---------- Dropdown triggers ----------
 		if (action === "sprite-menu" || action === "shapes-menu" || action === "view-menu") {
+			// ✅ جلوگیری از رسیدن به document listener
+			e.stopPropagation();
 			const group = target.closest(".tb-group") as HTMLElement;
 			const dropdown = group.querySelector(".tb-dropdown") as HTMLDivElement;
 			toggleDropdown(dropdown);
 			return;
 		}
 
+		// ---------- Menu item: shape ----------
 		if (target.dataset.shape) {
+			e.stopPropagation();
 			closeDropdown();
 			addShape(target.dataset.shape as ShapeType);
 			return;
 		}
 
+		// ---------- Menu item: view mode ----------
 		if (target.dataset.viewMode) {
+			e.stopPropagation();
 			closeDropdown();
 			const mode = target.dataset.viewMode as "solid" | "wireframe";
 			updateConfigPartial({ view: { renderMode: mode } });
 			return;
 		}
 
+		// ---------- Menu item: view toggle ----------
 		if (target.dataset.viewToggle) {
+			e.stopPropagation();
 			const key = target.dataset.viewToggle as "showGrid" | "showWorldBorder" | "showRulers";
 			const config = getConfig();
 			const current = config?.view[key] ?? true;
@@ -161,6 +185,7 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
+		// ---------- Toolbar buttons ----------
 		switch (action) {
 			case "add-sprite":
 				closeDropdown();
@@ -229,6 +254,10 @@ export function updateToolbarInfo(text: string): void {
 	if (el) el.textContent = text;
 }
 
+// ============================================================
+// Actions
+// ============================================================
+
 function addObject(type: "sprite" | "shape" | "text" | "group"): void {
 	if (!viewport) return;
 	const center = viewport.center;
@@ -290,6 +319,10 @@ function saveScene(): void {
 function updateConfigPartial(partial: Record<string, unknown>): void {
 	vscode.postMessage({ type: "updateConfigPartial", partial });
 }
+
+// ============================================================
+// Keyboard
+// ============================================================
 
 function setupKeyboardShortcuts(): void {
 	window.addEventListener("keydown", (e) => {
