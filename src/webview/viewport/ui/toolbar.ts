@@ -3,7 +3,7 @@ import { scene, setScene, viewport } from "../state.js";
 import { getConfig } from "../config-store.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
 import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
-import type { ShapeType, AlignMode, DistributeMode } from "../../../config/config-types.js";
+import type { ShapeType } from "../../../config/config-types.js";
 
 let currentToolbar: HTMLDivElement | null = null;
 let keyboardShortcutsInstalled = false;
@@ -119,25 +119,6 @@ function buildToolbar(): HTMLDivElement {
 			<button class="tb-seg ${gizmoMode === "object" ? "active" : ""}" data-action="gizmo-object">📦 Object</button>
 		</div>
 
-		<div class="tb-group" data-dropdown="arrange">
-			<button class="tb-btn tb-dropdown-trigger" data-action="arrange-menu">
-				<span>📐 Arrange</span>
-				<span class="tb-caret">▼</span>
-			</button>
-			<div class="tb-dropdown" data-menu="arrange">
-				<div class="tb-menu-item" data-align="left"><span class="shape-icon">⇤</span> Align Left</div>
-				<div class="tb-menu-item" data-align="hcenter"><span class="shape-icon">↔</span> Align H-Center</div>
-				<div class="tb-menu-item" data-align="right"><span class="shape-icon">⇥</span> Align Right</div>
-				<div class="tb-menu-sep"></div>
-				<div class="tb-menu-item" data-align="top"><span class="shape-icon">⤒</span> Align Top</div>
-				<div class="tb-menu-item" data-align="vcenter"><span class="shape-icon">↕</span> Align V-Center</div>
-				<div class="tb-menu-item" data-align="bottom"><span class="shape-icon">⤓</span> Align Bottom</div>
-				<div class="tb-menu-sep"></div>
-				<div class="tb-menu-item" data-distribute="horizontal"><span class="shape-icon">⇹</span> Distribute H</div>
-				<div class="tb-menu-item" data-distribute="vertical"><span class="shape-icon">⇳</span> Distribute V</div>
-			</div>
-		</div>
-
 		<span class="tb-sep"></span>
 
 		<button class="tb-btn ${snapGrid ? "active" : ""}" data-action="snap-grid" title="Snap to Grid">
@@ -157,12 +138,12 @@ function buildToolbar(): HTMLDivElement {
 	`;
 
 	toolbar.addEventListener("click", (e) => {
-		const target = (e.target as HTMLElement).closest("[data-action], [data-shape], [data-view-mode], [data-view-toggle], [data-align], [data-distribute]") as HTMLElement | null;
+		const target = (e.target as HTMLElement).closest("[data-action], [data-shape], [data-view-mode], [data-view-toggle]") as HTMLElement | null;
 		if (!target) return;
 
 		const action = target.dataset.action;
 
-		if (action === "sprite-menu" || action === "shapes-menu" || action === "view-menu" || action === "arrange-menu") {
+		if (action === "sprite-menu" || action === "shapes-menu" || action === "view-menu") {
 			e.stopPropagation();
 			const group = target.closest(".tb-group") as HTMLElement;
 			const dropdown = group.querySelector(".tb-dropdown") as HTMLDivElement;
@@ -192,20 +173,6 @@ function buildToolbar(): HTMLDivElement {
 			const current = config?.view[key] ?? true;
 			updateConfigPartial({ view: { [key]: !current } });
 			closeDropdown();
-			return;
-		}
-
-		if (target.dataset.align) {
-			e.stopPropagation();
-			closeDropdown();
-			alignSelection(target.dataset.align as AlignMode);
-			return;
-		}
-
-		if (target.dataset.distribute) {
-			e.stopPropagation();
-			closeDropdown();
-			distributeSelection(target.dataset.distribute as DistributeMode);
 			return;
 		}
 
@@ -315,28 +282,6 @@ function deleteSelection(): void {
 			vscode.postMessage({ type: "deleteObjects", objectIds: state.selectedIds });
 			void import("../selection/selection.js").then((m) => m.selectObjects([]));
 		}
-	});
-}
-
-function alignSelection(mode: AlignMode): void {
-	void import("../state.js").then((state) => {
-		if (state.selectedIds.length < 2) {
-			updateToolbarInfo("Select at least 2 objects");
-			setTimeout(() => updateToolbarInfo(""), 1500);
-			return;
-		}
-		vscode.postMessage({ type: "alignObjects", objectIds: state.selectedIds, mode });
-	});
-}
-
-function distributeSelection(mode: DistributeMode): void {
-	void import("../state.js").then((state) => {
-		if (state.selectedIds.length < 3) {
-			updateToolbarInfo("Select at least 3 objects");
-			setTimeout(() => updateToolbarInfo(""), 1500);
-			return;
-		}
-		vscode.postMessage({ type: "distributeObjects", objectIds: state.selectedIds, mode });
 	});
 }
 

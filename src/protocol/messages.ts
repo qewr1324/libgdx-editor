@@ -1,5 +1,5 @@
 import type { GameObject, Scene } from "../types/scene.js";
-import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType, AlignMode, DistributeMode } from "../config/config-types.js";
+import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType } from "../config/config-types.js";
 
 export interface LibGdxEditorConfigMessage {
 	version: string;
@@ -60,8 +60,6 @@ export type WebviewToExtensionMessage =
 	| { type: "openSceneSettings" }
 	| { type: "duplicateObjects"; objectIds: string[]; offsetX: number; offsetY: number }
 	| { type: "pasteObjects"; objects: GameObject[]; historyLabel?: string }
-	| { type: "alignObjects"; objectIds: string[]; mode: AlignMode }
-	| { type: "distributeObjects"; objectIds: string[]; mode: DistributeMode }
 	| { type: "undo" }
 	| { type: "redo" }
 	| { type: "updateConfig"; key: string; value: unknown }

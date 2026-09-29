@@ -1,8 +1,6 @@
 export type RenderMode = "solid" | "wireframe";
 export type GizmoMode = "world" | "object";
 export type ShapeType = "rectangle" | "circle" | "triangle" | "diamond" | "pentagon" | "hexagon" | "star";
-export type AlignMode = "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom";
-export type DistributeMode = "horizontal" | "vertical";
 
 export interface LibGdxEditorConfig {
 	version: string;

@@ -7,7 +7,7 @@ import { ConfigManager } from "../config/config-manager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
-import { addObjectToScene, alignObjectsInScene, createObjectAt, createShapeAt, deleteObjectFromScene, distributeObjectsInScene, updateObjectsInScene } from "./scene-mutations.js";
+import { addObjectToScene, createObjectAt, createShapeAt, deleteObjectFromScene, updateObjectsInScene } from "./scene-mutations.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
@@ -114,20 +114,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "duplicateObjects":
 			duplicateObjectsOp(host, msg.objectIds, msg.offsetX, msg.offsetY);
 			break;
-		case "alignObjects": {
-			const current = host.getScene();
-			if (!current) break;
-			const updated = alignObjectsInScene(current, msg.objectIds, msg.mode);
-			host.getHistory().commit(updated, `align ${msg.mode}`);
-			break;
-		}
-		case "distributeObjects": {
-			const current = host.getScene();
-			if (!current) break;
-			const updated = distributeObjectsInScene(current, msg.objectIds, msg.mode);
-			host.getHistory().commit(updated, `distribute ${msg.mode}`);
-			break;
-		}
 		case "openSceneSettings": {
 			SceneRegistry.setActiveInstance(host);
 			const scene = host.getScene() ?? parseDocument(ctx.document);
