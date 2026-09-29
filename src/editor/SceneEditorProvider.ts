@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import type { GameObject, Scene } from "../types/scene.js";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
+import { toConfigMessage } from "../protocol/messages.js";
 import { getWebviewHtml } from "./webviewHtml.js";
 import { HistoryManager } from "./historyManager.js";
 import { SceneRegistry } from "./scene-registry.js";
@@ -8,13 +9,9 @@ import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
 import type { SceneHost } from "./scene-types.js";
 import { handleWebviewMessage, sendScene, sendSceneUpdate, type MessageHandlerContext } from "./message-handler.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
-import { LevelConfigManager } from "./levelConfigManager.js";
 
 export type { ObjectSelectionHandler, SceneChangeHandler, OpenSceneSettingsHandler } from "./scene-types.js";
 
-/**
- * ✅ یک host مجزا برای هر document.
- */
 class DocumentHost implements SceneHost {
 	public readonly document: vscode.TextDocument;
 	public scene: Scene | null = null;
@@ -67,14 +64,12 @@ class DocumentHost implements SceneHost {
 	public async autoSave(): Promise<void> {
 		if (!this.scene || !this.isDirty) return;
 
-		// چک امنیتی: نام scene با نام فایل بخواند
 		const docName = this.document.uri.path.split("/").pop()?.replace(".lgdx.json", "");
 		if (docName && this.scene.name !== docName) {
 			console.warn(`[DocumentHost] autoSave skip: scene.name (${this.scene.name}) != doc name (${docName})`);
 			return;
 		}
 
-		// ✅ isProgrammaticChange را قبل از write ست کن
 		this.isProgrammaticChange = true;
 		try {
 			await writeDocument(this.document, this.scene);
@@ -83,7 +78,6 @@ class DocumentHost implements SceneHost {
 		} catch (err) {
 			console.error("Auto-save failed:", err);
 		} finally {
-			// با تأخیر کوچک ریست کن تا onDidChangeTextDocument رد شود
 			setTimeout(() => {
 				this.isProgrammaticChange = false;
 			}, 50);
@@ -146,21 +140,16 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		return SceneRegistry.onDidRequestSceneSettings(handler);
 	}
 
+	/**
+	 * ✅ broadcast config به همه‌ی instance ها
+	 */
 	public static broadcastConfigChange(config: LibGdxEditorConfig): void {
-		const instances = SceneRegistry.getInstances();
-		for (const inst of instances) {
+		const msg: ExtensionToWebviewMessage = {
+			type: "configUpdated",
+			config: toConfigMessage(config),
+		};
+		for (const inst of SceneRegistry.getInstances()) {
 			try {
-				const msg: ExtensionToWebviewMessage = {
-					type: "configUpdated",
-					config: {
-						version: config.version,
-						defaultTheme: config.defaultTheme,
-						autoSaveDelayMs: config.autoSaveDelayMs,
-						showRulers: config.showRulers,
-						showGrid: config.showGrid,
-						defaultGridSize: config.defaultGridSize,
-					},
-				};
 				inst.postToWebview(msg);
 			} catch (err) {
 				console.error("[SceneEditorProvider] postMessage failed:", err);
@@ -253,8 +242,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 				}
 				this.hosts.delete(uriKey);
 				SceneRegistry.removeInstance(host);
-				// ✅ level config cache را پاک کن
-				LevelConfigManager.invalidate(document.uri);
 			}
 		});
 	}

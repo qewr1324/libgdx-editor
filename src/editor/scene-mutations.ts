@@ -1,5 +1,4 @@
 import type { GameObject, Scene } from "../types/scene.js";
-import type { ShapeType } from "../types/level-config.js";
 
 export function createObjectAt(type: GameObject["type"], x: number, y: number): GameObject {
 	const id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

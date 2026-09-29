@@ -1,11 +1,12 @@
 import { Container, Graphics, Rectangle, Sprite, Text, TextStyle } from "pixi.js";
-import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode, levelConfig } from "../state.js";
+import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode } from "../state.js";
 import type { GameObject, Scene } from "../../../types/scene.js";
-import type { ShapeType } from "../../../types/level-config.js";
+import type { ShapeType } from "../../../config/config-types.js";
 import { redrawGrid } from "./grid.js";
 import { beginDrag } from "../interaction/drag.js";
 import { selectObjects, drawSelectionOutlines } from "../selection/selection.js";
 import { findObject } from "../utils/geometry.js";
+import { getConfig } from "../config-store.js";
 
 export function renderScene(newScene: Scene): void {
 	setScene(newScene);
@@ -37,7 +38,7 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	const container = new Container();
 	const t = obj.transform;
 
-	const isWireframe = levelConfig?.view.renderMode === "wireframe";
+	const isWireframe = getConfig()?.view.renderMode === "wireframe";
 	let rendered = false;
 
 	if (obj.type === "sprite" && obj.texture) {

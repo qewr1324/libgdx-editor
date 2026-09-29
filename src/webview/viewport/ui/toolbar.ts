@@ -1,9 +1,9 @@
 import { vscode } from "../types.js";
-import { scene, setScene, levelConfig, setLevelConfig, viewport } from "../state.js";
+import { scene, setScene, viewport } from "../state.js";
+import { getConfig, onConfigChange } from "../config-store.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
 import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
-import { redrawGrid } from "../render/grid.js";
-import type { ShapeType } from "../../../types/level-config.js";
+import type { ShapeType } from "../../../config/config-types.js";
 
 let currentToolbar: HTMLDivElement | null = null;
 let keyboardShortcutsInstalled = false;
@@ -13,11 +13,9 @@ export function setupToolbar(): void {
 	buildToolbar();
 	installKeyboardShortcutsOnce();
 
-	window.addEventListener("theme-changed", () => {
-		rebuildToolbar();
-	});
+	window.addEventListener("theme-changed", () => rebuildToolbar());
+	window.addEventListener("config-changed", () => rebuildToolbar());
 
-	// بستن dropdown ها با کلیک بیرون
 	document.addEventListener("click", (e) => {
 		if (openDropdown && !openDropdown.contains(e.target as Node)) {
 			closeDropdown();
@@ -33,18 +31,21 @@ function installKeyboardShortcutsOnce(): void {
 }
 
 function buildToolbar(): HTMLDivElement {
+	const config = getConfig();
 	const toolbar = document.createElement("div");
 	toolbar.id = "toolbar";
 	toolbar.style.top = "22px";
 	toolbar.style.left = "22px";
 
-	const isWireframe = levelConfig?.view.renderMode === "wireframe";
-	const showGrid = levelConfig?.view.showGrid !== false;
+	const isWireframe = config?.view.renderMode === "wireframe";
+	const showGrid = config?.view.showGrid !== false;
+	const showWorldBorder = config?.view.showWorldBorder !== false;
+	const showRulers = config?.view.showRulers !== false;
 	const snapGrid = scene?.snapToGrid ?? false;
-	const gizmoMode = levelConfig?.gizmo.mode ?? "world";
+	const gizmoMode = config?.gizmo.mode ?? "world";
+	const lastShape = config?.ui.lastShapeType ?? "rectangle";
 
 	toolbar.innerHTML = `
-		<!-- ============ Sprite ============ -->
 		<div class="tb-group" data-dropdown="sprite">
 			<button class="tb-btn tb-dropdown-trigger" data-action="sprite-menu">
 				<span>🖼️ Sprite</span>
@@ -56,31 +57,28 @@ function buildToolbar(): HTMLDivElement {
 			</div>
 		</div>
 
-		<!-- ============ Shapes ============ -->
 		<div class="tb-group" data-dropdown="shapes">
 			<button class="tb-btn tb-dropdown-trigger" data-action="shapes-menu">
 				<span>⬛ Shapes</span>
 				<span class="tb-caret">▼</span>
 			</button>
 			<div class="tb-dropdown" data-menu="shapes">
-				<div class="tb-menu-item" data-shape="rectangle"><span class="shape-icon">▭</span> Rectangle</div>
-				<div class="tb-menu-item" data-shape="circle"><span class="shape-icon">●</span> Circle</div>
-				<div class="tb-menu-item" data-shape="triangle"><span class="shape-icon">▲</span> Triangle</div>
-				<div class="tb-menu-item" data-shape="diamond"><span class="shape-icon">◆</span> Diamond</div>
-				<div class="tb-menu-item" data-shape="pentagon"><span class="shape-icon">⬟</span> Pentagon</div>
-				<div class="tb-menu-item" data-shape="hexagon"><span class="shape-icon">⬢</span> Hexagon</div>
-				<div class="tb-menu-item" data-shape="star"><span class="shape-icon">★</span> Star</div>
+				<div class="tb-menu-item ${lastShape === "rectangle" ? "checked" : ""}" data-shape="rectangle"><span class="shape-icon">▭</span> Rectangle</div>
+				<div class="tb-menu-item ${lastShape === "circle" ? "checked" : ""}" data-shape="circle"><span class="shape-icon">●</span> Circle</div>
+				<div class="tb-menu-item ${lastShape === "triangle" ? "checked" : ""}" data-shape="triangle"><span class="shape-icon">▲</span> Triangle</div>
+				<div class="tb-menu-item ${lastShape === "diamond" ? "checked" : ""}" data-shape="diamond"><span class="shape-icon">◆</span> Diamond</div>
+				<div class="tb-menu-item ${lastShape === "pentagon" ? "checked" : ""}" data-shape="pentagon"><span class="shape-icon">⬟</span> Pentagon</div>
+				<div class="tb-menu-item ${lastShape === "hexagon" ? "checked" : ""}" data-shape="hexagon"><span class="shape-icon">⬢</span> Hexagon</div>
+				<div class="tb-menu-item ${lastShape === "star" ? "checked" : ""}" data-shape="star"><span class="shape-icon">★</span> Star</div>
 			</div>
 		</div>
 
 		<span class="tb-sep"></span>
 
-		<!-- ============ Grid ============ -->
 		<button class="tb-btn ${showGrid ? "active" : ""}" data-action="toggle-grid" title="Toggle Grid">
 			<span>⊞ Grid</span>
 		</button>
 
-		<!-- ============ View Options ============ -->
 		<div class="tb-group" data-dropdown="view">
 			<button class="tb-btn tb-dropdown-trigger" data-action="view-menu">
 				<span>👁️ View</span>
@@ -97,16 +95,15 @@ function buildToolbar(): HTMLDivElement {
 				<div class="tb-menu-item ${showGrid ? "checked" : ""}" data-view-toggle="showGrid">
 					<span class="tb-check">${showGrid ? "✓" : ""}</span> Show Grid
 				</div>
-				<div class="tb-menu-item" data-view-toggle="showWorldBorder">
-					<span class="tb-check">✓</span> Show World Border
+				<div class="tb-menu-item ${showWorldBorder ? "checked" : ""}" data-view-toggle="showWorldBorder">
+					<span class="tb-check">${showWorldBorder ? "✓" : ""}</span> Show World Border
 				</div>
-				<div class="tb-menu-item" data-view-toggle="showRulers">
-					<span class="tb-check">✓</span> Show Rulers
+				<div class="tb-menu-item ${showRulers ? "checked" : ""}" data-view-toggle="showRulers">
+					<span class="tb-check">${showRulers ? "✓" : ""}</span> Show Rulers
 				</div>
 			</div>
 		</div>
 
-		<!-- ============ Gizmo Mode (World/Object) ============ -->
 		<div class="tb-group tb-segmented" title="Gizmo orientation">
 			<button class="tb-seg ${gizmoMode === "world" ? "active" : ""}" data-action="gizmo-world">🌐 World</button>
 			<button class="tb-seg ${gizmoMode === "object" ? "active" : ""}" data-action="gizmo-object">📦 Object</button>
@@ -114,19 +111,16 @@ function buildToolbar(): HTMLDivElement {
 
 		<span class="tb-sep"></span>
 
-		<!-- ============ Snap ============ -->
 		<button class="tb-btn ${snapGrid ? "active" : ""}" data-action="snap-grid" title="Snap to Grid">
 			<span>🧲 Snap</span>
 		</button>
 
-		<!-- ============ Delete ============ -->
 		<button class="tb-btn" data-action="delete" title="Delete Selected">
 			<span>🗑️</span>
 		</button>
 
 		<span class="tb-spacer"></span>
 
-		<!-- ============ Info + Save ============ -->
 		<span id="toolbar-info"></span>
 		<button class="tb-btn tb-btn-primary" data-action="save" title="Save (Ctrl+S)">
 			<span>💾 Save</span>
@@ -137,7 +131,6 @@ function buildToolbar(): HTMLDivElement {
 		const target = (e.target as HTMLElement).closest("[data-action], [data-shape], [data-view-mode], [data-view-toggle]") as HTMLElement | null;
 		if (!target) return;
 
-		// dropdown trigger
 		const action = target.dataset.action;
 		if (action === "sprite-menu" || action === "shapes-menu" || action === "view-menu") {
 			const group = target.closest(".tb-group") as HTMLElement;
@@ -146,32 +139,28 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// menu item: shape
 		if (target.dataset.shape) {
 			closeDropdown();
 			addShape(target.dataset.shape as ShapeType);
 			return;
 		}
 
-		// menu item: view mode
 		if (target.dataset.viewMode) {
 			closeDropdown();
 			const mode = target.dataset.viewMode as "solid" | "wireframe";
-			updateLevelConfigPartial({ view: { renderMode: mode } });
+			updateConfigPartial({ view: { renderMode: mode } });
 			return;
 		}
 
-		// menu item: view toggle
 		if (target.dataset.viewToggle) {
 			const key = target.dataset.viewToggle as "showGrid" | "showWorldBorder" | "showRulers";
-			// toggle — مقدار فعلی را از config بگیر
-			const current = levelConfig?.view[key];
-			updateLevelConfigPartial({ view: { [key]: !current } });
+			const config = getConfig();
+			const current = config?.view[key] ?? true;
+			updateConfigPartial({ view: { [key]: !current } });
 			closeDropdown();
 			return;
 		}
 
-		// toolbar button actions
 		switch (action) {
 			case "add-sprite":
 				closeDropdown();
@@ -182,15 +171,16 @@ function buildToolbar(): HTMLDivElement {
 				addTexture();
 				break;
 			case "toggle-grid": {
-				const next = !(levelConfig?.view.showGrid ?? true);
-				updateLevelConfigPartial({ view: { showGrid: next } });
+				const config = getConfig();
+				const next = !(config?.view.showGrid ?? true);
+				updateConfigPartial({ view: { showGrid: next } });
 				break;
 			}
 			case "gizmo-world":
-				updateLevelConfigPartial({ gizmo: { mode: "world" } });
+				updateConfigPartial({ gizmo: { mode: "world" } });
 				break;
 			case "gizmo-object":
-				updateLevelConfigPartial({ gizmo: { mode: "object" } });
+				updateConfigPartial({ gizmo: { mode: "object" } });
 				break;
 			case "snap-grid":
 				toggleSnapGrid(target);
@@ -239,8 +229,6 @@ export function updateToolbarInfo(text: string): void {
 	if (el) el.textContent = text;
 }
 
-// ---------- Actions ----------
-
 function addObject(type: "sprite" | "shape" | "text" | "group"): void {
 	if (!viewport) return;
 	const center = viewport.center;
@@ -288,8 +276,7 @@ function toggleSnapGrid(button: HTMLElement): void {
 	setScene({ ...scene, snapToGrid: next });
 	button.classList.toggle("active", next);
 	vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: next, historyLabel: "toggle snap" });
-	// ذخیره در level config
-	updateLevelConfigPartial({ grid: { snap: next } });
+	updateConfigPartial({ grid: { snap: next } });
 }
 
 function saveScene(): void {
@@ -300,22 +287,9 @@ function saveScene(): void {
 	}
 }
 
-// ---------- Level Config ----------
-
-function updateLevelConfigPartial(partial: Record<string, unknown>): void {
-	vscode.postMessage({ type: "updateLevelConfig", partial });
+function updateConfigPartial(partial: Record<string, unknown>): void {
+	vscode.postMessage({ type: "updateConfigPartial", partial });
 }
-
-/**
- * ✅ از messages.ts صدا زده می‌شود وقتی levelConfigLoaded/levelConfigUpdated می‌آید.
- */
-export function applyLevelConfigToUI(): void {
-	if (!currentToolbar) return;
-	// بازسازی toolbar تا وضعیت‌ها آپدیت شوند
-	rebuildToolbar();
-}
-
-// ---------- Keyboard ----------
 
 function setupKeyboardShortcuts(): void {
 	window.addEventListener("keydown", (e) => {

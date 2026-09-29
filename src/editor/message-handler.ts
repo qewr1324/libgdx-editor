@@ -1,10 +1,9 @@
 import type * as vscode from "vscode";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
+import { toConfigMessage } from "../protocol/messages.js";
 import type { Scene } from "../types/scene.js";
-import type { LevelConfig } from "../types/level-config.js";
 import { AssetManager } from "./assetManager.js";
 import { ConfigManager } from "../config/config-manager.js";
-import { LevelConfigManager } from "./levelConfigManager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
@@ -26,6 +25,7 @@ export interface MessageHandlerContext {
 
 export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: MessageHandlerContext): Promise<void> {
 	const host = ctx.host;
+	const config = ConfigManager.getInstance();
 
 	switch (msg.type) {
 		case "ready":
@@ -73,9 +73,8 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.broadcastUpdate(updated);
 			host.broadcastHistoryState();
 
-			// ✅ lastShapeType را در level config ذخیره کن
-			await LevelConfigManager.update(ctx.document.uri, { ui: { lastShapeType: msg.shapeType } });
-			await broadcastLevelConfig(ctx);
+			// ✅ lastShapeType در config ذخیره شود
+			await config.update({ ui: { lastShapeType: msg.shapeType } });
 			break;
 		}
 		case "requestAddTexture":
@@ -148,66 +147,35 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			redoOp(host);
 			break;
 		case "updateConfig": {
-			const config = ConfigManager.getInstance();
 			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 			break;
 		}
+		case "updateConfigPartial": {
+			// ✅ به‌روزرسانی تودرتو
+			await config.update(msg.partial as never);
+
+			// اگر grid.snap یا grid.size عوض شد، روی scene فعلی هم اعمال کن
+			const cfg = config.get();
+			const scene = host.getScene();
+			if (scene && msg.partial.grid) {
+				const partial = msg.partial.grid as { snap?: boolean; size?: number };
+				if (typeof partial.snap === "boolean" && scene.snapToGrid !== partial.snap) {
+					updateSceneFieldOp(host, "snapToGrid", partial.snap, "toggle snap");
+				}
+				if (typeof partial.size === "number" && scene.gridSize !== partial.size) {
+					updateSceneFieldOp(host, "gridSize", partial.size, "grid size");
+				}
+			}
+			break;
+		}
 		case "requestConfig": {
-			const config = ConfigManager.getInstance().get();
 			ctx.webviewPanel.webview.postMessage({
 				type: "configLoaded",
-				config: {
-					version: config.version,
-					defaultTheme: config.defaultTheme,
-					autoSaveDelayMs: config.autoSaveDelayMs,
-					showRulers: config.showRulers,
-					showGrid: config.showGrid,
-					defaultGridSize: config.defaultGridSize,
-				},
+				config: toConfigMessage(config.get()),
 			} satisfies ExtensionToWebviewMessage);
 			break;
 		}
-		case "requestLevelConfig":
-			await broadcastLevelConfig(ctx);
-			break;
-		case "updateLevelConfig": {
-			const current = await LevelConfigManager.load(ctx.document.uri);
-			const updated = mergeLevelConfig(current, msg.partial);
-			await LevelConfigManager.save(ctx.document.uri, updated);
-
-			// اعمال فوری روی scene.snapToGrid و gridSize اگر تغییر کرده
-			if (msg.partial.grid) {
-				const scene = host.getScene();
-				if (scene) {
-					if (typeof msg.partial.grid.snap === "boolean" && scene.snapToGrid !== msg.partial.grid.snap) {
-						updateSceneFieldOp(host, "snapToGrid", msg.partial.grid.snap, "toggle snap");
-					}
-					if (typeof msg.partial.grid.size === "number" && scene.gridSize !== msg.partial.grid.size) {
-						updateSceneFieldOp(host, "gridSize", msg.partial.grid.size, "grid size");
-					}
-				}
-			}
-
-			// broadcast به همه وب‌ویوهای این host
-			await broadcastLevelConfig(ctx);
-			break;
-		}
 	}
-}
-
-function mergeLevelConfig(current: LevelConfig, partial: Partial<LevelConfig>): LevelConfig {
-	return {
-		version: partial.version ?? current.version,
-		view: { ...current.view, ...(partial.view ?? {}) },
-		gizmo: { ...current.gizmo, ...(partial.gizmo ?? {}) },
-		grid: { ...current.grid, ...(partial.grid ?? {}) },
-		ui: { ...current.ui, ...(partial.ui ?? {}) },
-	};
-}
-
-async function broadcastLevelConfig(ctx: MessageHandlerContext): Promise<void> {
-	const config = await LevelConfigManager.load(ctx.document.uri);
-	ctx.host.postToWebview({ type: "levelConfigLoaded", config });
 }
 
 export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
@@ -224,18 +192,8 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	const config = ConfigManager.getInstance().get();
 	ctx.webviewPanel.webview.postMessage({
 		type: "configLoaded",
-		config: {
-			version: config.version,
-			defaultTheme: config.defaultTheme,
-			autoSaveDelayMs: config.autoSaveDelayMs,
-			showRulers: config.showRulers,
-			showGrid: config.showGrid,
-			defaultGridSize: config.defaultGridSize,
-		},
+		config: toConfigMessage(config),
 	} satisfies ExtensionToWebviewMessage);
-
-	const levelConfig = await LevelConfigManager.load(ctx.document.uri);
-	ctx.webviewPanel.webview.postMessage({ type: "levelConfigLoaded", config: levelConfig } satisfies ExtensionToWebviewMessage);
 
 	host.broadcastHistoryState();
 

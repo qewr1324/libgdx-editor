@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import type { GameObject, Scene } from "../types/scene.js";
 import { getWebviewHtml } from "../editor/webviewHtml.js";
-import type { ExtensionToInspectorMessage } from "../protocol/messages.js";
+import { toConfigMessage, type ExtensionToInspectorMessage } from "../protocol/messages.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { ConfigManager } from "../config/config-manager.js";
 import type { SceneHost } from "../editor/scene-types.js";
@@ -13,6 +13,12 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private currentScene: Scene | null = null;
 	private selectedIds: string[] = [];
 	private sceneMode = false;
+
+	/**
+	 * ✅ host مخصوص Inspector.
+	 * این باعث می‌شود عملیات Inspector روی scene درست اجرا شوند،
+	 * حتی اگر SceneRegistry.active عوض شود.
+	 */
 	private boundHost: SceneHost | null = null;
 
 	private onUpdateObject: ((host: SceneHost, object: GameObject, historyLabel?: string) => void) | null = null;
@@ -34,26 +40,23 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.onUpdateSceneField = handlers.onUpdateSceneField;
 	}
 
+	/**
+	 * ✅ broadcast config به Inspector.
+	 * از toConfigMessage استفاده می‌کنیم تا شکل پیام یکسان باشد.
+	 */
 	public broadcastConfigChange(config: LibGdxEditorConfig): void {
 		if (!this.view) return;
 		try {
 			this.view.webview.postMessage({
 				type: "configUpdated",
-				config: {
-					version: config.version,
-					defaultTheme: config.defaultTheme,
-					autoSaveDelayMs: config.autoSaveDelayMs,
-					showRulers: config.showRulers,
-					showGrid: config.showGrid,
-					defaultGridSize: config.defaultGridSize,
-				},
+				config: toConfigMessage(config),
 			} satisfies ExtensionToInspectorMessage);
-		} catch {
-			// ignore
+		} catch (err) {
+			console.error("[InspectorProvider] broadcastConfigChange failed:", err);
 		}
 	}
 
-	resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void {
+	public resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void {
 		this.view = webviewView;
 
 		webviewView.webview.options = {
@@ -68,46 +71,55 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 				case "inspectorReady":
 					this.pushSelectionToWebview();
 					break;
+
 				case "updateObjectField": {
-					if (!this.boundHost) break;
+					if (!this.boundHost) {
+						console.warn("[InspectorProvider] updateObjectField: no boundHost");
+						break;
+					}
 					const updated = this.applyFieldUpdate(msg.objectId, msg.field, msg.value);
 					if (updated && this.onUpdateObject) {
 						this.onUpdateObject(this.boundHost, updated, `inspector: ${msg.field}`);
 					}
 					break;
 				}
+
 				case "updateSceneField":
 					if (this.boundHost) {
 						this.onUpdateSceneField?.(this.boundHost, msg.field, msg.value, `scene: ${msg.field}`);
 					}
 					break;
+
 				case "deleteObject":
 					if (this.boundHost) {
 						this.onDeleteObject?.(this.boundHost, msg.objectId);
 					}
 					break;
+
 				case "focusObject":
 					if (this.boundHost) {
 						this.onFocusObject?.(this.boundHost, msg.objectId);
 					}
 					break;
+
+				// ---------- Config ----------
 				case "updateConfig": {
 					const config = ConfigManager.getInstance();
 					await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 					break;
 				}
+
+				case "updateConfigPartial": {
+					const config = ConfigManager.getInstance();
+					await config.update(msg.partial as never);
+					break;
+				}
+
 				case "requestConfig": {
 					const config = ConfigManager.getInstance().get();
 					this.view?.webview.postMessage({
 						type: "configLoaded",
-						config: {
-							version: config.version,
-							defaultTheme: config.defaultTheme,
-							autoSaveDelayMs: config.autoSaveDelayMs,
-							showRulers: config.showRulers,
-							showGrid: config.showGrid,
-							defaultGridSize: config.defaultGridSize,
-						},
+						config: toConfigMessage(config),
 					} satisfies ExtensionToInspectorMessage);
 					break;
 				}
@@ -117,7 +129,10 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
-	setSelection(host: SceneHost, objectIds: string[], scene: Scene): void {
+	/**
+	 * ✅ از extension صدا زده می‌شود وقتی یک آبجکت انتخاب/لغو انتخاب شد.
+	 */
+	public setSelection(host: SceneHost, objectIds: string[], scene: Scene): void {
 		this.boundHost = host;
 		this.selectedIds = objectIds;
 		this.currentScene = scene;
@@ -127,9 +142,16 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
-	setScene(host: SceneHost, scene: Scene): void {
-		// ✅ فقط اگر host همان boundHost باشد آپدیت کن
+	/**
+	 * ✅ آپدیت scene.
+	 * اگر host با boundHost فرق کند و scene از یک فایل دیگر بیاید،
+	 * این آپدیت را نادیده می‌گیریم تا Inspector قاطی نشود.
+	 *
+	 * استثنا: اگر boundHost قبلاً null باشد (بار اول)، قبول می‌کنیم.
+	 */
+	public setScene(host: SceneHost, scene: Scene): void {
 		if (this.boundHost && this.boundHost !== host) {
+			// scene از یک فایل دیگر است — نادیده بگیر
 			return;
 		}
 		this.boundHost = host;
@@ -137,7 +159,10 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
-	showSceneSettings(host: SceneHost, scene: Scene): void {
+	/**
+	 * ✅ نمایش Scene Settings برای یک host مشخص.
+	 */
+	public showSceneSettings(host: SceneHost, scene: Scene): void {
 		this.boundHost = host;
 		this.currentScene = scene;
 		this.selectedIds = [];
@@ -178,6 +203,9 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
+	/**
+	 * ✅ یک field را در آبجکت جاری آپدیت می‌کند و کپی برمی‌گرداند.
+	 */
 	private applyFieldUpdate(objectId: string, field: string, value: unknown): GameObject | null {
 		if (!this.currentScene) return null;
 		const obj = this.findObject(this.currentScene, objectId);

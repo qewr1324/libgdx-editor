@@ -3,7 +3,7 @@ import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, DEFAULT_CONFIG, type LibGdxEditorCon
 
 export class ConfigManager {
 	private static instance: ConfigManager | null = null;
-	private config: LibGdxEditorConfig = { ...DEFAULT_CONFIG };
+	private config: LibGdxEditorConfig = structuredClone(DEFAULT_CONFIG);
 	private configUri: vscode.Uri | null = null;
 	private loaded = false;
 
@@ -16,7 +16,6 @@ export class ConfigManager {
 		return ConfigManager.instance;
 	}
 
-	/** ✅ برای تست یا reload — باگ ۲۰ رفع شد */
 	public static resetInstance(): void {
 		ConfigManager.instance = null;
 	}
@@ -25,7 +24,7 @@ export class ConfigManager {
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
 		if (!workspaceFolder) {
 			console.log("[ConfigManager] No workspace folder, using defaults");
-			this.config = { ...DEFAULT_CONFIG };
+			this.config = structuredClone(DEFAULT_CONFIG);
 			this.loaded = true;
 			return this.config;
 		}
@@ -48,7 +47,7 @@ export class ConfigManager {
 			const content = await vscode.workspace.fs.readFile(fileUri);
 			const text = new TextDecoder().decode(content);
 			const parsed = JSON.parse(text) as Partial<LibGdxEditorConfig>;
-			this.config = { ...DEFAULT_CONFIG, ...parsed };
+			this.config = this.merge(DEFAULT_CONFIG, parsed);
 			console.log("[ConfigManager] Loaded config:", this.config);
 		} catch {
 			await this.saveToDisk(this.config);
@@ -64,22 +63,22 @@ export class ConfigManager {
 	}
 
 	public async set<K extends keyof LibGdxEditorConfig>(key: K, value: LibGdxEditorConfig[K]): Promise<void> {
-		console.log("[ConfigManager] set", key, "=", value);
 		this.config = { ...this.config, [key]: value };
 		await this.saveToDisk(this.config);
-		console.log("[ConfigManager] notifying", this.listeners.size, "listeners");
 		this.notifyListeners();
 	}
 
-	public async update(partial: Partial<LibGdxEditorConfig>): Promise<void> {
-		console.log("[ConfigManager] update", partial);
-		this.config = { ...this.config, ...partial };
+	/**
+	 * ✅ به‌روزرسانی تودرتو (برای view/gizmo/grid/ui).
+	 * مثال: update({ view: { renderMode: "wireframe" } })
+	 */
+	public async update(partial: DeepPartial<LibGdxEditorConfig>): Promise<void> {
+		this.config = this.merge(this.config, partial);
 		await this.saveToDisk(this.config);
 		this.notifyListeners();
 	}
 
 	public onChange(handler: (config: LibGdxEditorConfig) => void): vscode.Disposable {
-		console.log("[ConfigManager] listener added, total:", this.listeners.size + 1);
 		this.listeners.add(handler);
 		return {
 			dispose: () => this.listeners.delete(handler),
@@ -92,16 +91,30 @@ export class ConfigManager {
 
 	private async saveToDisk(config: LibGdxEditorConfig): Promise<void> {
 		if (!this.configUri) {
-			console.log("[ConfigManager] No configUri, skipping save");
 			return;
 		}
 		const content = new TextEncoder().encode(JSON.stringify(config, null, 2));
 		try {
 			await vscode.workspace.fs.writeFile(this.configUri, content);
-			console.log("[ConfigManager] Saved to disk");
 		} catch (err) {
 			console.error("[ConfigManager] Failed to save:", err);
 		}
+	}
+
+	private merge(base: LibGdxEditorConfig, partial: DeepPartial<LibGdxEditorConfig>): LibGdxEditorConfig {
+		return {
+			version: partial.version ?? base.version,
+			defaultTheme: partial.defaultTheme ?? base.defaultTheme,
+			autoSaveDelayMs: partial.autoSaveDelayMs ?? base.autoSaveDelayMs,
+			showRulers: partial.showRulers ?? base.showRulers,
+			showGrid: partial.showGrid ?? base.showGrid,
+			defaultGridSize: partial.defaultGridSize ?? base.defaultGridSize,
+
+			view: { ...base.view, ...(partial.view ?? {}) },
+			gizmo: { ...base.gizmo, ...(partial.gizmo ?? {}) },
+			grid: { ...base.grid, ...(partial.grid ?? {}) },
+			ui: { ...base.ui, ...(partial.ui ?? {}) },
+		};
 	}
 
 	private notifyListeners(): void {
@@ -114,3 +127,8 @@ export class ConfigManager {
 		}
 	}
 }
+
+/** recursive partial */
+type DeepPartial<T> = {
+	[P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
+};

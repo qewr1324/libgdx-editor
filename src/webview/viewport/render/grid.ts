@@ -1,12 +1,14 @@
 import { Graphics } from "pixi.js";
-import { gridLayer, scene, levelConfig } from "../state.js";
+import { gridLayer, scene } from "../state.js";
+import { getConfig } from "../config-store.js";
 
 export function redrawGrid(): void {
 	if (!scene) return;
 	gridLayer.removeChildren();
 
-	const showGrid = levelConfig?.view.showGrid !== false;
-	const showBorder = levelConfig?.view.showWorldBorder !== false;
+	const config = getConfig();
+	const showGrid = config?.view.showGrid !== false;
+	const showBorder = config?.view.showWorldBorder !== false;
 
 	if (!showGrid && !showBorder) return;
 

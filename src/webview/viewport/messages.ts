@@ -1,16 +1,16 @@
 import { vscode } from "./types.js";
 import { loadTexture } from "./pixi/textures.js";
 import { renderScene } from "./render/scene.js";
-import { interactionMode, scene, selectedIds, setLevelConfig, viewport } from "./state.js";
+import { redrawGrid } from "./render/grid.js";
+import { interactionMode, scene, selectedIds, viewport } from "./state.js";
 import { selectObjects } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
 import { applyTheme } from "./theme/theme-manager.js";
-import { applyLevelConfigToUI } from "./ui/toolbar.js";
-import type { LibGdxEditorConfigMessage, LevelConfigMessage } from "../../protocol/messages.js";
+import { setConfig, getConfig } from "./config-store.js";
+import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 import type { Scene } from "../../types/scene.js";
 
 let pendingRender: (() => void) | null = null;
-let currentConfig: LibGdxEditorConfigMessage | null = null;
 let currentSceneFromMessage: Scene | null = null;
 let lastAppliedThemeName: string | null = null;
 
@@ -31,19 +31,31 @@ export function flushPendingRender(): void {
 }
 
 function applyEffectiveTheme(): void {
-	const themeName = currentSceneFromMessage?.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
+	const config = getConfig();
+	const themeName = currentSceneFromMessage?.themeOverride ?? config?.defaultTheme ?? "win98";
 	if (themeName === lastAppliedThemeName) return;
 	lastAppliedThemeName = themeName;
 	applyTheme(themeName, true);
 }
 
-function handleLevelConfig(config: LevelConfigMessage): void {
-	setLevelConfig(config);
-	applyLevelConfigToUI();
-	// اگر renderMode عوض شد، صحنه را دوباره رندر کن
-	scheduleRender(() => {
-		if (scene) renderScene(scene);
-	});
+function handleConfig(config: LibGdxEditorConfigMessage): void {
+	const previous = getConfig();
+	setConfig(config);
+
+	applyEffectiveTheme();
+
+	// اگر renderMode یا showGrid عوض شد، دوباره رندر کن
+	const viewChanged = !previous || previous.view.renderMode !== config.view.renderMode || previous.view.showGrid !== config.view.showGrid || previous.view.showWorldBorder !== config.view.showWorldBorder;
+
+	if (viewChanged) {
+		scheduleRender(() => {
+			redrawGrid();
+			if (scene) renderScene(scene);
+		});
+	}
+
+	// toolbar بازسازی شود
+	window.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
 }
 
 export function setupMessages(): void {
@@ -72,12 +84,7 @@ export function setupMessages(): void {
 			}
 			case "configLoaded":
 			case "configUpdated":
-				currentConfig = msg.config;
-				applyEffectiveTheme();
-				break;
-			case "levelConfigLoaded":
-			case "levelConfigUpdated":
-				handleLevelConfig(msg.config as LevelConfigMessage);
+				handleConfig(msg.config);
 				break;
 			case "selectFromOutliner":
 				if (msg.objectId) {
@@ -107,5 +114,4 @@ export function setupMessages(): void {
 	});
 
 	vscode.postMessage({ type: "requestConfig" });
-	vscode.postMessage({ type: "requestLevelConfig" });
 }
