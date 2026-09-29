@@ -9,6 +9,9 @@ import { SceneRegistry } from "./editor/scene-registry.js";
 import { updateObjectOp, deleteObjectOp, focusObjectOp, updateSceneFieldOp } from "./editor/scene-ops.js";
 import { setObjectZIndexInScene, bringForwardInScene, sendBackwardInScene, bringToFrontInScene, sendToBackInScene } from "./editor/scene-mutations.js";
 import { setDebugEnabled, log } from "./shared/logger.js";
+import { AnimatorEditorProvider } from "./animator/AnimatorEditorProvider.js";
+import { openAnimatorCommand } from "./animator/commands/openAnimator.js";
+import { createAnimationCommand } from "./animator/commands/createAnimation.js";
 
 export async function activate(context: vscode.ExtensionContext) {
 	if (context.extensionMode === vscode.ExtensionMode.Development) {
@@ -22,7 +25,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	const inspector = new InspectorProvider(context.extensionUri);
 
-	context.subscriptions.push(vscode.window.registerWebviewViewProvider(InspectorProvider.viewType, inspector, { webviewOptions: { retainContextWhenHidden: true } }), SceneEditorProvider.register(context));
+	context.subscriptions.push(vscode.window.registerWebviewViewProvider(InspectorProvider.viewType, inspector, { webviewOptions: { retainContextWhenHidden: true } }), SceneEditorProvider.register(context), AnimatorEditorProvider.register(context));
 
 	context.subscriptions.push(
 		SceneEditorProvider.onDidSelectObject((host, objectIds, scene) => {
@@ -112,6 +115,9 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand("libgdx-editor.importTexture", (uri?: vscode.Uri) => importTextureCommand(context, uri)),
 		vscode.commands.registerCommand("libgdx-editor.cleanupAssets", () => cleanupAssetsCommand()),
 		vscode.commands.registerCommand("libgdx-editor.generateCode", () => generateCodeCommand()),
+		// Animator
+		vscode.commands.registerCommand("libgdx-editor.openAnimator", (uri?: vscode.Uri) => openAnimatorCommand(uri)),
+		vscode.commands.registerCommand("libgdx-editor.createAnimation", (uri?: vscode.Uri) => createAnimationCommand(uri)),
 	);
 }
 

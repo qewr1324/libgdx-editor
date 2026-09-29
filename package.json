@@ -3,7 +3,7 @@
 	"type": "module",
 	"displayName": "LibGDX Editor",
 	"description": "❄️ LibGDX Editor - There is a 2D editor for game development in libGDX for 💠 VSCode. ",
-	"version": "0.116.191",
+	"version": "0.117.191",
 	"private": false,
 	"publisher": "GhurbeSABZI",
 	"packageManager": "bun@1.3.14",
@@ -48,7 +48,10 @@
 		"onCommand:libgdx-editor.openEditor",
 		"onCommand:libgdx-editor.newScene",
 		"onCommand:libgdx-editor.importTexture",
-		"onCommand:libgdx-editor.cleanupAssets"
+		"onCommand:libgdx-editor.cleanupAssets",
+		"onCustomEditor:libgdx-editor.animatorEditor",
+		"onCommand:libgdx-editor.openAnimator",
+		"onCommand:libgdx-editor.createAnimation"
 	],
 	"main": "./dist/extension.cjs",
 	"contributes": {
@@ -77,6 +80,16 @@
 				"command": "libgdx-editor.generateCode",
 				"title": "LibGDX: Generate Code...",
 				"icon": "$(code)"
+			},
+			{
+				"command": "libgdx-editor.openAnimator",
+				"title": "LibGDX: Open Animation Editor",
+				"icon": "$(play-circle)"
+			},
+			{
+				"command": "libgdx-editor.createAnimation",
+				"title": "LibGDX: New Animation",
+				"icon": "$(new-file)"
 			}
 		],
 		"customEditors": [
@@ -86,6 +99,16 @@
 				"selector": [
 					{
 						"filenamePattern": "*.lgdx.json"
+					}
+				],
+				"priority": "default"
+			},
+			{
+				"viewType": "libgdx-editor.animatorEditor",
+				"displayName": "LibGDX Animation Editor",
+				"selector": [
+					{
+						"filenamePattern": "*.lgdxa.json"
 					}
 				],
 				"priority": "default"
@@ -125,6 +148,14 @@
 				},
 				{
 					"command": "libgdx-editor.generateCode",
+					"when": "true"
+				},
+				{
+					"command": "libgdx-editor.openAnimator",
+					"when": "true"
+				},
+				{
+					"command": "libgdx-editor.createAnimation",
 					"when": "true"
 				}
 			],

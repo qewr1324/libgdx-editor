@@ -2,7 +2,13 @@ import { defineConfig } from "tsdown";
 
 export default defineConfig([
 	{
-		entry: ["src/extension.ts"],
+		entry: [
+			"src/extension.ts",
+			"src/webview/viewport/main.ts",
+			"src/webview/inspector/main.ts",
+			"src/webview/layers/main.ts",
+			"src/webview/animator/main.ts", // 🆕
+		],
 		format: "cjs",
 		outDir: "dist",
 		external: ["vscode"],
