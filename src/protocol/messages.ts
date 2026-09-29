@@ -64,9 +64,9 @@ export type WebviewToExtensionMessage =
 	| { type: "sceneChanged"; scene: Scene }
 	| { type: "selectObject"; objectId: string | null }
 	| { type: "selectObjects"; objectIds: string[] }
-	| { type: "requestAddObject"; objectType: GameObject["type"]; x: number; y: number }
-	| { type: "requestAddShape"; shapeType: ShapeType; x: number; y: number }
-	| { type: "requestAddTexture"; x: number; y: number }
+	| { type: "requestAddObject"; objectType: GameObject["type"]; x: number; y: number; layerId?: string }
+	| { type: "requestAddShape"; shapeType: ShapeType; x: number; y: number; layerId?: string }
+	| { type: "requestAddTexture"; x: number; y: number; layerId?: string }
 	| { type: "requestImportTexture" }
 	| { type: "updateObject"; object: GameObject; historyLabel?: string }
 	| { type: "updateObjects"; objects: GameObject[]; historyLabel?: string }
@@ -122,6 +122,7 @@ export type InspectorToExtensionMessage =
 	| { type: "sendBackward"; objectId: string }
 	| { type: "bringToFront"; objectId: string }
 	| { type: "sendToBack"; objectId: string }
+	| { type: "moveObjectToLayer"; objectId: string; layerId: string }
 	| { type: "updateConfig"; key: string; value: unknown }
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
 	| { type: "requestConfig" }
@@ -136,6 +137,7 @@ export type ExtensionToInspectorMessage =
 	| { type: "clearSelection" }
 	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
 	| { type: "configUpdated"; config: LibGdxEditorConfigMessage }
+	| { type: "layersLoaded"; layers: Array<{ id: string; name: string }> }
 	| AtlasRegionsMessage
 	| AtlasNotFoundMessage;
 

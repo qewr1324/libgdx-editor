@@ -1,3 +1,4 @@
+// src/views/InspectorProvider.ts
 import * as vscode from "vscode";
 import type { GameObject, Scene } from "../types/scene.js";
 import { getWebviewHtml } from "../editor/webviewHtml.js";
@@ -5,6 +6,7 @@ import { toConfigMessage, type ExtensionToInspectorMessage } from "../protocol/m
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { ConfigManager } from "../config/config-manager.js";
 import type { SceneHost } from "../editor/scene-types.js";
+import { moveObjectToLayerOp } from "../features/layers/layer-ops.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -134,6 +136,12 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					}
 					break;
 
+				case "moveObjectToLayer":
+					if (this.boundHost) {
+						moveObjectToLayerOp(this.boundHost, msg.objectId, msg.layerId);
+					}
+					break;
+
 				case "updateConfig": {
 					const config = ConfigManager.getInstance();
 					await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
@@ -192,6 +200,16 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 
 		if (this.currentScene) {
 			this.view.webview.postMessage({ type: "showScene", scene: this.currentScene } satisfies ExtensionToInspectorMessage);
+
+			// 🆕 ارسال لیست لایه‌ها برای dropdown
+			const layersInfo = this.currentScene.layers.map((l) => ({
+				id: l.id ?? `layer_${l.name.replace(/[^a-z0-9]/gi, "_")}`,
+				name: l.name,
+			}));
+			this.view.webview.postMessage({
+				type: "layersLoaded",
+				layers: layersInfo,
+			} satisfies ExtensionToInspectorMessage);
 		}
 
 		if (this.sceneMode && this.currentScene) {

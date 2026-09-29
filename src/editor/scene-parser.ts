@@ -1,5 +1,6 @@
+// src/editor/scene-parser.ts
 import * as vscode from "vscode";
-import { createEmptyScene, type Scene } from "../types/scene.js";
+import { createEmptyScene, type Layer, type Scene } from "../types/scene.js";
 
 export function parseDocument(document: vscode.TextDocument): Scene {
 	const text = document.getText();
@@ -21,10 +22,38 @@ export function migrateScene(parsed: Scene): Scene {
 	if (!parsed.camera) parsed.camera = { x: 0, y: 0, zoom: 1 };
 	if (typeof parsed.snapToGrid !== "boolean") parsed.snapToGrid = false;
 	if (typeof parsed.snapToObjects !== "boolean") parsed.snapToObjects = false;
-	for (const layer of parsed.layers) {
+
+	if (!Array.isArray(parsed.layers) || parsed.layers.length === 0) {
+		parsed.layers = [
+			{
+				id: "layer_default",
+				name: "default",
+				zIndex: 0,
+				visible: true,
+				locked: false,
+				objects: [],
+			},
+		];
+	}
+
+	for (let i = 0; i < parsed.layers.length; i++) {
+		const layer = parsed.layers[i];
+		if (!layer.id) {
+			layer.id = `layer_${i}_${(layer.name || "layer").replace(/[^a-z0-9]/gi, "_")}`;
+		}
 		if (typeof layer.visible !== "boolean") layer.visible = true;
 		if (typeof layer.locked !== "boolean") layer.locked = false;
+		if (typeof layer.zIndex !== "number") layer.zIndex = i;
+		if (!Array.isArray(layer.objects)) layer.objects = [];
+
+		// برای هر آبجکت، layerId رو ست کن اگه نبود
+		for (const obj of layer.objects) {
+			if (!obj.layerId) {
+				obj.layerId = layer.id;
+			}
+		}
 	}
+
 	return parsed;
 }
 

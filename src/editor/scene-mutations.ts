@@ -1,4 +1,5 @@
-import type { GameObject, Scene } from "../types/scene.js";
+// src/editor/scene-mutations.ts
+import type { GameObject, Layer, Scene } from "../types/scene.js";
 import type { ShapeType } from "../config/config-types.js";
 
 export function createObjectAt(type: GameObject["type"], x: number, y: number): GameObject {
@@ -56,10 +57,12 @@ export function createShapeAt(shapeType: ShapeType, x: number, y: number): GameO
 	return obj;
 }
 
-export function addObjectToScene(scene: Scene, obj: GameObject): Scene {
+export function addObjectToScene(scene: Scene, obj: GameObject, targetLayerId?: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
+
 	if (newScene.layers.length === 0) {
 		newScene.layers.push({
+			id: "layer_default",
 			name: "default",
 			zIndex: 0,
 			visible: true,
@@ -67,7 +70,18 @@ export function addObjectToScene(scene: Scene, obj: GameObject): Scene {
 			objects: [],
 		});
 	}
-	newScene.layers[0].objects.push(obj);
+
+	let targetLayer: Layer | undefined;
+	if (targetLayerId) {
+		targetLayer = newScene.layers.find((l) => l.id === targetLayerId);
+	}
+	if (!targetLayer) {
+		targetLayer = newScene.layers[0];
+	}
+
+	obj.layerId = targetLayer.id;
+	targetLayer.objects.push(obj);
+
 	return newScene;
 }
 
@@ -133,6 +147,7 @@ export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offse
 				clone.transform.x += offsetX;
 				clone.transform.y += offsetY;
 				clone.zIndex = getNextZIndex(newScene);
+				clone.layerId = layer.id;
 				objectsToClone.push(clone);
 				newIds.push(clone.id);
 			}
@@ -270,4 +285,57 @@ export function sendToBackInScene(scene: Scene, objectId: string): Scene {
 		}
 	}
 	return scene;
+}
+
+// ============================================================
+// 🆕 Layer Move
+// ============================================================
+
+export function moveObjectToLayerInScene(scene: Scene, objectId: string, targetLayerId: string): Scene {
+	const newScene = structuredClone(scene) as Scene;
+
+	// 1. آبجکت رو پیدا کن
+	let obj: GameObject | null = null;
+	let sourceLayer: Layer | null = null;
+	let sourceIdx = -1;
+
+	for (const layer of newScene.layers) {
+		const idx = layer.objects.findIndex((o) => o.id === objectId);
+		if (idx !== -1) {
+			obj = layer.objects[idx];
+			sourceLayer = layer;
+			sourceIdx = idx;
+			break;
+		}
+	}
+
+	if (!obj || !sourceLayer || sourceIdx === -1) return scene;
+
+	// 2. لایه‌ی مقصد
+	const targetLayer = newScene.layers.find((l) => l.id === targetLayerId);
+	if (!targetLayer) return scene;
+
+	// اگه همون لایه بود، کاری نکن
+	if (sourceLayer.id === targetLayer.id) return scene;
+
+	// 3. حذف از لایه‌ی مبدأ
+	sourceLayer.objects.splice(sourceIdx, 1);
+
+	// 4. اضافه به لایه‌ی مقصد
+	obj.layerId = targetLayer.id;
+	obj.zIndex = getNextZIndexForLayer(newScene, targetLayer.id);
+	targetLayer.objects.push(obj);
+
+	return newScene;
+}
+
+function getNextZIndexForLayer(scene: Scene, layerId: string): number {
+	const layer = scene.layers.find((l) => l.id === layerId);
+	if (!layer) return 0;
+	let max = -1;
+	for (const obj of layer.objects) {
+		const z = obj.zIndex ?? 0;
+		if (z > max) max = z;
+	}
+	return max + 1;
 }

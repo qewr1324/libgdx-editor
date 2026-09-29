@@ -1,4 +1,6 @@
+// src/webview/inspector/main.ts
 import type { GameObject, Scene } from "../../types/scene.js";
+import { getLayerNameOfObject, getLayerId } from "../../types/scene.js";
 import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 import { THEMES, THEME_ORDER } from "../viewport/theme/themes.js";
 import { applyTheme } from "../viewport/theme/theme-manager.js";
@@ -20,6 +22,7 @@ let currentConfig: LibGdxEditorConfigMessage | null = null;
 let multiSelection: { count: number; ids: string[] } | null = null;
 let sceneMode = false;
 let lastAppliedTheme: string | null = null;
+let availableLayers: Array<{ id: string; name: string }> = [];
 
 const collapsedSections = new Set<string>();
 
@@ -414,10 +417,27 @@ function buildInspectorHtml(obj: GameObject): string {
 		{ reset: true },
 	);
 
+	const currentLayerId = obj.layerId ?? currentScene?.layers.find((l) => getLayerNameOfObject(currentScene!, obj) === l.name)?.id ?? "";
+
+	const layerOptions = availableLayers
+		.map((l) => {
+			const selected = l.id === currentLayerId ? "selected" : "";
+			return `<option value="${escapeAttr(l.id)}" ${selected}>${escapeHtml(l.name)}</option>`;
+		})
+		.join("");
+
 	const layerSection = sectionWrap(
 		"layer",
 		"Layer",
 		`
+			<div class="inspector-field">
+				<label class="inspector-field-label">Layer</label>
+				<div class="inspector-field-input">
+					<select data-layer-select>
+						${layerOptions}
+					</select>
+				</div>
+			</div>
 			${numberField("Z-Index", "zIndex", obj.zIndex ?? 0, { step: 1 })}
 			<div class="inspector-layer-buttons">
 				<button class="inspector-layer-btn" data-layer-action="front" title="Bring to Front">⏫ Front</button>
@@ -489,6 +509,15 @@ function updateFieldValues(): void {
 	setFieldValue("color", obj.color || "#4a9eff", "color");
 	setFieldValue("color", obj.color || "#4a9eff", "text");
 	setFieldValue("properties", JSON.stringify(obj.properties || {}, null, 2), "textarea");
+
+	// 🆕 layer dropdown
+	const layerSelect = app.querySelector<HTMLSelectElement>("[data-layer-select]");
+	if (layerSelect && currentScene) {
+		const currentLayerId = obj.layerId ?? currentScene.layers.find((l) => getLayerNameOfObject(currentScene, obj) === l.name)?.id ?? "";
+		if (currentLayerId && layerSelect.value !== currentLayerId) {
+			layerSelect.value = currentLayerId;
+		}
+	}
 }
 
 function setFieldValue(field: string, value: unknown, kind: "number" | "string" | "select" | "color" | "text" | "textarea"): void {
@@ -582,6 +611,17 @@ function attachEventListeners(): void {
 			});
 		}
 	}
+
+	// 🆕 Layer dropdown
+	const layerSelect = app.querySelector<HTMLSelectElement>("[data-layer-select]");
+	layerSelect?.addEventListener("change", () => {
+		if (!currentObject) return;
+		vscode.postMessage({
+			type: "moveObjectToLayer",
+			objectId: currentObject.id,
+			layerId: layerSelect.value,
+		});
+	});
 
 	const layerButtons = app.querySelectorAll<HTMLButtonElement>("[data-layer-action]");
 	for (const btn of layerButtons) {
@@ -773,6 +813,24 @@ window.addEventListener("message", (event) => {
 			currentObject = null;
 			multiSelection = null;
 			render(true);
+			break;
+
+		case "layersLoaded":
+			// 🆕 لیست لایه‌ها برای dropdown
+			availableLayers = msg.layers ?? [];
+			if (currentObject && !sceneMode) {
+				// فقط dropdown رو آپدیت کن بدون render کامل
+				const layerSelect = app.querySelector<HTMLSelectElement>("[data-layer-select]");
+				if (layerSelect) {
+					const currentLayerId = currentObject.layerId ?? currentScene?.layers.find((l) => getLayerNameOfObject(currentScene!, currentObject!) === l.name)?.id ?? "";
+					layerSelect.innerHTML = availableLayers
+						.map((l) => {
+							const selected = l.id === currentLayerId ? "selected" : "";
+							return `<option value="${escapeAttr(l.id)}" ${selected}>${escapeHtml(l.name)}</option>`;
+						})
+						.join("");
+				}
+			}
 			break;
 
 		case "clearSelection":

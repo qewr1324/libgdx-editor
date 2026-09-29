@@ -1,3 +1,4 @@
+// src/types/scene.ts
 export interface Vec2 {
 	x: number;
 	y: number;
@@ -24,12 +25,14 @@ export interface GameObject {
 	texture?: string;
 	color?: string;
 	zIndex?: number;
+	layerId?: string;
 	transform: Transform;
 	properties: Record<string, unknown>;
 	children?: GameObject[];
 }
 
 export interface Layer {
+	id?: string;
 	name: string;
 	zIndex: number;
 	visible: boolean;
@@ -70,6 +73,7 @@ export function createEmptyScene(name = "untitled"): Scene {
 		camera: { x: 0, y: 0, zoom: 1 },
 		layers: [
 			{
+				id: "layer_default",
 				name: "default",
 				zIndex: 0,
 				visible: true,
@@ -104,4 +108,34 @@ export function createGameObject(type: GameObjectType, x: number, y: number): Ga
 /** مرتب‌سازی آبجکت‌های یک لایه بر اساس zIndex (ascending) */
 export function sortObjectsByZIndex(objects: GameObject[]): GameObject[] {
 	return [...objects].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
+}
+
+/**
+ * لایه‌ی یک آبجکت رو پیدا می‌کنه.
+ */
+export function findLayerOfObject(scene: Scene, objectId: string): { layer: Layer; index: number } | null {
+	for (const layer of scene.layers) {
+		const idx = layer.objects.findIndex((o) => o.id === objectId);
+		if (idx !== -1) return { layer, index: idx };
+	}
+	return null;
+}
+
+/**
+ * نام لایه‌ی یک آبجکت رو برمی‌گردونه (برای نمایش).
+ */
+export function getLayerNameOfObject(scene: Scene, obj: GameObject): string {
+	if (obj.layerId) {
+		const layer = scene.layers.find((l) => l.id === obj.layerId);
+		if (layer) return layer.name;
+	}
+	const found = findLayerOfObject(scene, obj.id);
+	return found?.layer.name ?? "default";
+}
+
+/**
+ * شناسه‌ی لایه رو برمی‌گردونه. اگه id نداشت، از name می‌سازه.
+ */
+export function getLayerId(layer: Layer): string {
+	return layer.id ?? `layer_${layer.name.replace(/[^a-z0-9]/gi, "_")}`;
 }

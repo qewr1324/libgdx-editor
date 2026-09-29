@@ -1,15 +1,16 @@
 // src/features/layers/layer-ops.ts
 import type { SceneHost } from "../../editor/scene-types.js";
+import { moveObjectToLayerInScene } from "../../editor/scene-mutations.js";
 import { log } from "../../shared/logger.js";
 import { addLayerToScene, deleteLayerFromScene, moveLayerDownInScene, moveLayerUpInScene, renameLayerInScene, reorderLayersInScene, toggleLayerLockInScene, toggleLayerVisibilityInScene } from "./layer-mutations.js";
 
 export function addLayerOp(host: SceneHost): string | null {
 	const scene = host.getScene();
 	if (!scene) return null;
-	const { scene: updated, newLayerName } = addLayerToScene(scene);
+	const { scene: updated, newLayerId } = addLayerToScene(scene);
 	host.getHistory().commit(updated, "add layer");
-	log.debug(`[layers] added "${newLayerName}"`);
-	return newLayerName;
+	log.debug(`[layers] added "${newLayerId}"`);
+	return newLayerId;
 }
 
 export function deleteLayerOp(host: SceneHost, name: string): void {
@@ -64,4 +65,15 @@ export function reorderLayersOp(host: SceneHost, fromIndex: number, toIndex: num
 	const updated = reorderLayersInScene(scene, fromIndex, toIndex);
 	if (updated === scene) return;
 	host.getHistory().commit(updated, "reorder layers");
+}
+
+/**
+ * 🆕 انتقال یک آبجکت به لایه‌ی دیگه
+ */
+export function moveObjectToLayerOp(host: SceneHost, objectId: string, targetLayerId: string): void {
+	const scene = host.getScene();
+	if (!scene) return;
+	const updated = moveObjectToLayerInScene(scene, objectId, targetLayerId);
+	if (updated === scene) return;
+	host.getHistory().commit(updated, "move object to layer");
 }

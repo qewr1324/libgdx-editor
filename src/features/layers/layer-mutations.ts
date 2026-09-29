@@ -1,12 +1,17 @@
 // src/features/layers/layer-mutations.ts
 import type { Layer, Scene } from "../../types/scene.js";
 
-/**
- * عملیات خالص (pure) روی layer ها.
- * همه توابع scene جدید برمی‌گردونن (immutable).
- */
+function makeLayerId(name: string, existingIds: Set<string>): string {
+	let base = `layer_${name.replace(/[^a-z0-9]/gi, "_").toLowerCase()}`;
+	let id = base;
+	let counter = 1;
+	while (existingIds.has(id)) {
+		id = `${base}_${counter++}`;
+	}
+	return id;
+}
 
-export function addLayerToScene(scene: Scene, name?: string): { scene: Scene; newLayerName: string } {
+export function addLayerToScene(scene: Scene, name?: string): { scene: Scene; newLayerName: string; newLayerId: string } {
 	const newScene = structuredClone(scene) as Scene;
 
 	let baseName = name?.trim() || "layer";
@@ -16,9 +21,13 @@ export function addLayerToScene(scene: Scene, name?: string): { scene: Scene; ne
 		finalName = `${baseName}_${counter++}`;
 	}
 
+	const existingIds = new Set(newScene.layers.map((l) => l.id).filter((id): id is string => !!id));
+	const newId = makeLayerId(finalName, existingIds);
+
 	const maxZ = newScene.layers.reduce((m, l) => Math.max(m, l.zIndex), -1);
 
 	newScene.layers.push({
+		id: newId,
 		name: finalName,
 		zIndex: maxZ + 1,
 		visible: true,
@@ -26,7 +35,7 @@ export function addLayerToScene(scene: Scene, name?: string): { scene: Scene; ne
 		objects: [],
 	});
 
-	return { scene: newScene, newLayerName: finalName };
+	return { scene: newScene, newLayerName: finalName, newLayerId: newId };
 }
 
 export function deleteLayerFromScene(scene: Scene, name: string): Scene {
@@ -102,9 +111,6 @@ export function reorderLayersInScene(scene: Scene, fromIndex: number, toIndex: n
 	return newScene;
 }
 
-/**
- * helpers
- */
 export function findLayerByName(scene: Scene, name: string): Layer | null {
 	return scene.layers.find((l) => l.name === name) ?? null;
 }
