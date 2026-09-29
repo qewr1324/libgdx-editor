@@ -1,5 +1,6 @@
 import { viewport, scene, setRulerH, setRulerV, setRulerInfo, rulerH, rulerV } from "../state.js";
 import { getCurrentTheme } from "../theme/theme-manager.js";
+import { getConfig, onConfigChange } from "../config-store.js";
 
 export function setupRulers(): void {
 	const rh = document.createElement("canvas");
@@ -41,10 +42,13 @@ export function setupRulers(): void {
 	document.body.appendChild(info);
 	setRulerInfo(info);
 
+	applyRulerVisibility();
 	drawRulers();
-	window.addEventListener("resize", drawRulers);
+	window.addEventListener("resize", () => {
+		applyRulerVisibility();
+		drawRulers();
+	});
 
-	// ✅ به جای setInterval، فقط وقتی viewport حرکت/زوم کرد رسم کن — باگ ۱۴ رفع شد
 	if (viewport) {
 		viewport.on("moved", drawRulers);
 		viewport.on("zoomed", drawRulers);
@@ -52,13 +56,36 @@ export function setupRulers(): void {
 		viewport.on("zoomed-end", drawRulers);
 	}
 
-	// وقتی تم عوض شد، دوباره رسم کن
 	window.addEventListener("theme-changed", () => {
+		drawRulers();
+	});
+
+	// ✅ وقتی config عوض شد، نمایش ruler ها را به‌روز کن
+	onConfigChange(() => {
+		applyRulerVisibility();
 		drawRulers();
 	});
 }
 
+/**
+ * ✅ نمایش/مخفی کردن ruler ها بر اساس config.
+ * از DOM query مستقیم استفاده می‌کنیم چون state ها setter-only هستند.
+ */
+export function applyRulerVisibility(): void {
+	const show = getConfig()?.view.showRulers !== false;
+	const rh = document.getElementById("ruler-h") as HTMLCanvasElement | null;
+	const rv = document.getElementById("ruler-v") as HTMLCanvasElement | null;
+	const info = document.getElementById("ruler-info") as HTMLDivElement | null;
+
+	if (rh) rh.style.display = show ? "block" : "none";
+	if (rv) rv.style.display = show ? "block" : "none";
+	if (info) info.style.display = show ? "block" : "none";
+}
+
 export function drawRulers(): void {
+	// ✅ اگر ruler ها مخفی هستند، رسم نکن (صرفه‌جویی CPU)
+	if (getConfig()?.view.showRulers === false) return;
+
 	if (!rulerH || !rulerV || !viewport) return;
 
 	const theme = getCurrentTheme();
@@ -82,7 +109,6 @@ export function drawRulers(): void {
 	ctxV.scale(dpr, dpr);
 	ctxV.clearRect(0, 0, vw, vh);
 
-	// رنگ‌ها از تم جاری
 	const bgColor = theme.bg;
 	const textColor = theme.fg;
 	const notchColor = theme.border;
@@ -103,7 +129,6 @@ export function drawRulers(): void {
 	while (step * scale < 40) step *= 2;
 	while (step * scale > 200) step /= 2;
 
-	// خطوط افقی
 	const worldLeft = viewport.toWorld(20, 0).x;
 	const worldRight = viewport.toWorld(hw, 0).x;
 	const startX = Math.floor(worldLeft / step) * step;
@@ -134,7 +159,6 @@ export function drawRulers(): void {
 		ctxH.fillText(String(wx), sx + 2, 10);
 	}
 
-	// خط جداکننده
 	if (isClassic) {
 		ctxH.fillStyle = borderLight;
 		ctxH.fillRect(0, hh - 2, hw, 1);
@@ -145,7 +169,6 @@ export function drawRulers(): void {
 		ctxH.fillRect(0, hh - 1, hw, 1);
 	}
 
-	// خطوط عمودی
 	const worldTop = viewport.toWorld(0, 20).y;
 	const worldBottom = viewport.toWorld(0, vh).y;
 	const startY = Math.floor(worldTop / step) * step;
@@ -179,7 +202,6 @@ export function drawRulers(): void {
 		ctxV.restore();
 	}
 
-	// خط جداکننده راست
 	if (isClassic) {
 		ctxV.fillStyle = borderLight;
 		ctxV.fillRect(vw - 2, 0, 1, vh);

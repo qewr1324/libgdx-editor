@@ -1,4 +1,5 @@
 import { app, viewport, rulerInfo, setMouseWorld } from "../state.js";
+import { getConfig } from "../config-store.js";
 
 export function setupMouseTracker(): void {
 	app.canvas.addEventListener("mousemove", (e) => {
@@ -6,7 +7,9 @@ export function setupMouseTracker(): void {
 		const rect = app.canvas.getBoundingClientRect();
 		const world = viewport.toWorld(e.clientX - rect.left, e.clientY - rect.top);
 		setMouseWorld(Math.round(world.x), Math.round(world.y));
-		if (rulerInfo) {
+
+		// ✅ اگر ruler مخفی است، ruler-info را آپدیت نکن
+		if (rulerInfo && getConfig()?.view.showRulers !== false) {
 			rulerInfo.textContent = `${Math.round(world.x)}, ${Math.round(world.y)}`;
 		}
 	});

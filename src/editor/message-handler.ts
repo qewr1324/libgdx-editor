@@ -229,6 +229,7 @@ export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void>
 }
 
 async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Promise<void> {
+	// ✅ یک بازه‌ی زمانی کافی mark کن — نه فقط یک boolean
 	ctx.setProgrammaticChange(true);
 
 	try {
@@ -237,13 +238,18 @@ async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Pr
 		await saveDocument(ctx.document);
 		ctx.markNotDirty();
 
+		// ✅ بعد از save، history state را broadcast کن
+		// تا UI undo/redo درست شود
+		ctx.host.broadcastHistoryState();
+
 		if (ctx.host.isActive()) {
 			SceneRegistry.emitSceneChange(ctx.host, msg.scene);
 		}
+	} catch (err) {
+		console.error("[handleSave] failed:", err);
 	} finally {
-		setTimeout(() => {
-			ctx.setProgrammaticChange(false);
-		}, 50);
+		// ✅ فلگ را دستی ریست نکن — timestamp خودش expire می‌شود
+		// (markProgrammaticChange(300) در ctx.setProgrammaticChange(true) صدا زده شد)
 	}
 }
 

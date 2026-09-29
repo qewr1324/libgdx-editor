@@ -19,7 +19,13 @@ class DocumentHost implements SceneHost {
 	public readonly history = new HistoryManager();
 	public isDirty = false;
 	public autoSaveTimer: NodeJS.Timeout | null = null;
-	public isProgrammaticChange = false;
+
+	/**
+	 * ✅ به جای boolean ساده، از timestamp استفاده می‌کنیم.
+	 * تا وقتی زمان حال < programmaticChangeUntil باشد، تغییرات
+	 * به عنوان programmatic در نظر گرفته می‌شوند.
+	 */
+	public programmaticChangeUntil = 0;
 
 	constructor(document: vscode.TextDocument) {
 		this.document = document;
@@ -45,14 +51,6 @@ class DocumentHost implements SceneHost {
 		}
 	}
 
-	public postToSpecificWebview(webview: vscode.Webview, msg: unknown): void {
-		try {
-			webview.postMessage(msg);
-		} catch {
-			// ignore
-		}
-	}
-
 	public markDirty(): void {
 		this.isDirty = true;
 		if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
@@ -70,18 +68,29 @@ class DocumentHost implements SceneHost {
 			return;
 		}
 
-		this.isProgrammaticChange = true;
+		this.markProgrammaticChange(200);
 		try {
 			await writeDocument(this.document, this.scene);
 			await saveDocument(this.document);
 			this.isDirty = false;
 		} catch (err) {
 			console.error("Auto-save failed:", err);
-		} finally {
-			setTimeout(() => {
-				this.isProgrammaticChange = false;
-			}, 50);
 		}
+	}
+
+	/**
+	 * ✅ فلگ programmatic را برای مدت مشخصی فعال می‌کند.
+	 * این کار جلوی trigger شدن onDidChangeTextDocument را می‌گیرد.
+	 */
+	public markProgrammaticChange(durationMs: number): void {
+		const until = Date.now() + durationMs;
+		if (until > this.programmaticChangeUntil) {
+			this.programmaticChangeUntil = until;
+		}
+	}
+
+	public isProgrammaticChange(): boolean {
+		return Date.now() < this.programmaticChangeUntil;
 	}
 
 	public pushHistory(scene: Scene, label: string): void {
@@ -140,9 +149,6 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 		return SceneRegistry.onDidRequestSceneSettings(handler);
 	}
 
-	/**
-	 * ✅ broadcast config به همه‌ی instance ها
-	 */
 	public static broadcastConfigChange(config: LibGdxEditorConfig): void {
 		const msg: ExtensionToWebviewMessage = {
 			type: "configUpdated",
@@ -205,9 +211,13 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			markNotDirty: () => {
 				host.isDirty = false;
 			},
-			getIsProgrammaticChange: () => host.isProgrammaticChange,
+			getIsProgrammaticChange: () => host.isProgrammaticChange(),
 			setProgrammaticChange: (value: boolean) => {
-				host.isProgrammaticChange = value;
+				if (value) {
+					host.markProgrammaticChange(300);
+				} else {
+					host.programmaticChangeUntil = 0;
+				}
 			},
 		};
 
