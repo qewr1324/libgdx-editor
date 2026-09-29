@@ -2,6 +2,8 @@ import { app, currentInteraction, interactionMode, isFinishingInteraction, scene
 import { handleDragMove } from "./drag.js";
 import { handleResizeMove } from "./resize.js";
 import { handleRotateMove } from "./rotate.js";
+import { handleMultiResizeMove } from "./multi-resize.js";
+import { handleMultiRotateMove } from "./multi-rotate.js";
 import { clearGizmo } from "../selection/gizmo.js";
 import { vscode } from "../types.js";
 import type { GameObject } from "../../../types/scene.js";
@@ -22,10 +24,18 @@ export function setupGlobalInteractionListeners(): void {
 				handleDragMove(e, world.x, world.y);
 				break;
 			case "resize":
-				handleResizeMove(e, world.x, world.y);
+				if ((currentInteraction as any).multiBounds) {
+					handleMultiResizeMove(e, world.x, world.y);
+				} else {
+					handleResizeMove(e, world.x, world.y);
+				}
 				break;
 			case "rotate":
-				handleRotateMove(e, world.x, world.y);
+				if ((currentInteraction as any).multiObjects) {
+					handleMultiRotateMove(e, world.x, world.y);
+				} else {
+					handleRotateMove(e, world.x, world.y);
+				}
 				break;
 		}
 	});
@@ -86,17 +96,27 @@ export function finishInteraction(): void {
 			vscode.postMessage({ type: "updateObjects", objects: updated, historyLabel: "move" });
 		}
 	} else if (mode === "resize") {
-		vscode.postMessage({
-			type: "updateObject",
-			object: structuredClone(data.primaryObj) as GameObject,
-			historyLabel: "resize",
-		});
+		if ((data as any).multiObjects) {
+			const updated = ((data as any).multiObjects as GameObject[]).map((o) => structuredClone(o) as GameObject);
+			vscode.postMessage({ type: "updateObjects", objects: updated, historyLabel: "multi resize" });
+		} else {
+			vscode.postMessage({
+				type: "updateObject",
+				object: structuredClone(data.primaryObj) as GameObject,
+				historyLabel: "resize",
+			});
+		}
 	} else if (mode === "rotate") {
-		vscode.postMessage({
-			type: "updateObject",
-			object: structuredClone(data.primaryObj) as GameObject,
-			historyLabel: "rotate",
-		});
+		if ((data as any).multiObjects) {
+			const updated = ((data as any).multiObjects as GameObject[]).map((o) => structuredClone(o) as GameObject);
+			vscode.postMessage({ type: "updateObjects", objects: updated, historyLabel: "multi rotate" });
+		} else {
+			vscode.postMessage({
+				type: "updateObject",
+				object: structuredClone(data.primaryObj) as GameObject,
+				historyLabel: "rotate",
+			});
+		}
 	}
 
 	flushPendingRender();

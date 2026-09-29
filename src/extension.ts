@@ -3,6 +3,7 @@ import { SceneEditorProvider } from "./editor/SceneEditorProvider.js";
 import { InspectorProvider } from "./views/InspectorProvider.js";
 import { newSceneCommand } from "./commands/newScene.js";
 import { importTextureCommand, cleanupAssetsCommand } from "./commands/importTexture.js";
+import { generateCodeCommand } from "./commands/generateCode.js";
 import { ConfigManager } from "./config/config-manager.js";
 import { SceneRegistry } from "./editor/scene-registry.js";
 import { updateObjectOp, deleteObjectOp, focusObjectOp, updateSceneFieldOp } from "./editor/scene-ops.js";
@@ -110,6 +111,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		vscode.commands.registerCommand("libgdx-editor.importTexture", (uri?: vscode.Uri) => importTextureCommand(context, uri)),
 		vscode.commands.registerCommand("libgdx-editor.cleanupAssets", () => cleanupAssetsCommand()),
+		vscode.commands.registerCommand("libgdx-editor.generateCode", () => generateCodeCommand()),
 	);
 }
 

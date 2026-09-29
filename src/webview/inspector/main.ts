@@ -21,7 +21,6 @@ let multiSelection: { count: number; ids: string[] } | null = null;
 let sceneMode = false;
 let lastAppliedTheme: string | null = null;
 
-/** بخش‌های تاشو — کدوم باز هستن */
 const collapsedSections = new Set<string>();
 
 // ============================================================
@@ -36,7 +35,7 @@ function applyEffectiveTheme(): void {
 }
 
 // ============================================================
-// Icons (SVG inline)
+// Icons
 // ============================================================
 
 const ICONS = {
@@ -47,11 +46,10 @@ const ICONS = {
 	scene: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 12l4-8 3 5 2-3 3 6z"/></svg>`,
 	chevron: `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4z"/></svg>`,
 	chevronRight: `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>`,
-	settings: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="2"/><path d="M8 1a1 1 0 011 1v1.1a5 5 0 011.6.7l.8-.8a1 1 0 011.4 1.4l-.8.8a5 5 0 01.7 1.6H14a1 1 0 010 2h-1.1a5 5 0 01-.7 1.6l.8.8a1 1 0 01-1.4 1.4l-.8-.8a5 5 0 01-1.6.7V14a1 1 0 01-2 0v-1.1a5 5 0 01-1.6-.7l-.8.8a1 1 0 01-1.4-1.4l.8-.8a5 5 0 01-.7-1.6H2a1 1 0 010-2h1.1a5 5 0 01.7-1.6l-.8-.8a1 1 0 011.4-1.4l.8.8A5 5 0 017 3.1V2a1 1 0 011-1z"/></svg>`,
-	reset: `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 100 10 5 5 0 000-10zm0 2a3 3 0 110 6 3 3 0 010-6z"/><path d="M1 8a7 7 0 0112-5l1-1v4h-4l1-1A5 5 0 103 8H1z"/></svg>`,
+	reset: `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M1 8a7 7 0 0112-5l1-1v4h-4l1-1A5 5 0 103 8H1z"/></svg>`,
 	focus: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 100 10A5 5 0 008 3zm0 3a2 2 0 110 4 2 2 0 010-4z"/><path d="M8 0v3M8 13v3M0 8h3M13 8h3" stroke="currentColor" stroke-width="1.5"/></svg>`,
 	trash: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6 2h4l.5 1H14v1H2V3h3.5zM4 5h8l-.7 9H4.7z"/></svg>`,
-	eye: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4C4.5 4 2 8 2 8s2.5 4 6 4 6-4 6-4-2.5-4-6-4zm0 6a2 2 0 110-4 2 2 0 010 4z"/></svg>`,
+	drag: `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3l-2 2 2 2V3zm0 4l-2 2 2 2V7zm6-4l2 2-2 2V3zm0 4l2 2-2 2V7z"/></svg>`,
 };
 
 // ============================================================
@@ -117,23 +115,21 @@ function render(force = false): void {
 // Section helpers
 // ============================================================
 
-function sectionHeader(id: string, label: string, opts: { reset?: boolean; icon?: string } = {}): string {
+function sectionHeader(id: string, label: string, opts: { reset?: boolean } = {}): string {
 	const collapsed = collapsedSections.has(id);
 	const chevron = collapsed ? ICONS.chevronRight : ICONS.chevron;
 	const resetBtn = opts.reset ? `<button class="inspector-section-reset" data-section-reset="${id}" title="Reset">${ICONS.reset}</button>` : "";
-	const icon = opts.icon ? `<span class="inspector-section-icon">${opts.icon}</span>` : "";
 
 	return `
 		<div class="inspector-section-header" data-section-toggle="${id}">
 			<span class="inspector-section-chevron">${chevron}</span>
-			${icon}
 			<span class="inspector-section-label">${escapeHtml(label)}</span>
 			${resetBtn}
 		</div>
 	`;
 }
 
-function sectionWrap(id: string, label: string, content: string, opts: { reset?: boolean; icon?: string } = {}): string {
+function sectionWrap(id: string, label: string, content: string, opts: { reset?: boolean } = {}): string {
 	const collapsed = collapsedSections.has(id);
 	return `
 		<div class="inspector-section ${collapsed ? "collapsed" : ""}" data-section-id="${id}">
@@ -143,22 +139,40 @@ function sectionWrap(id: string, label: string, content: string, opts: { reset?:
 	`;
 }
 
-/** یک فیلد تک ستونه با label چپ و input راست (Unity style) */
-function field(label: string, inputHtml: string, opts: { wide?: boolean } = {}): string {
+function field(label: string, inputHtml: string): string {
 	return `
-		<div class="inspector-field ${opts.wide ? "wide" : ""}">
+		<div class="inspector-field">
 			<label class="inspector-field-label">${escapeHtml(label)}</label>
 			<div class="inspector-field-input">${inputHtml}</div>
 		</div>
 	`;
 }
 
-/** ردیف دو ستونه — هر جفت label+input کنار هم */
+function numberField(label: string, fieldKey: string, value: number, opts: { step?: number; min?: number; max?: number; sensitivity?: number } = {}): string {
+	const sensitivity = opts.sensitivity ?? (opts.step && opts.step < 1 ? 0.01 : 1);
+	const minAttr = opts.min !== undefined ? `min="${opts.min}"` : "";
+	const maxAttr = opts.max !== undefined ? `max="${opts.max}"` : "";
+	const stepAttr = opts.step !== undefined ? `step="${opts.step}"` : "1";
+
+	return `
+		<div class="inspector-field">
+			<label class="inspector-field-label">${escapeHtml(label)}</label>
+			<div class="inspector-field-input">
+				<div class="inspector-number-wrap">
+					<div class="inspector-drag-handle" data-drag-field="${fieldKey}" data-drag-sensitivity="${sensitivity}" title="Drag to change">
+						${ICONS.drag}
+					</div>
+					<input type="number" data-field="${fieldKey}" value="${value}" step="${stepAttr}" ${minAttr} ${maxAttr} />
+				</div>
+			</div>
+		</div>
+	`;
+}
+
 function fieldRow(field1: string, field2: string): string {
 	return `<div class="inspector-field-row">${field1}${field2}</div>`;
 }
 
-/** sub-header داخل یک section (مثل Position، Rotation، Scale) */
 function subHeader(label: string): string {
 	return `<div class="inspector-subheader">${escapeHtml(label)}</div>`;
 }
@@ -207,11 +221,7 @@ function buildSceneSettingsHtml(scene: Scene): string {
 		`,
 	);
 
-	const worldSection = sectionWrap(
-		"scene-world",
-		"World Size",
-		fieldRow(field("Width", `<input type="number" data-scene-field="worldSize.width" value="${scene.worldSize.width}" step="1" min="1" />`), field("Height", `<input type="number" data-scene-field="worldSize.height" value="${scene.worldSize.height}" step="1" min="1" />`)),
-	);
+	const worldSection = sectionWrap("scene-world", "World Size", fieldRow(numberField("Width", "worldSize.width", scene.worldSize.width, { step: 1, min: 1 }), numberField("Height", "worldSize.height", scene.worldSize.height, { step: 1, min: 1 })));
 
 	const appearanceSection = sectionWrap(
 		"scene-appearance",
@@ -224,7 +234,7 @@ function buildSceneSettingsHtml(scene: Scene): string {
 					<input type="text" data-scene-field="backgroundColor" value="${escapeAttr(scene.backgroundColor)}" />
 				</div>
 			</div>
-			${field("Grid Size", `<input type="number" data-scene-field="gridSize" value="${scene.gridSize}" step="1" min="1" />`)}
+			${numberField("Grid Size", "gridSize", scene.gridSize, { step: 1, min: 1 })}
 		`,
 	);
 
@@ -348,6 +358,8 @@ function attachSceneListeners(): void {
 			});
 		}
 	}
+
+	attachDragHandles("scene");
 }
 
 // ============================================================
@@ -363,15 +375,15 @@ function buildInspectorHtml(obj: GameObject): string {
 		"Transform",
 		`
 			${subHeader("Position")}
-			${fieldRow(field("X", `<input type="number" data-field="transform.x" value="${t.x}" step="1" />`), field("Y", `<input type="number" data-field="transform.y" value="${t.y}" step="1" />`))}
+			${fieldRow(numberField("X", "transform.x", t.x, { step: 1 }), numberField("Y", "transform.y", t.y, { step: 1 }))}
 			${subHeader("Rotation")}
-			${field("Angle", `<input type="number" data-field="transform.rotation" value="${t.rotation}" step="1" />`)}
+			${numberField("Angle", "transform.rotation", t.rotation, { step: 1 })}
 			${subHeader("Scale")}
-			${fieldRow(field("X", `<input type="number" data-field="transform.scaleX" value="${t.scaleX}" step="0.1" />`), field("Y", `<input type="number" data-field="transform.scaleY" value="${t.scaleY}" step="0.1" />`))}
+			${fieldRow(numberField("X", "transform.scaleX", t.scaleX, { step: 0.1, sensitivity: 0.01 }), numberField("Y", "transform.scaleY", t.scaleY, { step: 0.1, sensitivity: 0.01 }))}
 			${subHeader("Size")}
-			${fieldRow(field("W", `<input type="number" data-field="transform.width" value="${t.width}" step="1" min="1" />`), field("H", `<input type="number" data-field="transform.height" value="${t.height}" step="1" min="1" />`))}
+			${fieldRow(numberField("W", "transform.width", t.width, { step: 1, min: 1 }), numberField("H", "transform.height", t.height, { step: 1, min: 1 }))}
 			${subHeader("Origin")}
-			${fieldRow(field("X", `<input type="number" data-field="transform.originX" value="${t.originX}" step="0.1" min="0" max="1" />`), field("Y", `<input type="number" data-field="transform.originY" value="${t.originY}" step="0.1" min="0" max="1" />`))}
+			${fieldRow(numberField("X", "transform.originX", t.originX, { step: 0.1, min: 0, max: 1, sensitivity: 0.01 }), numberField("Y", "transform.originY", t.originY, { step: 0.1, min: 0, max: 1, sensitivity: 0.01 }))}
 		`,
 		{ reset: true },
 	);
@@ -406,7 +418,7 @@ function buildInspectorHtml(obj: GameObject): string {
 		"layer",
 		"Layer",
 		`
-			${field("Z-Index", `<input type="number" data-field="zIndex" value="${obj.zIndex ?? 0}" step="1" />`)}
+			${numberField("Z-Index", "zIndex", obj.zIndex ?? 0, { step: 1 })}
 			<div class="inspector-layer-buttons">
 				<button class="inspector-layer-btn" data-layer-action="front" title="Bring to Front">⏫ Front</button>
 				<button class="inspector-layer-btn" data-layer-action="forward" title="Bring Forward">⬆️ Fwd</button>
@@ -592,6 +604,82 @@ function attachEventListeners(): void {
 			}
 		});
 	}
+
+	attachDragHandles("object");
+}
+
+// ============================================================
+// Drag Handles
+// ============================================================
+
+function attachDragHandles(mode: "object" | "scene"): void {
+	const dragHandles = app.querySelectorAll<HTMLElement>("[data-drag-field]");
+	for (const handle of dragHandles) {
+		const fieldKey = handle.dataset.dragField!;
+		const sensitivity = parseFloat(handle.dataset.dragSensitivity ?? "1");
+
+		let isDragging = false;
+		let startX = 0;
+		let startValue = 0;
+
+		handle.addEventListener("pointerdown", (e) => {
+			e.preventDefault();
+			e.stopPropagation();
+			isDragging = true;
+			startX = e.clientX;
+
+			const input = handle.parentElement?.querySelector<HTMLInputElement>("input");
+			startValue = parseFloat(input?.value ?? "0");
+			if (Number.isNaN(startValue)) startValue = 0;
+
+			handle.setPointerCapture(e.pointerId);
+			document.body.style.cursor = "ew-resize";
+		});
+
+		handle.addEventListener("pointermove", (e) => {
+			if (!isDragging) return;
+			const dx = e.clientX - startX;
+			const deltaValue = dx * sensitivity * 0.5;
+			const newValue = startValue + deltaValue;
+
+			const input = handle.parentElement?.querySelector<HTMLInputElement>("input");
+			if (input) {
+				const step = parseFloat(input.step || "1");
+				const rounded = step < 1 ? Math.round(newValue * 100) / 100 : Math.round(newValue);
+				input.value = String(rounded);
+			}
+		});
+
+		const finish = (e: PointerEvent) => {
+			if (!isDragging) return;
+			isDragging = false;
+			try {
+				handle.releasePointerCapture(e.pointerId);
+			} catch {
+				// ignore
+			}
+			document.body.style.cursor = "";
+
+			const input = handle.parentElement?.querySelector<HTMLInputElement>("input");
+			if (input) {
+				const value = parseFloat(input.value);
+				if (!Number.isNaN(value)) {
+					if (mode === "object" && currentObject) {
+						if (fieldKey === "zIndex") {
+							vscode.postMessage({ type: "setObjectZIndex", objectId: currentObject.id, zIndex: Math.round(value) });
+						} else {
+							sendFieldUpdate(fieldKey, value);
+						}
+					} else if (mode === "scene") {
+						vscode.postMessage({ type: "updateSceneField", field: fieldKey, value, historyLabel: `scene: ${fieldKey}` });
+					}
+				}
+			}
+		};
+
+		handle.addEventListener("pointerup", finish);
+		handle.addEventListener("pointercancel", finish);
+	}
 }
 
 // ============================================================
@@ -602,7 +690,6 @@ function attachSectionListeners(): void {
 	const headers = app.querySelectorAll<HTMLDivElement>("[data-section-toggle]");
 	for (const header of headers) {
 		header.addEventListener("click", (e) => {
-			// اگر روی reset کلیک شد، toggle نکن
 			if ((e.target as HTMLElement).closest("[data-section-reset]")) return;
 			const id = header.dataset.sectionToggle!;
 			if (collapsedSections.has(id)) {
@@ -610,7 +697,6 @@ function attachSectionListeners(): void {
 			} else {
 				collapsedSections.add(id);
 			}
-			// re-render فوری
 			if (currentObject && !sceneMode) {
 				app.innerHTML = buildInspectorHtml(currentObject);
 				attachEventListeners();
@@ -625,7 +711,6 @@ function attachSectionListeners(): void {
 	for (const btn of resetButtons) {
 		btn.addEventListener("click", (e) => {
 			e.stopPropagation();
-			// بعداً پیاده‌سازی reset
 		});
 	}
 }

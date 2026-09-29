@@ -1,13 +1,14 @@
 import type * as vscode from "vscode";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { toConfigMessage } from "../protocol/messages.js";
-import type { Scene } from "../types/scene.js";
+import type { GameObject, Scene } from "../types/scene.js";
 import { AssetManager } from "./assetManager.js";
 import { ConfigManager } from "../config/config-manager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
 import { addObjectToScene, bringForwardInScene, bringToFrontInScene, createObjectAt, createShapeAt, deleteObjectFromScene, getNextZIndex, sendBackwardInScene, sendToBackInScene, setObjectZIndexInScene, updateObjectsInScene } from "./scene-mutations.js";
+import { ClipboardStore } from "./clipboardStore.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
@@ -103,15 +104,61 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.getHistory().commit(updated, "delete objects");
 			break;
 		}
+		case "copyObjects": {
+			const current = host.getScene();
+			if (!current) break;
+			const items: GameObject[] = [];
+			for (const layer of current.layers) {
+				for (const obj of layer.objects) {
+					if (msg.objectIds.includes(obj.id)) {
+						items.push(structuredClone(obj) as GameObject);
+					}
+				}
+			}
+			ClipboardStore.set(items, current.name);
+			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
+			log.debug(`[message-handler] copy ${items.length} objects`);
+			break;
+		}
+		case "cutObjects": {
+			const current = host.getScene();
+			if (!current) break;
+			const items: GameObject[] = [];
+			for (const layer of current.layers) {
+				for (const obj of layer.objects) {
+					if (msg.objectIds.includes(obj.id)) {
+						items.push(structuredClone(obj) as GameObject);
+					}
+				}
+			}
+			ClipboardStore.set(items, current.name);
+			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
+
+			let updated = current;
+			for (const id of msg.objectIds) {
+				updated = deleteObjectFromScene(updated, id);
+			}
+			host.getHistory().commit(updated, "cut");
+			break;
+		}
 		case "pasteObjects": {
 			const current = host.getScene();
 			if (!current) break;
+			if (ClipboardStore.isEmpty()) break;
+
+			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
+
 			let updated = current;
-			for (const obj of msg.objects) {
-				const withZ = { ...obj, zIndex: getNextZIndex(updated) };
-				updated = addObjectToScene(updated, withZ);
+			for (const obj of pasted) {
+				obj.zIndex = getNextZIndex(updated);
+				updated = addObjectToScene(updated, obj);
 			}
-			host.getHistory().commit(updated, msg.historyLabel ?? "paste");
+			host.getHistory().commit(updated, "paste");
+
+			const newIds = pasted.map((o) => o.id);
+			host.postToWebview({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
+
+			log.debug(`[message-handler] pasted ${pasted.length} objects (inPlace=${!!msg.pasteInPlace})`);
 			break;
 		}
 		case "duplicateObjects":

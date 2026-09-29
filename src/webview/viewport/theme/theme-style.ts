@@ -746,6 +746,45 @@ export function buildThemeCss(theme: Theme): string {
 			background: ${theme.scrollThumb};
 			border: ${theme.isClassic ? `2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : `1px solid ${theme.scrollThumbBorder}; border-radius: 5px;`};
 		}
+
+				/* --- Number wrap + drag handle --- */
+		.inspector-number-wrap {
+			position: relative;
+			display: flex;
+			align-items: center;
+			width: 100%;
+		}
+
+		.inspector-number-wrap input {
+			padding-left: 18px !important;
+			width: 100%;
+		}
+
+		.inspector-drag-handle {
+			position: absolute;
+			left: 0;
+			top: 0;
+			bottom: 0;
+			width: 14px;
+			cursor: ew-resize;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			color: ${theme.fg};
+			opacity: 0.35;
+			user-select: none;
+			z-index: 1;
+			border-radius: ${theme.inputRadius} 0 0 ${theme.inputRadius};
+		}
+
+		.inspector-drag-handle:hover {
+			opacity: 0.8;
+			background: ${theme.isClassic ? theme.bg : "rgba(255,255,255,0.05)"};
+		}
+
+		.inspector-drag-handle svg {
+			pointer-events: none;
+		}
 	`;
 }
 

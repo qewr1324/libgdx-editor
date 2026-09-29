@@ -53,7 +53,6 @@ function handleConfig(config: LibGdxEditorConfigMessage): void {
 		});
 	}
 
-	// ✅ اگر gizmo mode عوض شد، دسته‌های انتخاب رو دوباره رسم کن
 	const gizmoChanged = previous && previous.gizmo.mode !== config.gizmo.mode;
 	if (gizmoChanged) {
 		drawSelectionOutlines();
@@ -91,6 +90,8 @@ export function setupMessages(): void {
 				scheduleRender(() => {
 					if (scene) renderScene(scene);
 				});
+				break;
+			case "clipboardChanged":
 				break;
 			case "configLoaded":
 			case "configUpdated":

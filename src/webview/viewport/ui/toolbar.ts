@@ -1,7 +1,7 @@
 import { vscode } from "../types.js";
 import { scene, setScene, viewport } from "../state.js";
 import { getConfig } from "../config-store.js";
-import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
+import { copySelection, cutSelection, pasteClipboard, pasteInPlace, duplicateSelection } from "../commands/clipboard.js";
 import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
 import type { ShapeType } from "../../../config/config-types.js";
 
@@ -316,6 +316,12 @@ function setupKeyboardShortcuts(): void {
 		} else if (mod && e.key === "c") {
 			e.preventDefault();
 			copySelection();
+		} else if (mod && e.key === "x") {
+			e.preventDefault();
+			cutSelection();
+		} else if (mod && e.key === "v" && e.shiftKey) {
+			e.preventDefault();
+			pasteInPlace();
 		} else if (mod && e.key === "v") {
 			e.preventDefault();
 			pasteClipboard();

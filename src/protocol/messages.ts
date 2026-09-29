@@ -59,7 +59,9 @@ export type WebviewToExtensionMessage =
 	| { type: "deleteObjects"; objectIds: string[] }
 	| { type: "openSceneSettings" }
 	| { type: "duplicateObjects"; objectIds: string[]; offsetX: number; offsetY: number }
-	| { type: "pasteObjects"; objects: GameObject[]; historyLabel?: string }
+	| { type: "copyObjects"; objectIds: string[] }
+	| { type: "cutObjects"; objectIds: string[] }
+	| { type: "pasteObjects"; pasteInPlace?: boolean }
 	| { type: "setObjectZIndex"; objectId: string; zIndex: number }
 	| { type: "bringForward"; objectId: string }
 	| { type: "sendBackward"; objectId: string }
@@ -81,6 +83,7 @@ export type ExtensionToWebviewMessage =
 	| { type: "focusObject"; objectId: string }
 	| { type: "texturesLoaded"; textures: Record<string, string> }
 	| { type: "brokenAssets"; paths: string[] }
+	| { type: "clipboardChanged"; count: number }
 	| { type: "historyState"; canUndo: boolean; canRedo: boolean }
 	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
 	| { type: "configUpdated"; config: LibGdxEditorConfigMessage };

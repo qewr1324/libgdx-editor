@@ -5,6 +5,8 @@ import { findObject } from "../utils/geometry.js";
 import { vscode } from "../types.js";
 import { beginResize } from "../interaction/resize.js";
 import { beginRotate } from "../interaction/rotate.js";
+import { beginMultiResize } from "../interaction/multi-resize.js";
+import { beginMultiRotate } from "../interaction/multi-rotate.js";
 import { beginMarquee, cancelMarquee, finishMarquee, updateMarquee } from "../interaction/marquee.js";
 import { getConfig } from "../config-store.js";
 import type { HandleType } from "../types.js";
@@ -40,14 +42,15 @@ export function drawSelectionOutlines(): void {
 	selectionLayer.removeChildren();
 	if (selectedIds.length === 0 || !scene) return;
 
+	const objects: GameObject[] = [];
 	for (const id of selectedIds) {
 		const obj = findObject(scene, id);
-		if (!obj) continue;
-		const t = obj.transform;
+		if (obj) objects.push(obj);
+	}
+	if (objects.length === 0) return;
 
-		// ============================================================
-		// کادر نارنجی دور آبجکت — همیشه همراستا با آبجکت
-		// ============================================================
+	for (const obj of objects) {
+		const t = obj.transform;
 		const outline = new Graphics();
 		outline.rect(-t.width * t.originX - 3, -t.height * t.originY - 3, t.width + 6, t.height + 6);
 		outline.stroke({ width: 2, color: 0xffaa00, alpha: 1 });
@@ -56,25 +59,118 @@ export function drawSelectionOutlines(): void {
 		outline.rotation = (t.rotation * Math.PI) / 180;
 		outline.scale.set(t.scaleX, t.scaleY);
 		selectionLayer.addChild(outline);
+	}
 
-		if (selectedIds.length === 1) {
-			drawResizeHandles(obj, t);
-			drawRotateHandle(obj, t);
-		} else {
-			const dot = new Graphics();
-			dot.circle(0, 0, 4);
-			dot.fill({ color: 0xffaa00 });
-			dot.x = t.x;
-			dot.y = t.y;
-			selectionLayer.addChild(dot);
-		}
+	if (objects.length === 1) {
+		drawSingleResizeHandles(objects[0], objects[0].transform);
+		drawSingleRotateHandle(objects[0], objects[0].transform);
+	} else {
+		drawMultiBoundingBox(objects);
 	}
 }
 
-/**
- * ✅ محاسبه موقعیت ۸ گوشه/لبه در فضای جهانی.
- * rotation بر اساس mode اعمال می‌شه.
- */
+function drawMultiBoundingBox(objects: GameObject[]): void {
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+
+	for (const obj of objects) {
+		const t = obj.transform;
+		const left = t.x - t.width * t.originX;
+		const top = t.y - t.height * t.originY;
+		const right = left + t.width;
+		const bottom = top + t.height;
+		if (left < minX) minX = left;
+		if (top < minY) minY = top;
+		if (right > maxX) maxX = right;
+		if (bottom > maxY) maxY = bottom;
+	}
+
+	const w = maxX - minX;
+	const h = maxY - minY;
+	const cx = minX + w / 2;
+	const cy = minY + h / 2;
+
+	const box = new Graphics();
+	box.rect(minX, minY, w, h);
+	box.stroke({ width: 2, color: 0xaa88ff, alpha: 0.9 });
+	selectionLayer.addChild(box);
+
+	const positions: Array<{ type: HandleType; x: number; y: number; cursor: string }> = [
+		{ type: "nw", x: minX, y: minY, cursor: "nwse-resize" },
+		{ type: "n", x: cx, y: minY, cursor: "ns-resize" },
+		{ type: "ne", x: maxX, y: minY, cursor: "nesw-resize" },
+		{ type: "e", x: maxX, y: cy, cursor: "ew-resize" },
+		{ type: "se", x: maxX, y: maxY, cursor: "nwse-resize" },
+		{ type: "s", x: cx, y: maxY, cursor: "ns-resize" },
+		{ type: "sw", x: minX, y: maxY, cursor: "nesw-resize" },
+		{ type: "w", x: minX, y: cy, cursor: "ew-resize" },
+	];
+
+	for (const pos of positions) {
+		const isCorner = pos.type === "nw" || pos.type === "ne" || pos.type === "se" || pos.type === "sw";
+		const size = isCorner ? 10 : 8;
+
+		const handle = new Graphics();
+		if (isCorner) {
+			handle.rect(-size / 2, -size / 2, size, size);
+		} else {
+			handle.circle(0, 0, size / 2);
+		}
+		handle.fill({ color: 0xaa88ff });
+		handle.stroke({ width: 1, color: 0x1a1a1a, alpha: 0.5 });
+
+		handle.x = pos.x;
+		handle.y = pos.y;
+		handle.eventMode = "static";
+		handle.cursor = pos.cursor;
+
+		handle.on("pointerdown", (e) => {
+			e.stopPropagation();
+			beginMultiResize(e, objects, pos.type, { minX, minY, maxX, maxY });
+		});
+
+		selectionLayer.addChild(handle);
+	}
+
+	const topY = minY - 25;
+	const line = new Graphics();
+	line.moveTo(cx, minY);
+	line.lineTo(cx, topY);
+	line.stroke({ width: 1, color: 0x4aff9b, alpha: 0.5 });
+	selectionLayer.addChild(line);
+
+	const rotateHandle = new Graphics();
+	rotateHandle.circle(0, 0, 7);
+	rotateHandle.fill({ color: 0x4aff9b });
+	rotateHandle.stroke({ width: 2, color: 0x1a1a1a, alpha: 0.7 });
+
+	const arrow = new Graphics();
+	arrow.moveTo(-3, 0);
+	arrow.lineTo(3, 0);
+	arrow.lineTo(0, -3);
+	arrow.closePath();
+	arrow.fill({ color: 0x1a1a1a });
+	rotateHandle.addChild(arrow);
+
+	rotateHandle.x = cx;
+	rotateHandle.y = topY;
+	rotateHandle.eventMode = "static";
+	rotateHandle.cursor = "grab";
+
+	rotateHandle.on("pointerdown", (e) => {
+		e.stopPropagation();
+		beginMultiRotate(e, objects, { cx, cy });
+	});
+
+	selectionLayer.addChild(rotateHandle);
+}
+
+// ============================================================
+// Single-object handles
+// ============================================================
+
 function getHandlePositions(t: GameObject["transform"], objectMode: boolean): Array<{ type: HandleType; x: number; y: number; cursor: string }> {
 	const left = -t.width * t.originX;
 	const right = t.width * (1 - t.originX);
@@ -95,7 +191,6 @@ function getHandlePositions(t: GameObject["transform"], objectMode: boolean): Ar
 	const result: Array<{ type: HandleType; x: number; y: number; cursor: string }> = [];
 
 	if (objectMode) {
-		// ✅ در object mode، مختصات محلی رو با rotation آبجکت می‌چرخونیم
 		const rad = (t.rotation * Math.PI) / 180;
 		const cos = Math.cos(rad);
 		const sin = Math.sin(rad);
@@ -104,29 +199,18 @@ function getHandlePositions(t: GameObject["transform"], objectMode: boolean): Ar
 			const sy = h.ly * t.scaleY;
 			const rx = sx * cos - sy * sin;
 			const ry = sx * sin + sy * cos;
-			result.push({
-				type: h.type,
-				x: t.x + rx,
-				y: t.y + ry,
-				cursor: h.cursor,
-			});
+			result.push({ type: h.type, x: t.x + rx, y: t.y + ry, cursor: h.cursor });
 		}
 	} else {
-		// ✅ در world mode، فقط scale رو اعمال می‌کنیم (بدون rotation)
 		for (const h of locals) {
-			result.push({
-				type: h.type,
-				x: t.x + h.lx * t.scaleX,
-				y: t.y + h.ly * t.scaleY,
-				cursor: h.cursor,
-			});
+			result.push({ type: h.type, x: t.x + h.lx * t.scaleX, y: t.y + h.ly * t.scaleY, cursor: h.cursor });
 		}
 	}
 
 	return result;
 }
 
-function drawResizeHandles(obj: GameObject, t: GameObject["transform"]): void {
+function drawSingleResizeHandles(obj: GameObject, t: GameObject["transform"]): void {
 	const objectMode = isObjectMode();
 	const positions = getHandlePositions(t, objectMode);
 
@@ -143,11 +227,8 @@ function drawResizeHandles(obj: GameObject, t: GameObject["transform"]): void {
 		}
 		handle.fill({ color: 0xffaa00 });
 		handle.stroke({ width: 1, color: 0x1a1a1a, alpha: 0.5 });
-
-		// ✅ در هر دو حالت، handle در موقعیت جهانی قرار می‌گیره
 		handle.x = pos.x;
 		handle.y = pos.y;
-
 		handle.eventMode = "static";
 		handle.cursor = pos.cursor;
 
@@ -160,25 +241,16 @@ function drawResizeHandles(obj: GameObject, t: GameObject["transform"]): void {
 	}
 }
 
-/**
- * ✅ rotate handle در هر دو mode بالای bounding box قرار می‌گیره.
- * در object mode، همراستا با آبجکت می‌چرخه.
- * در world mode، همیشه بالای آبجکت (در جهت جهانی).
- */
-function drawRotateHandle(obj: GameObject, t: GameObject["transform"]): void {
+function drawSingleRotateHandle(obj: GameObject, t: GameObject["transform"]): void {
 	const objectMode = isObjectMode();
-
-	// موقعیت بالای bounding box در فضای محلی آبجکت
 	const topLocal = -t.height * t.originY;
 	const centerYLocal = topLocal - 25;
 
-	// موقعیت جهانی rotate handle
 	let handleWorldX: number;
 	let handleWorldY: number;
 	let rotationForLine: number;
 
 	if (objectMode) {
-		// در object mode، همراستا با rotation آبجکت
 		const rad = (t.rotation * Math.PI) / 180;
 		const cos = Math.cos(rad);
 		const sin = Math.sin(rad);
@@ -192,17 +264,11 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]): void {
 		handleWorldY = t.y + ry;
 		rotationForLine = (t.rotation * Math.PI) / 180;
 	} else {
-		// در world mode، بالای آبجکت (بدون چرخش)
 		handleWorldX = t.x;
 		handleWorldY = t.y + centerYLocal * t.scaleY;
 		rotationForLine = 0;
 	}
 
-	// خط اتصال از بالای آبجکت به handle
-	const topWorldX = t.x;
-	const topWorldY = t.y + topLocal * t.scaleY;
-
-	// در object mode، بالای آبجکت هم باید بچرخه
 	let topFinalX: number;
 	let topFinalY: number;
 	if (objectMode) {
@@ -214,8 +280,8 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]): void {
 		topFinalX = t.x + (sx * cos - sy * sin);
 		topFinalY = t.y + (sx * sin + sy * cos);
 	} else {
-		topFinalX = topWorldX;
-		topFinalY = topWorldY;
+		topFinalX = t.x;
+		topFinalY = t.y + topLocal * t.scaleY;
 	}
 
 	const line = new Graphics();
