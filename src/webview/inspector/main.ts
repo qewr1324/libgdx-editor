@@ -21,6 +21,9 @@ let multiSelection: { count: number; ids: string[] } | null = null;
 let sceneMode = false;
 let lastAppliedTheme: string | null = null;
 
+/** بخش‌های تاشو — کدوم باز هستن */
+const collapsedSections = new Set<string>();
+
 // ============================================================
 // Theme
 // ============================================================
@@ -31,6 +34,25 @@ function applyEffectiveTheme(): void {
 	lastAppliedTheme = themeName;
 	applyTheme(themeName, false);
 }
+
+// ============================================================
+// Icons (SVG inline)
+// ============================================================
+
+const ICONS = {
+	sprite: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="2" width="12" height="12" rx="1" opacity="0.9"/></svg>`,
+	shape: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="6"/></svg>`,
+	text: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3 3h10v2H9v8H7V5H3z"/></svg>`,
+	group: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/></svg>`,
+	scene: `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2 12l4-8 3 5 2-3 3 6z"/></svg>`,
+	chevron: `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M4 6l4 4 4-4z"/></svg>`,
+	chevronRight: `<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4l4 4-4 4z"/></svg>`,
+	settings: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="8" r="2"/><path d="M8 1a1 1 0 011 1v1.1a5 5 0 011.6.7l.8-.8a1 1 0 011.4 1.4l-.8.8a5 5 0 01.7 1.6H14a1 1 0 010 2h-1.1a5 5 0 01-.7 1.6l.8.8a1 1 0 01-1.4 1.4l-.8-.8a5 5 0 01-1.6.7V14a1 1 0 01-2 0v-1.1a5 5 0 01-1.6-.7l-.8.8a1 1 0 01-1.4-1.4l.8-.8a5 5 0 01-.7-1.6H2a1 1 0 010-2h1.1a5 5 0 01.7-1.6l-.8-.8a1 1 0 011.4-1.4l.8.8A5 5 0 017 3.1V2a1 1 0 011-1z"/></svg>`,
+	reset: `<svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 100 10 5 5 0 000-10zm0 2a3 3 0 110 6 3 3 0 010-6z"/><path d="M1 8a7 7 0 0112-5l1-1v4h-4l1-1A5 5 0 103 8H1z"/></svg>`,
+	focus: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 3a5 5 0 100 10A5 5 0 008 3zm0 3a2 2 0 110 4 2 2 0 010-4z"/><path d="M8 0v3M8 13v3M0 8h3M13 8h3" stroke="currentColor" stroke-width="1.5"/></svg>`,
+	trash: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M6 2h4l.5 1H14v1H2V3h3.5zM4 5h8l-.7 9H4.7z"/></svg>`,
+	eye: `<svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor"><path d="M8 4C4.5 4 2 8 2 8s2.5 4 6 4 6-4 6-4-2.5-4-6-4zm0 6a2 2 0 110-4 2 2 0 010 4z"/></svg>`,
+};
 
 // ============================================================
 // Render
@@ -58,10 +80,10 @@ function render(force = false): void {
 
 	if (multiSelection) {
 		app.innerHTML = `
-			<div class="empty-state">
-				<div class="empty-icon">▣▣</div>
-				<div class="empty-text">${multiSelection.count} objects selected</div>
-				<div class="empty-hint">Select a single object to edit its properties</div>
+			<div class="inspector-empty">
+				<div class="inspector-empty-icon">▣▣</div>
+				<div class="inspector-empty-title">${multiSelection.count} objects selected</div>
+				<div class="inspector-empty-hint">Select a single object to edit its properties</div>
 			</div>
 		`;
 		currentObject = null;
@@ -71,10 +93,10 @@ function render(force = false): void {
 
 	if (!currentObject) {
 		app.innerHTML = `
-			<div class="empty-state">
-				<div class="empty-icon">◻️</div>
-				<div class="empty-text">No object selected</div>
-				<div class="empty-hint">Click on an object in the viewport<br/>Right-click on the viewport to edit scene settings</div>
+			<div class="inspector-empty">
+				<div class="inspector-empty-icon">◻️</div>
+				<div class="inspector-empty-title">No object selected</div>
+				<div class="inspector-empty-hint">Click on an object in the viewport<br/>Right-click on the viewport to edit scene settings</div>
 			</div>
 		`;
 		currentObjectId = null;
@@ -92,94 +114,144 @@ function render(force = false): void {
 }
 
 // ============================================================
+// Section helpers
+// ============================================================
+
+function sectionHeader(id: string, label: string, opts: { reset?: boolean; icon?: string } = {}): string {
+	const collapsed = collapsedSections.has(id);
+	const chevron = collapsed ? ICONS.chevronRight : ICONS.chevron;
+	const resetBtn = opts.reset ? `<button class="inspector-section-reset" data-section-reset="${id}" title="Reset">${ICONS.reset}</button>` : "";
+	const icon = opts.icon ? `<span class="inspector-section-icon">${opts.icon}</span>` : "";
+
+	return `
+		<div class="inspector-section-header" data-section-toggle="${id}">
+			<span class="inspector-section-chevron">${chevron}</span>
+			${icon}
+			<span class="inspector-section-label">${escapeHtml(label)}</span>
+			${resetBtn}
+		</div>
+	`;
+}
+
+function sectionWrap(id: string, label: string, content: string, opts: { reset?: boolean; icon?: string } = {}): string {
+	const collapsed = collapsedSections.has(id);
+	return `
+		<div class="inspector-section ${collapsed ? "collapsed" : ""}" data-section-id="${id}">
+			${sectionHeader(id, label, opts)}
+			<div class="inspector-section-body">${content}</div>
+		</div>
+	`;
+}
+
+/** یک فیلد تک ستونه با label چپ و input راست (Unity style) */
+function field(label: string, inputHtml: string, opts: { wide?: boolean } = {}): string {
+	return `
+		<div class="inspector-field ${opts.wide ? "wide" : ""}">
+			<label class="inspector-field-label">${escapeHtml(label)}</label>
+			<div class="inspector-field-input">${inputHtml}</div>
+		</div>
+	`;
+}
+
+/** ردیف دو ستونه — هر جفت label+input کنار هم */
+function fieldRow(field1: string, field2: string): string {
+	return `<div class="inspector-field-row">${field1}${field2}</div>`;
+}
+
+/** sub-header داخل یک section (مثل Position، Rotation، Scale) */
+function subHeader(label: string): string {
+	return `<div class="inspector-subheader">${escapeHtml(label)}</div>`;
+}
+
+// ============================================================
 // Scene Settings
 // ============================================================
 
 function buildSceneSettingsHtml(scene: Scene): string {
 	const isOverride = scene.themeOverride !== null && scene.themeOverride !== undefined;
 
-	return `
-		<div class="inspector inspector-scene">
-			<div class="section header-section">
-				<div class="header-top">
-					<div class="object-type-badge type-scene">SCENE</div>
-					<button class="btn-icon" id="btn-close-scene" title="Close scene settings">✖</button>
-				</div>
-				<div class="object-id">${escapeHtml(scene.name)}</div>
+	const themeSection = sectionWrap(
+		"scene-theme",
+		"Theme",
+		`
+			<div class="inspector-field wide">
+				<label class="inspector-checkbox-row">
+					<input type="checkbox" data-special="theme-override-enabled" ${isOverride ? "checked" : ""} />
+					<span>Override theme for this scene</span>
+				</label>
 			</div>
-
-			<div class="section">
-				<div class="section-title">Theme</div>
-				<div class="field">
-					<label class="checkbox-row">
-						<input type="checkbox" data-special="theme-override-enabled" ${isOverride ? "checked" : ""} />
-						<span>Override theme for this scene</span>
-					</label>
-				</div>
-				<div class="field">
-					<label>UI Theme (Global)</label>
-					<select data-config-field="defaultTheme" ${isOverride ? "disabled" : ""}>
-						${THEME_ORDER.map((key) => {
-							const theme = THEMES[key];
-							const selected = (currentConfig?.defaultTheme ?? "win98") === key ? "selected" : "";
-							return `<option value="${key}" ${selected}>${theme.label}</option>`;
-						}).join("")}
-					</select>
-				</div>
-				${
-					isOverride
-						? `<div class="field">
-							<label>Scene Theme (Override)</label>
-							<select data-scene-field="themeOverride">
+			${field(
+				"UI Theme",
+				`<select data-config-field="defaultTheme" ${isOverride ? "disabled" : ""}>
+					${THEME_ORDER.map((key) => {
+						const theme = THEMES[key];
+						const selected = (currentConfig?.defaultTheme ?? "win98") === key ? "selected" : "";
+						return `<option value="${key}" ${selected}>${theme.label}</option>`;
+					}).join("")}
+				</select>`,
+			)}
+			${
+				isOverride
+					? field(
+							"Override",
+							`<select data-scene-field="themeOverride">
 								${THEME_ORDER.map((key) => {
 									const theme = THEMES[key];
 									const selected = (scene.themeOverride ?? "win98") === key ? "selected" : "";
 									return `<option value="${key}" ${selected}>${theme.label}</option>`;
 								}).join("")}
-							</select>
-						</div>`
-						: ""
-				}
-			</div>
+							</select>`,
+						)
+					: ""
+			}
+		`,
+	);
 
-			<div class="section">
-				<div class="section-title">World</div>
-				<div class="field-row">
-					<div class="field">
-						<label>Width</label>
-						<input type="number" data-scene-field="worldSize.width" value="${scene.worldSize.width}" step="1" min="1" />
-					</div>
-					<div class="field">
-						<label>Height</label>
-						<input type="number" data-scene-field="worldSize.height" value="${scene.worldSize.height}" step="1" min="1" />
-					</div>
-				</div>
-			</div>
+	const worldSection = sectionWrap(
+		"scene-world",
+		"World Size",
+		fieldRow(field("Width", `<input type="number" data-scene-field="worldSize.width" value="${scene.worldSize.width}" step="1" min="1" />`), field("Height", `<input type="number" data-scene-field="worldSize.height" value="${scene.worldSize.height}" step="1" min="1" />`)),
+	);
 
-			<div class="section">
-				<div class="section-title">Appearance</div>
-				<div class="field">
-					<label>Background Color</label>
-					<div class="color-row">
-						<input type="color" data-scene-field="backgroundColor" value="${scene.backgroundColor}" />
-						<input type="text" data-scene-field="backgroundColor" value="${escapeAttr(scene.backgroundColor)}" />
-					</div>
-				</div>
-				<div class="field">
-					<label>Grid Size</label>
-					<input type="number" data-scene-field="gridSize" value="${scene.gridSize}" step="1" min="1" />
+	const appearanceSection = sectionWrap(
+		"scene-appearance",
+		"Appearance",
+		`
+			<div class="inspector-field wide">
+				<label class="inspector-field-label">Background</label>
+				<div class="inspector-color-row">
+					<input type="color" data-scene-field="backgroundColor" value="${scene.backgroundColor}" />
+					<input type="text" data-scene-field="backgroundColor" value="${escapeAttr(scene.backgroundColor)}" />
 				</div>
 			</div>
+			${field("Grid Size", `<input type="number" data-scene-field="gridSize" value="${scene.gridSize}" step="1" min="1" />`)}
+		`,
+	);
 
-			<div class="section">
-				<div class="section-title">Behavior</div>
-				<div class="field">
-					<label class="checkbox-row">
-						<input type="checkbox" data-scene-field="snapToGrid" ${scene.snapToGrid ? "checked" : ""} />
-						<span>Snap to Grid</span>
-					</label>
-				</div>
+	const behaviorSection = sectionWrap(
+		"scene-behavior",
+		"Behavior",
+		`
+			<div class="inspector-field wide">
+				<label class="inspector-checkbox-row">
+					<input type="checkbox" data-scene-field="snapToGrid" ${scene.snapToGrid ? "checked" : ""} />
+					<span>Snap to Grid</span>
+				</label>
 			</div>
+		`,
+	);
+
+	return `
+		<div class="inspector inspector-scene">
+			<div class="inspector-header scene">
+				<div class="inspector-header-icon">${ICONS.scene}</div>
+				<div class="inspector-header-title">${escapeHtml(scene.name)}</div>
+				<button class="inspector-header-btn" id="btn-close-scene" title="Close">✖</button>
+			</div>
+			${themeSection}
+			${worldSection}
+			${appearanceSection}
+			${behaviorSection}
 		</div>
 	`;
 }
@@ -198,7 +270,7 @@ function setSceneFieldValue(field: string, value: unknown, kind: "number" | "tex
 	const elements = app.querySelectorAll<HTMLInputElement | HTMLSelectElement>(`[data-scene-field="${field}"]`);
 	for (const el of elements) {
 		if (document.activeElement === el) continue;
-		const colorRow = el.closest(".color-row");
+		const colorRow = el.closest(".color-row, .inspector-color-row");
 		if (colorRow && colorRow.contains(document.activeElement)) continue;
 
 		if (kind === "color" && el.type !== "color") continue;
@@ -221,6 +293,8 @@ function setSceneFieldValue(field: string, value: unknown, kind: "number" | "tex
 }
 
 function attachSceneListeners(): void {
+	attachSectionListeners();
+
 	document.getElementById("btn-close-scene")?.addEventListener("click", () => {
 		sceneMode = false;
 		render(true);
@@ -235,30 +309,30 @@ function attachSceneListeners(): void {
 
 	const configInputs = app.querySelectorAll<HTMLSelectElement>("[data-config-field]");
 	for (const input of configInputs) {
-		const field = input.dataset.configField!;
+		const fieldName = input.dataset.configField!;
 		input.addEventListener("change", () => {
-			vscode.postMessage({ type: "updateConfig", key: field, value: input.value });
+			vscode.postMessage({ type: "updateConfig", key: fieldName, value: input.value });
 		});
 	}
 
 	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-scene-field]");
 	for (const input of inputs) {
-		const field = input.dataset.sceneField!;
+		const fieldName = input.dataset.sceneField!;
 
 		if (input instanceof HTMLSelectElement) {
 			input.addEventListener("change", () => {
-				vscode.postMessage({ type: "updateSceneField", field, value: input.value, historyLabel: `scene: ${field}` });
+				vscode.postMessage({ type: "updateSceneField", field: fieldName, value: input.value, historyLabel: `scene: ${fieldName}` });
 			});
 		} else if (input.type === "number") {
 			input.addEventListener("change", () => {
 				const value = Number.parseFloat(input.value);
 				if (!Number.isNaN(value)) {
-					vscode.postMessage({ type: "updateSceneField", field, value, historyLabel: `scene: ${field}` });
+					vscode.postMessage({ type: "updateSceneField", field: fieldName, value, historyLabel: `scene: ${fieldName}` });
 				}
 			});
 		} else if (input.type === "checkbox") {
 			input.addEventListener("change", () => {
-				vscode.postMessage({ type: "updateSceneField", field, value: input.checked, historyLabel: `scene: ${field}` });
+				vscode.postMessage({ type: "updateSceneField", field: fieldName, value: input.checked, historyLabel: `scene: ${fieldName}` });
 			});
 		} else if (input.type === "color") {
 			input.addEventListener("input", () => {
@@ -266,11 +340,11 @@ function attachSceneListeners(): void {
 				if (textInput && document.activeElement !== textInput) {
 					textInput.value = input.value;
 				}
-				vscode.postMessage({ type: "updateSceneField", field, value: input.value, historyLabel: `scene: ${field}` });
+				vscode.postMessage({ type: "updateSceneField", field: fieldName, value: input.value, historyLabel: `scene: ${fieldName}` });
 			});
 		} else {
 			input.addEventListener("change", () => {
-				vscode.postMessage({ type: "updateSceneField", field, value: input.value, historyLabel: `scene: ${field}` });
+				vscode.postMessage({ type: "updateSceneField", field: fieldName, value: input.value, historyLabel: `scene: ${fieldName}` });
 			});
 		}
 	}
@@ -282,125 +356,103 @@ function attachSceneListeners(): void {
 
 function buildInspectorHtml(obj: GameObject): string {
 	const t = obj.transform;
+	const typeIcon = ICONS[obj.type as keyof typeof ICONS] ?? ICONS.sprite;
+
+	const transformSection = sectionWrap(
+		"transform",
+		"Transform",
+		`
+			${subHeader("Position")}
+			${fieldRow(field("X", `<input type="number" data-field="transform.x" value="${t.x}" step="1" />`), field("Y", `<input type="number" data-field="transform.y" value="${t.y}" step="1" />`))}
+			${subHeader("Rotation")}
+			${field("Angle", `<input type="number" data-field="transform.rotation" value="${t.rotation}" step="1" />`)}
+			${subHeader("Scale")}
+			${fieldRow(field("X", `<input type="number" data-field="transform.scaleX" value="${t.scaleX}" step="0.1" />`), field("Y", `<input type="number" data-field="transform.scaleY" value="${t.scaleY}" step="0.1" />`))}
+			${subHeader("Size")}
+			${fieldRow(field("W", `<input type="number" data-field="transform.width" value="${t.width}" step="1" min="1" />`), field("H", `<input type="number" data-field="transform.height" value="${t.height}" step="1" min="1" />`))}
+			${subHeader("Origin")}
+			${fieldRow(field("X", `<input type="number" data-field="transform.originX" value="${t.originX}" step="0.1" min="0" max="1" />`), field("Y", `<input type="number" data-field="transform.originY" value="${t.originY}" step="0.1" min="0" max="1" />`))}
+		`,
+		{ reset: true },
+	);
+
+	const appearanceSection = sectionWrap(
+		"appearance",
+		"Appearance",
+		`
+			<div class="inspector-field wide">
+				<label class="inspector-field-label">Color</label>
+				<div class="inspector-color-row">
+					<input type="color" data-field="color" value="${obj.color || "#4a9eff"}" />
+					<input type="text" data-field="color" value="${escapeAttr(obj.color || "#4a9eff")}" />
+				</div>
+			</div>
+			${
+				obj.texture
+					? `<div class="inspector-field wide">
+						<label class="inspector-field-label">Texture</label>
+						<div class="inspector-texture-row">
+							<span class="inspector-texture-icon">🖼️</span>
+							<span class="inspector-texture-path">${escapeHtml(obj.texture)}</span>
+						</div>
+					</div>`
+					: ""
+			}
+		`,
+		{ reset: true },
+	);
+
+	const layerSection = sectionWrap(
+		"layer",
+		"Layer",
+		`
+			${field("Z-Index", `<input type="number" data-field="zIndex" value="${obj.zIndex ?? 0}" step="1" />`)}
+			<div class="inspector-layer-buttons">
+				<button class="inspector-layer-btn" data-layer-action="front" title="Bring to Front">⏫ Front</button>
+				<button class="inspector-layer-btn" data-layer-action="forward" title="Bring Forward">⬆️ Fwd</button>
+				<button class="inspector-layer-btn" data-layer-action="backward" title="Send Backward">⬇️ Bwd</button>
+				<button class="inspector-layer-btn" data-layer-action="back" title="Send to Back">⏬ Back</button>
+			</div>
+		`,
+		{ reset: true },
+	);
+
+	const identitySection = sectionWrap(
+		"identity",
+		"Identity",
+		`
+			${field("Name", `<input type="text" data-field="name" value="${escapeAttr(obj.name)}" />`)}
+			${field(
+				"Type",
+				`<select data-field="type">
+					${["sprite", "shape", "text", "group"].map((tp) => `<option value="${tp}" ${obj.type === tp ? "selected" : ""}>${tp}</option>`).join("")}
+				</select>`,
+			)}
+		`,
+	);
+
+	const propertiesSection = sectionWrap(
+		"properties",
+		"Properties",
+		`
+			<textarea class="inspector-properties-json" data-field="properties" rows="4">${escapeHtml(JSON.stringify(obj.properties || {}, null, 2))}</textarea>
+		`,
+	);
+
 	return `
 		<div class="inspector">
-			<div class="section header-section">
-				<div class="header-top">
-					<div class="object-type-badge type-${obj.type}">${obj.type}</div>
-					<button class="btn-icon" id="btn-focus" title="Focus in viewport">🎯</button>
-					<button class="btn-icon btn-danger" id="btn-delete" title="Delete object">🗑️</button>
-				</div>
-				<div class="object-id">${escapeHtml(obj.id)}</div>
+			<div class="inspector-header type-${obj.type}">
+				<div class="inspector-header-icon">${typeIcon}</div>
+				<input class="inspector-header-title-input" data-field="name" value="${escapeAttr(obj.name)}" />
+				<button class="inspector-header-btn" id="btn-focus" title="Focus in viewport">${ICONS.focus}</button>
+				<button class="inspector-header-btn danger" id="btn-delete" title="Delete">${ICONS.trash}</button>
 			</div>
-
-			<div class="section">
-				<div class="section-title">Identity</div>
-				<div class="field">
-					<label>Name</label>
-					<input type="text" data-field="name" value="${escapeAttr(obj.name)}" />
-				</div>
-				<div class="field">
-					<label>Type</label>
-					<select data-field="type">
-						${["sprite", "shape", "text", "group"].map((tp) => `<option value="${tp}" ${obj.type === tp ? "selected" : ""}>${tp}</option>`).join("")}
-					</select>
-				</div>
-				${
-					obj.texture
-						? `<div class="field">
-							<label>Texture</label>
-							<div class="texture-row">
-								<span>🖼️</span>
-								<span>${escapeHtml(obj.texture)}</span>
-							</div>
-						</div>`
-						: ""
-				}
-			</div>
-
-			<div class="section">
-				<div class="section-title">Transform</div>
-				<div class="field-row">
-					<div class="field">
-						<label>X</label>
-						<input type="number" data-field="transform.x" value="${t.x}" step="1" />
-					</div>
-					<div class="field">
-						<label>Y</label>
-						<input type="number" data-field="transform.y" value="${t.y}" step="1" />
-					</div>
-				</div>
-				<div class="field-row">
-					<div class="field">
-						<label>Width</label>
-						<input type="number" data-field="transform.width" value="${t.width}" step="1" min="1" />
-					</div>
-					<div class="field">
-						<label>Height</label>
-						<input type="number" data-field="transform.height" value="${t.height}" step="1" min="1" />
-					</div>
-				</div>
-				<div class="field-row">
-					<div class="field">
-						<label>Rotation°</label>
-						<input type="number" data-field="transform.rotation" value="${t.rotation}" step="1" />
-					</div>
-				</div>
-				<div class="field-row">
-					<div class="field">
-						<label>Scale X</label>
-						<input type="number" data-field="transform.scaleX" value="${t.scaleX}" step="0.1" />
-					</div>
-					<div class="field">
-						<label>Scale Y</label>
-						<input type="number" data-field="transform.scaleY" value="${t.scaleY}" step="0.1" />
-					</div>
-				</div>
-				<div class="field-row">
-					<div class="field">
-						<label>Origin X</label>
-						<input type="number" data-field="transform.originX" value="${t.originX}" step="0.1" min="0" max="1" />
-					</div>
-					<div class="field">
-						<label>Origin Y</label>
-						<input type="number" data-field="transform.originY" value="${t.originY}" step="0.1" min="0" max="1" />
-					</div>
-				</div>
-			</div>
-
-			<div class="section">
-				<div class="section-title">Layer</div>
-				<div class="field-row">
-					<div class="field">
-						<label>Z-Index</label>
-						<input type="number" data-field="zIndex" value="${obj.zIndex ?? 0}" step="1" />
-					</div>
-				</div>
-				<div class="field-row" style="margin-top: 4px;">
-					<button class="btn-icon layer-btn" data-layer-action="front" title="Bring to Front" style="flex:1; margin-left:0;">⏫ Front</button>
-					<button class="btn-icon layer-btn" data-layer-action="forward" title="Bring Forward" style="flex:1; margin-left:0;">⬆️ Forward</button>
-				</div>
-				<div class="field-row" style="margin-top: 4px;">
-					<button class="btn-icon layer-btn" data-layer-action="backward" title="Send Backward" style="flex:1; margin-left:0;">⬇️ Backward</button>
-					<button class="btn-icon layer-btn" data-layer-action="back" title="Send to Back" style="flex:1; margin-left:0;">⏬ Back</button>
-				</div>
-			</div>
-
-			<div class="section">
-				<div class="section-title">Appearance</div>
-				<div class="field">
-					<label>Color</label>
-					<div class="color-row">
-						<input type="color" data-field="color" value="${obj.color || "#4a9eff"}" />
-						<input type="text" data-field="color" value="${escapeAttr(obj.color || "#4a9eff")}" />
-					</div>
-				</div>
-			</div>
-
-			<div class="section">
-				<div class="section-title">Properties</div>
-				<textarea class="properties-json" data-field="properties" rows="4">${escapeHtml(JSON.stringify(obj.properties || {}, null, 2))}</textarea>
-			</div>
+			<div class="inspector-id">${escapeHtml(obj.id)}</div>
+			${transformSection}
+			${appearanceSection}
+			${layerSection}
+			${identitySection}
+			${propertiesSection}
 		</div>
 	`;
 }
@@ -425,12 +477,6 @@ function updateFieldValues(): void {
 	setFieldValue("color", obj.color || "#4a9eff", "color");
 	setFieldValue("color", obj.color || "#4a9eff", "text");
 	setFieldValue("properties", JSON.stringify(obj.properties || {}, null, 2), "textarea");
-
-	const badge = app.querySelector(".object-type-badge");
-	if (badge) {
-		badge.className = `object-type-badge type-${obj.type}`;
-		badge.textContent = obj.type;
-	}
 }
 
 function setFieldValue(field: string, value: unknown, kind: "number" | "string" | "select" | "color" | "text" | "textarea"): void {
@@ -438,7 +484,7 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 
 	for (const el of elements) {
 		if (document.activeElement === el) continue;
-		const colorRow = el.closest(".color-row");
+		const colorRow = el.closest(".color-row, .inspector-color-row");
 		if (colorRow && colorRow.contains(document.activeElement)) continue;
 
 		if (kind === "color" && el.type !== "color") continue;
@@ -453,6 +499,8 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 }
 
 function attachEventListeners(): void {
+	attachSectionListeners();
+
 	const deleteBtn = document.getElementById("btn-delete");
 	deleteBtn?.addEventListener("click", () => {
 		if (currentObject) {
@@ -469,9 +517,9 @@ function attachEventListeners(): void {
 
 	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("[data-field]");
 	for (const input of inputs) {
-		const field = input.dataset.field!;
+		const fieldName = input.dataset.field!;
 
-		if (field === "zIndex" && input instanceof HTMLInputElement) {
+		if (fieldName === "zIndex" && input instanceof HTMLInputElement) {
 			input.addEventListener("change", () => {
 				const value = Number.parseInt(input.value, 10);
 				if (!Number.isNaN(value) && currentObject) {
@@ -485,7 +533,7 @@ function attachEventListeners(): void {
 			input.addEventListener("change", () => {
 				const value = Number.parseFloat(input.value);
 				if (!Number.isNaN(value)) {
-					sendFieldUpdate(field, value);
+					sendFieldUpdate(fieldName, value);
 				}
 			});
 			input.addEventListener("keydown", (e) => {
@@ -497,24 +545,24 @@ function attachEventListeners(): void {
 				if (textInput && document.activeElement !== textInput) {
 					textInput.value = input.value;
 				}
-				sendFieldUpdate(field, input.value);
+				sendFieldUpdate(fieldName, input.value);
 			});
 		} else if (input instanceof HTMLInputElement) {
 			input.addEventListener("change", () => {
-				sendFieldUpdate(field, input.value);
+				sendFieldUpdate(fieldName, input.value);
 			});
 			input.addEventListener("keydown", (e) => {
 				if (e.key === "Enter") input.blur();
 			});
 		} else if (input instanceof HTMLSelectElement) {
 			input.addEventListener("change", () => {
-				sendFieldUpdate(field, input.value);
+				sendFieldUpdate(fieldName, input.value);
 			});
 		} else if (input instanceof HTMLTextAreaElement) {
 			input.addEventListener("change", () => {
 				try {
 					const parsed = JSON.parse(input.value);
-					sendFieldUpdate(field, parsed);
+					sendFieldUpdate(fieldName, parsed);
 					input.style.borderColor = "";
 				} catch {
 					input.style.borderColor = "#ff4a4a";
@@ -542,6 +590,42 @@ function attachEventListeners(): void {
 					vscode.postMessage({ type: "sendToBack", objectId: currentObject.id });
 					break;
 			}
+		});
+	}
+}
+
+// ============================================================
+// Section toggle
+// ============================================================
+
+function attachSectionListeners(): void {
+	const headers = app.querySelectorAll<HTMLDivElement>("[data-section-toggle]");
+	for (const header of headers) {
+		header.addEventListener("click", (e) => {
+			// اگر روی reset کلیک شد، toggle نکن
+			if ((e.target as HTMLElement).closest("[data-section-reset]")) return;
+			const id = header.dataset.sectionToggle!;
+			if (collapsedSections.has(id)) {
+				collapsedSections.delete(id);
+			} else {
+				collapsedSections.add(id);
+			}
+			// re-render فوری
+			if (currentObject && !sceneMode) {
+				app.innerHTML = buildInspectorHtml(currentObject);
+				attachEventListeners();
+			} else if (sceneMode && currentScene) {
+				app.innerHTML = buildSceneSettingsHtml(currentScene);
+				attachSceneListeners();
+			}
+		});
+	}
+
+	const resetButtons = app.querySelectorAll<HTMLButtonElement>("[data-section-reset]");
+	for (const btn of resetButtons) {
+		btn.addEventListener("click", (e) => {
+			e.stopPropagation();
+			// بعداً پیاده‌سازی reset
 		});
 	}
 }
