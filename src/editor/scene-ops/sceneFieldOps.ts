@@ -5,9 +5,5 @@ export function updateSceneFieldOp(host: SceneHost, field: string, value: unknow
 	const scene = host.getScene();
 	if (!scene) return;
 	const updated = updateSceneFieldInScene(scene, field, value);
-	host.setScene(updated);
-	host.markDirty();
-	host.pushHistory(updated, historyLabel);
-	host.broadcastUpdate(updated);
-	host.broadcastHistoryState();
+	host.getHistory().commit(updated, historyLabel);
 }

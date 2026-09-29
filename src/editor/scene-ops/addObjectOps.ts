@@ -22,15 +22,11 @@ export async function addSpriteWithTextureOp(host: SceneHost, texturePath: strin
 	}
 
 	const updated = addObjectToScene(scene, newObj);
-	host.setScene(updated);
-	host.markDirty();
-	host.pushHistory(updated, "add texture");
+	host.getHistory().commit(updated, "add texture");
 
 	const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, updated);
 	host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-	host.broadcastUpdate(updated);
-	host.broadcastHistoryState();
 	return true;
 }
 
@@ -94,14 +90,10 @@ async function doImportTextureOp(host: SceneHost, x: number, y: number, dialogOn
 		}
 
 		const updated = addObjectToScene(scene, newObj);
-		host.setScene(updated);
-		host.markDirty();
-		host.pushHistory(updated, "import texture");
+		host.getHistory().commit(updated, "import texture");
 
 		const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, updated);
 		host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
-		host.broadcastUpdate(updated);
-		host.broadcastHistoryState();
 	} catch (err) {
 		vscode.window.showErrorMessage(`Failed to import texture: ${err instanceof Error ? err.message : String(err)}`);
 	}

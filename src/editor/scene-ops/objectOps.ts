@@ -7,22 +7,15 @@ export function updateObjectOp(host: SceneHost, obj: GameObject, historyLabel = 
 	const scene = host.getScene();
 	if (!scene) return;
 	const updated = updateObjectInScene(scene, obj);
-	host.setScene(updated);
-	host.markDirty();
-	host.pushHistory(updated, historyLabel);
-	host.broadcastUpdate(updated);
-	host.broadcastHistoryState();
+	// ✅ فقط commit — خودش setScene، markDirty، pushHistory، broadcastUpdate و historyState را انجام می‌دهد
+	host.getHistory().commit(updated, historyLabel);
 }
 
 export function deleteObjectOp(host: SceneHost, objectId: string): void {
 	const scene = host.getScene();
 	if (!scene) return;
 	const updated = deleteObjectFromScene(scene, objectId);
-	host.setScene(updated);
-	host.markDirty();
-	host.pushHistory(updated, "delete object");
-	host.broadcastUpdate(updated);
-	host.broadcastHistoryState();
+	host.getHistory().commit(updated, "delete object");
 }
 
 export function focusObjectOp(host: SceneHost, objectId: string): void {
@@ -33,11 +26,9 @@ export function duplicateObjectsOp(host: SceneHost, objectIds: string[], offsetX
 	const scene = host.getScene();
 	if (!scene) return;
 	const { scene: updated, newIds } = duplicateObjectsInScene(scene, objectIds, offsetX, offsetY);
-	host.setScene(updated);
-	host.markDirty();
-	host.pushHistory(updated, "duplicate");
-	host.broadcastUpdate(updated);
-	host.broadcastHistoryState();
+
+	host.getHistory().commit(updated, "duplicate");
+
 	setTimeout(() => {
 		host.postToWebview({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
 	}, 50);

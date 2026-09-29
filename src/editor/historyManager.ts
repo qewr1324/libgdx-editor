@@ -6,30 +6,19 @@ interface Snapshot {
 	label: string;
 }
 
-/**
- * History manager برای Undo/Redo.
- * - هر snapshot یک کپی کامل از scene است
- * - حداکثر ۱۰۰ snapshot نگه می‌دارد
- * - Undo/Redo بر اساس index فعلی
- */
 export class HistoryManager {
 	private static MAX_HISTORY = 100;
 
 	private snapshots: Snapshot[] = [];
 	private currentIndex = -1;
 
-	/**
-	 * یک snapshot جدید اضافه می‌کند.
-	 * اگر scene با snapshot فعلی یکسان باشد، هیچ کاری نمی‌کند.
-	 */
 	push(scene: Scene, label: string): void {
 		const serialized = JSON.stringify(scene);
 		const current = this.snapshots[this.currentIndex];
 		if (current && JSON.stringify(current.scene) === serialized) {
-			return; // تغییر نکرده
+			return;
 		}
 
-		// اگر در وسط history هستیم، شاخه‌های بعدی را حذف کن
 		if (this.currentIndex < this.snapshots.length - 1) {
 			this.snapshots = this.snapshots.slice(0, this.currentIndex + 1);
 		}
@@ -40,10 +29,8 @@ export class HistoryManager {
 			label,
 		});
 
-		// حداکثر — با اصلاح currentIndex (باگ ۸ رفع شد)
 		if (this.snapshots.length > HistoryManager.MAX_HISTORY) {
 			this.snapshots.shift();
-			// یک snapshot از ابتدا حذف شد، پس index فعلی یک واحد کم می‌شود
 			if (this.currentIndex > 0) {
 				this.currentIndex--;
 			}
@@ -74,9 +61,6 @@ export class HistoryManager {
 		return structuredClone(snap.scene) as Scene;
 	}
 
-	/**
-	 * تاریخچه را پاک می‌کند و از یک scene شروع می‌کند.
-	 */
 	reset(scene: Scene): void {
 		this.snapshots = [
 			{
@@ -91,5 +75,16 @@ export class HistoryManager {
 	clear(): void {
 		this.snapshots = [];
 		this.currentIndex = -1;
+	}
+
+	// ✅ برای دیباگ
+	size(): number {
+		return this.snapshots.length;
+	}
+
+	// ✅ برای دیباگ
+	currentSnapshotLabel(): string | null {
+		const snap = this.snapshots[this.currentIndex];
+		return snap ? snap.label : null;
 	}
 }

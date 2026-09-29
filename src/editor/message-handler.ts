@@ -55,11 +55,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			if (!scene) break;
 			const newObj = createObjectAt(msg.objectType, msg.x, msg.y);
 			const updated = addObjectToScene(scene, newObj);
-			host.setScene(updated);
-			host.markDirty();
-			host.pushHistory(updated, `add ${msg.objectType}`);
-			host.broadcastUpdate(updated);
-			host.broadcastHistoryState();
+			host.getHistory().commit(updated, `add ${msg.objectType}`);
 			break;
 		}
 		case "requestAddShape": {
@@ -67,13 +63,8 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			if (!scene) break;
 			const newObj = createShapeAt(msg.shapeType, msg.x, msg.y);
 			const updated = addObjectToScene(scene, newObj);
-			host.setScene(updated);
-			host.markDirty();
-			host.pushHistory(updated, `add ${msg.shapeType}`);
-			host.broadcastUpdate(updated);
-			host.broadcastHistoryState();
+			host.getHistory().commit(updated, `add ${msg.shapeType}`);
 
-			// ✅ lastShapeType در config ذخیره شود
 			await config.update({ ui: { lastShapeType: msg.shapeType } });
 			break;
 		}
@@ -90,11 +81,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const current = host.getScene();
 			if (!current) break;
 			const updated = updateObjectsInScene(current, msg.objects);
-			host.setScene(updated);
-			host.markDirty();
-			host.pushHistory(updated, msg.historyLabel ?? "update objects");
-			host.broadcastUpdate(updated);
-			host.broadcastHistoryState();
+			host.getHistory().commit(updated, msg.historyLabel ?? "update objects");
 			break;
 		}
 		case "updateSceneField":
@@ -110,11 +97,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			for (const id of msg.objectIds) {
 				updated = deleteObjectFromScene(updated, id);
 			}
-			host.setScene(updated);
-			host.markDirty();
-			host.pushHistory(updated, "delete objects");
-			host.broadcastUpdate(updated);
-			host.broadcastHistoryState();
+			host.getHistory().commit(updated, "delete objects");
 			break;
 		}
 		case "pasteObjects": {
@@ -124,11 +107,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			for (const obj of msg.objects) {
 				updated = addObjectToScene(updated, obj);
 			}
-			host.setScene(updated);
-			host.markDirty();
-			host.pushHistory(updated, msg.historyLabel ?? "paste");
-			host.broadcastUpdate(updated);
-			host.broadcastHistoryState();
+			host.getHistory().commit(updated, msg.historyLabel ?? "paste");
 			break;
 		}
 		case "duplicateObjects":
@@ -151,10 +130,8 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			break;
 		}
 		case "updateConfigPartial": {
-			// ✅ به‌روزرسانی تودرتو
 			await config.update(msg.partial as never);
 
-			// اگر grid.snap یا grid.size عوض شد، روی scene فعلی هم اعمال کن
 			const cfg = config.get();
 			const scene = host.getScene();
 			if (scene && msg.partial.grid) {
@@ -182,7 +159,8 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	const host = ctx.host;
 	const scene = parseDocument(ctx.document);
 	host.setScene(scene);
-	host.resetHistory(scene);
+	// ✅ reset history از طریق HistoryController
+	host.getHistory().reset(scene);
 
 	ctx.webviewPanel.webview.postMessage({ type: "load", scene } satisfies ExtensionToWebviewMessage);
 
@@ -194,8 +172,6 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 		type: "configLoaded",
 		config: toConfigMessage(config),
 	} satisfies ExtensionToWebviewMessage);
-
-	host.broadcastHistoryState();
 
 	if (host.isActive()) {
 		SceneRegistry.emitSceneChange(host, scene);
@@ -229,7 +205,6 @@ export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void>
 }
 
 async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Promise<void> {
-	// ✅ یک بازه‌ی زمانی کافی mark کن — نه فقط یک boolean
 	ctx.setProgrammaticChange(true);
 
 	try {
@@ -238,8 +213,7 @@ async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Pr
 		await saveDocument(ctx.document);
 		ctx.markNotDirty();
 
-		// ✅ بعد از save، history state را broadcast کن
-		// تا UI undo/redo درست شود
+		// ✅ فقط broadcast history state — بدون دست زدن به snapshot ها
 		ctx.host.broadcastHistoryState();
 
 		if (ctx.host.isActive()) {
@@ -247,16 +221,12 @@ async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Pr
 		}
 	} catch (err) {
 		console.error("[handleSave] failed:", err);
-	} finally {
-		// ✅ فلگ را دستی ریست نکن — timestamp خودش expire می‌شود
-		// (markProgrammaticChange(300) در ctx.setProgrammaticChange(true) صدا زده شد)
 	}
 }
 
 function handleSceneChanged(msg: { scene: Scene }, ctx: MessageHandlerContext): void {
 	ctx.host.setScene(msg.scene);
 	ctx.host.markDirty();
-	ctx.host.pushHistory(msg.scene, "scene changed");
 	ctx.host.broadcastHistoryState();
 	if (ctx.host.isActive()) {
 		SceneRegistry.emitSceneChange(ctx.host, msg.scene);

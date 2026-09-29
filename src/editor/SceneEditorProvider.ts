@@ -3,8 +3,8 @@ import type { GameObject, Scene } from "../types/scene.js";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { toConfigMessage } from "../protocol/messages.js";
 import { getWebviewHtml } from "./webviewHtml.js";
-import { HistoryManager } from "./historyManager.js";
 import { SceneRegistry } from "./scene-registry.js";
+import { HistoryController } from "./historyController.js";
 import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
 import type { SceneHost } from "./scene-types.js";
 import { handleWebviewMessage, sendScene, sendSceneUpdate, type MessageHandlerContext } from "./message-handler.js";
@@ -16,21 +16,19 @@ class DocumentHost implements SceneHost {
 	public readonly document: vscode.TextDocument;
 	public scene: Scene | null = null;
 	public readonly webviews = new Set<vscode.Webview>();
-	public readonly history = new HistoryManager();
 	public isDirty = false;
 	public autoSaveTimer: NodeJS.Timeout | null = null;
-
-	/**
-	 * ✅ به جای boolean ساده، از timestamp استفاده می‌کنیم.
-	 * تا وقتی زمان حال < programmaticChangeUntil باشد، تغییرات
-	 * به عنوان programmatic در نظر گرفته می‌شوند.
-	 */
 	public programmaticChangeUntil = 0;
+
+	private readonly historyController: HistoryController;
 
 	constructor(document: vscode.TextDocument) {
 		this.document = document;
+		// ✅ HistoryController یک بار ساخته می‌شود و به این host بایند است
+		this.historyController = new HistoryController(this);
 	}
 
+	// ---------- Scene ----------
 	public getScene(): Scene | null {
 		return this.scene;
 	}
@@ -41,6 +39,7 @@ class DocumentHost implements SceneHost {
 		return this.document;
 	}
 
+	// ---------- Webview ----------
 	public postToWebview(msg: unknown): void {
 		for (const webview of this.webviews) {
 			try {
@@ -51,6 +50,7 @@ class DocumentHost implements SceneHost {
 		}
 	}
 
+	// ---------- Dirty / AutoSave ----------
 	public markDirty(): void {
 		this.isDirty = true;
 		if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
@@ -68,7 +68,7 @@ class DocumentHost implements SceneHost {
 			return;
 		}
 
-		this.markProgrammaticChange(200);
+		this.markProgrammaticChange(300);
 		try {
 			await writeDocument(this.document, this.scene);
 			await saveDocument(this.document);
@@ -78,40 +78,18 @@ class DocumentHost implements SceneHost {
 		}
 	}
 
-	/**
-	 * ✅ فلگ programmatic را برای مدت مشخصی فعال می‌کند.
-	 * این کار جلوی trigger شدن onDidChangeTextDocument را می‌گیرد.
-	 */
+	// ---------- Programmatic change flag ----------
 	public markProgrammaticChange(durationMs: number): void {
 		const until = Date.now() + durationMs;
 		if (until > this.programmaticChangeUntil) {
 			this.programmaticChangeUntil = until;
 		}
 	}
-
 	public isProgrammaticChange(): boolean {
 		return Date.now() < this.programmaticChangeUntil;
 	}
 
-	public pushHistory(scene: Scene, label: string): void {
-		this.history.push(scene, label);
-	}
-	public resetHistory(scene: Scene): void {
-		this.history.reset(scene);
-	}
-	public undoHistory(): Scene | null {
-		return this.history.undo();
-	}
-	public redoHistory(): Scene | null {
-		return this.history.redo();
-	}
-	public canUndo(): boolean {
-		return this.history.canUndo();
-	}
-	public canRedo(): boolean {
-		return this.history.canRedo();
-	}
-
+	// ---------- Broadcast ----------
 	public broadcastUpdate(scene: Scene): void {
 		this.postToWebview({ type: "update", scene } satisfies ExtensionToWebviewMessage);
 		if (this.isActive()) {
@@ -122,13 +100,19 @@ class DocumentHost implements SceneHost {
 	public broadcastHistoryState(): void {
 		this.postToWebview({
 			type: "historyState",
-			canUndo: this.history.canUndo(),
-			canRedo: this.history.canRedo(),
+			canUndo: this.historyController.canUndo(),
+			canRedo: this.historyController.canRedo(),
 		} satisfies ExtensionToWebviewMessage);
 	}
 
 	public isActive(): boolean {
 		return SceneRegistry.isActive(this);
+	}
+
+	// ---------- History ----------
+	// ✅ فقط یک متد — بقیه کارها در HistoryController است
+	public getHistory(): HistoryController {
+		return this.historyController;
 	}
 }
 
@@ -250,6 +234,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 					clearTimeout(host.autoSaveTimer);
 					host.autoSaveTimer = null;
 				}
+				host.getHistory().clear();
 				this.hosts.delete(uriKey);
 				SceneRegistry.removeInstance(host);
 			}
