@@ -8,6 +8,9 @@ export let sceneName: string | null = null;
 export let objects: ObjectInfo[] = [];
 export let filePath: string | null = null;
 
+// ✅ آبجکت انتخاب‌شده برای انیمیت
+export let selectedObjectId: string | null = null;
+
 // Playback
 export let playing = false;
 export let currentTime = 0;
@@ -36,6 +39,10 @@ export function setObjects(o: ObjectInfo[]): void {
 
 export function setFilePath(p: string | null): void {
 	filePath = p;
+}
+
+export function setSelectedObjectId(id: string | null): void {
+	selectedObjectId = id;
 }
 
 export function setPlaying(p: boolean): void {

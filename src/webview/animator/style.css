@@ -174,7 +174,7 @@ body,
 }
 
 .animator-right {
-    width: 240px;
+    width: 260px;
     flex-shrink: 0;
     background: var(--bg-alt);
     border-left: 1px solid var(--border);
@@ -183,6 +183,7 @@ body,
 
 .animator-right-section {
     padding: 8px;
+    border-bottom: 1px solid var(--border);
 }
 
 .animator-right-header {
@@ -196,7 +197,69 @@ body,
     border-bottom: 1px solid var(--border);
 }
 
-/* Keyframe inspector */
+/* =================== Object Picker (NEW) =================== */
+
+.obj-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.obj-picker-hint {
+    font-size: 10px;
+    color: var(--fg-dim);
+    font-style: italic;
+    margin-bottom: 6px;
+    padding: 0 4px;
+}
+
+.obj-picker-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 11px;
+    border: 1px solid transparent;
+    transition: background 0.1s;
+}
+
+.obj-picker-item:hover {
+    background: #3a3a3d;
+}
+
+.obj-picker-item.selected {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent-hover);
+}
+
+.obj-picker-icon {
+    flex-shrink: 0;
+    font-size: 13px;
+}
+
+.obj-picker-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: monospace;
+}
+
+.obj-picker-type {
+    font-size: 9px;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+}
+
+.obj-picker-item.selected .obj-picker-type {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+/* =================== Keyframe inspector =================== */
+
 .kf-inspector {
     display: flex;
     flex-direction: column;

@@ -13,6 +13,7 @@ export interface ToolbarCallbacks {
 	onMetadataChanged(patch: Partial<Animation>): void;
 	onSourceSceneChanged(sceneName: string): void;
 	onSave(): void;
+	onExportCode(): void;
 }
 
 let callbacks: ToolbarCallbacks | null = null;
@@ -28,9 +29,6 @@ export function rerenderToolbar(): void {
 	render();
 }
 
-/**
- * ✅ فقط دکمه play/pause رو آپدیت می‌کنه — بدون بازسازی کل toolbar
- */
 export function updateToolbarPlayButton(isPlaying: boolean): void {
 	if (!container) return;
 	const btn = container.querySelector<HTMLButtonElement>('[data-action="play-pause"]');
@@ -42,7 +40,6 @@ export function updateToolbarPlayButton(isPlaying: boolean): void {
 		btn.textContent = "▶";
 		btn.classList.remove("active");
 	}
-	// زمان فعلی رو هم آپدیت کن
 	const timeDisplay = container.querySelector<HTMLSpanElement>(".anim-time-display");
 	if (timeDisplay && animation) {
 		timeDisplay.textContent = `${formatTime(currentTime)} / ${formatTime(animation.duration)}`;
@@ -95,6 +92,7 @@ function render(): void {
 
 			<div class="anim-toolbar-spacer"></div>
 
+			<button class="anim-btn" data-action="export-code" title="Export Java Code">☕ Export Code</button>
 			<button class="anim-btn anim-btn-primary" data-action="save" title="Save (Ctrl+S)">💾 Save</button>
 		</div>
 	`;
@@ -115,6 +113,7 @@ function attachListeners(): void {
 	container.querySelector('[data-action="step-fwd"]')?.addEventListener("click", () => callbacks!.onStepForward());
 	container.querySelector('[data-action="jump-end"]')?.addEventListener("click", () => callbacks!.onJumpToEnd());
 	container.querySelector('[data-action="save"]')?.addEventListener("click", () => callbacks!.onSave());
+	container.querySelector('[data-action="export-code"]')?.addEventListener("click", () => callbacks!.onExportCode());
 
 	container.querySelector<HTMLInputElement>("[data-loop]")?.addEventListener("change", (e) => {
 		const target = e.target as HTMLInputElement;

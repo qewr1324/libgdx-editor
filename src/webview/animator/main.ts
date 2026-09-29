@@ -1,18 +1,20 @@
 import "./style.css";
-import { animation, setAnimation, setCurrentTime, playing, setPlaying, currentTime, setSelectedTrackIndex, setSelectedKeyframeIndex, objects } from "./state.js";
+import { animation, setAnimation, setCurrentTime, playing, setPlaying, currentTime, setSelectedTrackIndex, setSelectedKeyframeIndex, objects, selectedObjectId, setSelectedObjectId } from "./state.js";
 import { setupMessages, setLoadCallback, setAnimationUpdateCallback, setSceneListCallback, postToExtension } from "./messages.js";
 import { setupToolbar, rerenderToolbar, updateToolbarPlayButton } from "./ui/toolbar.js";
 import { setupTimelinePanel, rerenderTimeline, updatePlayheadPosition } from "./ui/timeline-panel.js";
 import { setupKeyframeInspector, rerenderKeyframeInspector } from "./ui/keyframe-inspector.js";
 import { setupPreviewPanel, refreshPreview } from "./ui/preview-panel.js";
+import { setupObjectPicker, rerenderObjectPicker } from "./ui/object-picker.js";
 import { AnimatorController } from "../../animator/animatorController.js";
-import type { EasingType, Track } from "../../animator/animatorConfig.js";
+import type { EasingType, Track, AnimatableProperty } from "../../animator/animatorConfig.js";
+import { ANIMATABLE_PROPERTIES } from "../../animator/animatorConfig.js";
 
 const root = document.getElementById("animator-root")!;
 let controller: AnimatorController | null = null;
 let sceneList: Array<{ name: string; uri: string }> = [];
 
-// ✅ برای اینکه بدونیم آخرین وضعیت playing چی بوده
+// برای اینکه بدونیم آخرین وضعیت playing چی بوده
 let lastPlayingState = false;
 
 // ============================================================
@@ -33,6 +35,10 @@ function buildLayout(): void {
 
 	const rightPanel = document.getElementById("animator-right")!;
 	rightPanel.innerHTML = `
+		<div class="animator-right-section">
+			<div class="animator-right-header">Object</div>
+			<div id="animator-object-picker"></div>
+		</div>
 		<div class="animator-right-section">
 			<div class="animator-right-header">Keyframe</div>
 			<div id="animator-kf-inspector"></div>
@@ -64,9 +70,7 @@ function buildLayout(): void {
 		onStepBackward: () => controller?.stepBackward(),
 		onJumpToStart: () => controller?.jumpToStart(),
 		onJumpToEnd: () => controller?.jumpToEnd(),
-		onToggleLoop: () => {
-			// بعد از metadata changed خودش آپدیت می‌شه
-		},
+		onToggleLoop: () => {},
 		onMetadataChanged: (patch) => {
 			postToExtension({ type: "updateMetadata", patch });
 		},
@@ -76,6 +80,11 @@ function buildLayout(): void {
 		onSave: () => {
 			if (animation) {
 				postToExtension({ type: "save", animation });
+			}
+		},
+		onExportCode: () => {
+			if (animation) {
+				postToExtension({ type: "exportAnimationCode", animation });
 			}
 		},
 	});
@@ -122,6 +131,17 @@ function buildLayout(): void {
 		},
 	});
 
+	const pickerEl = document.getElementById("animator-object-picker")!;
+	setupObjectPicker(pickerEl, {
+		onObjectSelected: (id) => {
+			setSelectedObjectId(id);
+			refreshPreview(currentTime);
+		},
+		onAddTrackForObject: (id) => {
+			handleAddTrackForObject(id);
+		},
+	});
+
 	postToExtension({ type: "ready" });
 })();
 
@@ -138,6 +158,7 @@ function onLoad(): void {
 	rerenderToolbar();
 	rerenderTimeline();
 	rerenderKeyframeInspector();
+	rerenderObjectPicker();
 	updatePlayheadPosition(0);
 	postToExtension({ type: "requestSceneList" });
 
@@ -154,6 +175,7 @@ function onAnimationUpdate(): void {
 	rerenderToolbar();
 	rerenderTimeline();
 	rerenderKeyframeInspector();
+	rerenderObjectPicker();
 }
 
 function onSceneList(scenes: Array<{ name: string; uri: string }>): void {
@@ -170,12 +192,81 @@ function onPlaybackUpdate(state: { playing: boolean; currentTime: number }): voi
 	updatePlayheadPosition(state.currentTime);
 	refreshPreview(state.currentTime);
 
-	// ✅ فقط وقتی وضعیت playing عوض شده، toolbar رو دوباره بساز
 	if (playingChanged) {
 		rerenderToolbar();
 	} else {
 		updateToolbarPlayButton(state.playing);
 	}
+}
+
+// ============================================================
+// Auto-select اولین آبجکت وقتی صحنه لود می‌شه
+// ============================================================
+
+export function onSceneLoadedAutoSelect(): void {
+	if (objects.length === 0) return;
+
+	// اگه قبلاً آبجکتی انتخاب شده، همون رو نگه دار
+	if (selectedObjectId && objects.some((o) => o.id === selectedObjectId)) {
+		rerenderObjectPicker();
+		return;
+	}
+
+	// ✅ اولین آبجکت رو انتخاب کن
+	const first = objects[0];
+	setSelectedObjectId(first.id);
+
+	// ✅ اگه هیچ track ای برای این آبجکت نیست، یکی بساز
+	if (animation && !animation.tracks.some((t) => t.objectId === first.id)) {
+		handleAddTrackForObject(first.id);
+	}
+
+	rerenderObjectPicker();
+}
+
+// ============================================================
+// Track operations
+// ============================================================
+
+/**
+ * ✅ اضافه کردن track برای یک آبجکت مشخص
+ */
+function handleAddTrackForObject(objectId: string): void {
+	if (!animation) return;
+
+	// اگه track برای این آبجکت هست، فقط انتخابش کن
+	const existingIdx = animation.tracks.findIndex((t) => t.objectId === objectId);
+	if (existingIdx !== -1) {
+		setSelectedTrackIndex(existingIdx);
+		setSelectedKeyframeIndex(-1);
+		rerenderTimeline();
+		rerenderKeyframeInspector();
+		return;
+	}
+
+	// property پیش‌فرض: transform.x
+	const property: AnimatableProperty = "transform.x";
+
+	const newTrack: Track = {
+		objectId,
+		property,
+		keyframes: [
+			{ time: 0, value: 0, easing: "linear" },
+			{ time: animation.duration, value: 0, easing: "linear" },
+		],
+	};
+
+	const tracks = [...animation.tracks, newTrack];
+	setAnimation({ ...animation, tracks });
+	postToExtension({ type: "updateAnimation", animation, historyLabel: "add track" });
+
+	// انتخاب track جدید
+	const newIdx = tracks.length - 1;
+	setSelectedTrackIndex(newIdx);
+	setSelectedKeyframeIndex(-1);
+
+	rerenderTimeline();
+	rerenderKeyframeInspector();
 }
 
 // ============================================================
@@ -243,18 +334,10 @@ function handleTrackAdded(): void {
 		alert("No objects available. Load a scene first.");
 		return;
 	}
-	const newTrack: Track = {
-		objectId: objects[0].id,
-		property: "transform.x",
-		keyframes: [
-			{ time: 0, value: 0, easing: "linear" },
-			{ time: animation.duration, value: 0, easing: "linear" },
-		],
-	};
-	const tracks = [...animation.tracks, newTrack];
-	setAnimation({ ...animation, tracks });
-	postToExtension({ type: "updateAnimation", animation, historyLabel: "add track" });
-	rerenderTimeline();
+
+	// اگه آبجکتی انتخاب شده، از اون استفاده کن؛ وگرنه اولین آبجکت
+	const targetId = selectedObjectId ?? objects[0].id;
+	handleAddTrackForObject(targetId);
 }
 
 function handleTrackRemoved(trackIndex: number): void {

@@ -1,15 +1,17 @@
 import { vscode } from "./types.js";
-import { setAnimation, setScene, setSceneName, setObjects, setFilePath } from "./state.js";
+import { setAnimation, setScene, setSceneName, setObjects, setFilePath, selectedObjectId, setSelectedObjectId, objects } from "./state.js";
 import { loadTexture } from "./render/textures.js";
 import type { AnimatorMessageToWebview } from "./protocol.js";
 
 type LoadCallback = () => void;
 type AnimationUpdateCallback = () => void;
 type SceneListCallback = (scenes: Array<{ name: string; uri: string }>) => void;
+type SceneLoadedCallback = () => void;
 
 let onLoad: LoadCallback | null = null;
 let onAnimationUpdate: AnimationUpdateCallback | null = null;
 let onSceneList: SceneListCallback | null = null;
+let onSceneLoaded: SceneLoadedCallback | null = null;
 
 export function setLoadCallback(cb: LoadCallback): void {
 	onLoad = cb;
@@ -21,6 +23,10 @@ export function setAnimationUpdateCallback(cb: AnimationUpdateCallback): void {
 
 export function setSceneListCallback(cb: SceneListCallback): void {
 	onSceneList = cb;
+}
+
+export function setSceneLoadedCallback(cb: SceneLoadedCallback): void {
+	onSceneLoaded = cb;
 }
 
 export function setupMessages(): void {
@@ -48,6 +54,8 @@ export function setupMessages(): void {
 				setSceneName(msg.sceneName);
 				setObjects(msg.objects);
 				onAnimationUpdate?.();
+				// ✅ بعد از اینکه آبجکت‌ها آپدیت شدن، auto-select
+				onSceneLoaded?.();
 				break;
 
 			case "objectList":
@@ -55,7 +63,6 @@ export function setupMessages(): void {
 				onAnimationUpdate?.();
 				break;
 
-			// ✅ لود کردن texture ها و رفرش کردن پیش‌نمایش
 			case "texturesLoaded": {
 				const entries = Object.entries(msg.textures);
 				await Promise.all(

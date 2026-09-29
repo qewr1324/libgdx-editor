@@ -1,9 +1,6 @@
 import type { Animation } from "../../animator/animatorConfig.js";
 import type { Scene, GameObject } from "../../types/scene.js";
 
-/**
- * پیام‌هایی که از extension به webview میاد
- */
 export type AnimatorMessageToWebview =
 	| { type: "loadAnimation"; animation: Animation; filePath: string }
 	| { type: "animationUpdated"; animation: Animation }
@@ -13,9 +10,6 @@ export type AnimatorMessageToWebview =
 	| { type: "objectList"; objects: ObjectInfo[] }
 	| { type: "texturesLoaded"; textures: Record<string, string> };
 
-/**
- * پیام‌هایی که از webview به extension می‌ره
- */
 export type AnimatorMessageFromWebview =
 	| { type: "ready" }
 	| { type: "save"; animation: Animation }
@@ -24,7 +18,8 @@ export type AnimatorMessageFromWebview =
 	| { type: "requestScene"; sceneName: string }
 	| { type: "requestSceneList" }
 	| { type: "requestObjectList"; sceneName: string }
-	| { type: "changeSourceScene"; sceneName: string };
+	| { type: "changeSourceScene"; sceneName: string }
+	| { type: "exportAnimationCode"; animation: Animation };
 
 export interface ObjectInfo {
 	id: string;

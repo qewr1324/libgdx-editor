@@ -3,6 +3,7 @@ import { getAnimatorWebviewHtml } from "./webviewHtml.js";
 import { parseAnimationDocument, writeAnimationDocument, saveAnimationDocument } from "./animatorParser.js";
 import { DEFAULT_ANIMATION, type Animation } from "./animatorConfig.js";
 import { AssetManager } from "../editor/assetManager.js";
+import { generateAnimationCode } from "./animationCodeGenerator.js";
 import { log } from "../shared/logger.js";
 import type { AnimatorMessageFromWebview, AnimatorMessageToWebview } from "../webview/animator/protocol.js";
 
@@ -122,6 +123,9 @@ export class AnimatorEditorProvider implements vscode.CustomTextEditorProvider {
 				break;
 			case "changeSourceScene":
 				await this.changeSourceScene(ctx, msg.sceneName);
+				break;
+			case "exportAnimationCode":
+				await this.exportAnimationCode(ctx, msg.animation);
 				break;
 		}
 	}
@@ -283,6 +287,74 @@ export class AnimatorEditorProvider implements vscode.CustomTextEditorProvider {
 	}
 
 	// ============================================================
+	// Export animation code
+	// ============================================================
+
+	private async exportAnimationCode(ctx: any, animation: Animation): Promise<void> {
+		try {
+			// نام کلاس
+			const className = await vscode.window.showInputBox({
+				title: "Export Animation Code",
+				prompt: "Class name",
+				value: toPascalCase(animation.name || "Animation"),
+				validateInput: (v) => {
+					if (!v.trim()) return "Class name is required";
+					if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(v)) return "Invalid identifier";
+					return null;
+				},
+			});
+			if (!className) return;
+
+			// زبان
+			const language = await vscode.window.showQuickPick(
+				[
+					{ label: "Java", value: "java" as const, description: "Generate a .java file" },
+					{ label: "Kotlin", value: "kotlin" as const, description: "Generate a .kt file" },
+				],
+				{ title: "Export Animation Code", placeHolder: "Language" },
+			);
+			if (!language) return;
+
+			// package (اختیاری)
+			const packageName = await vscode.window.showInputBox({
+				title: "Export Animation Code",
+				prompt: "Package name (optional, leave empty to skip)",
+				value: "com.example.animations",
+			});
+
+			// تولید کد
+			const code = generateAnimationCode(animation, {
+				className,
+				packageName: packageName?.trim() || undefined,
+				language: language.value,
+				includeComments: true,
+			});
+
+			// ذخیره
+			const ext = language.value === "java" ? "java" : "kt";
+			const animDir = vscode.Uri.joinPath(ctx.document.uri, "..");
+			const defaultUri = vscode.Uri.joinPath(animDir, `${className}.${ext}`);
+
+			const saveUri = await vscode.window.showSaveDialog({
+				title: "Save Animation Code",
+				defaultUri,
+				filters: language.value === "java" ? { Java: ["java"] } : { Kotlin: ["kt"] },
+			});
+			if (!saveUri) return;
+
+			await vscode.workspace.fs.writeFile(saveUri, new TextEncoder().encode(code));
+
+			const doc = await vscode.workspace.openTextDocument(saveUri);
+			await vscode.window.showTextDocument(doc);
+
+			vscode.window.showInformationMessage(`Animation code exported: ${className}.${ext}`);
+		} catch (err) {
+			log.error("[Animator] exportAnimationCode failed:", err);
+			vscode.window.showErrorMessage(`Export failed: ${err instanceof Error ? err.message : String(err)}`);
+		}
+	}
+
+	// ============================================================
 	// Helpers
 	// ============================================================
 
@@ -348,4 +420,17 @@ export class AnimatorEditorProvider implements vscode.CustomTextEditorProvider {
 
 		return null;
 	}
+}
+
+// ============================================================
+// Utils
+// ============================================================
+
+function toPascalCase(s: string): string {
+	return s
+		.replace(/[^a-zA-Z0-9]+/g, " ")
+		.trim()
+		.split(/\s+/)
+		.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+		.join("");
 }
