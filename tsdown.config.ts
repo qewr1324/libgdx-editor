@@ -9,11 +9,23 @@ export default defineConfig([
 		outExtensions: () => ({ js: ".cjs" }),
 	},
 	{
-		entry: {
-			viewport: "src/webview/viewport/main.ts",
-			inspector: "src/webview/inspector/main.ts",
-			layers: "src/webview/layers/main.ts", // ← این خط حتماً باید باشه
-		},
+		entry: { viewport: "src/webview/viewport/main.ts" },
+		format: "esm",
+		outDir: "dist/webview",
+		noExternal: [/.*/],
+		outExtensions: () => ({ js: ".js" }),
+		platform: "browser",
+	},
+	{
+		entry: { inspector: "src/webview/inspector/main.ts" },
+		format: "esm",
+		outDir: "dist/webview",
+		noExternal: [/.*/],
+		outExtensions: () => ({ js: ".js" }),
+		platform: "browser",
+	},
+	{
+		entry: { layers: "src/webview/layers/main.ts" },
 		format: "esm",
 		outDir: "dist/webview",
 		noExternal: [/.*/],
