@@ -16,7 +16,5 @@ export interface SceneHost {
 	broadcastUpdate(scene: Scene): void;
 	broadcastHistoryState(): void;
 	isActive(): boolean;
-
-	// ✅ فقط یک متد برای دسترسی به history
 	getHistory(): HistoryController;
 }

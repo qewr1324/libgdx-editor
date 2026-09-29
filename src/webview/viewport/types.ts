@@ -1,6 +1,6 @@
 import type { GameObject } from "../../types/scene.js";
 
-export type InteractionMode = "idle" | "drag" | "resize" | "rotate";
+export type InteractionMode = "idle" | "drag" | "resize" | "rotate" | "marquee";
 
 export type HandleType = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
@@ -13,7 +13,6 @@ export interface StartTransform {
 }
 
 export interface InteractionData {
-	// موقعیت شروع در world coordinates
 	startWorldX: number;
 	startWorldY: number;
 	startTransforms: Map<string, StartTransform>;

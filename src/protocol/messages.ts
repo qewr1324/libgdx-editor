@@ -1,7 +1,6 @@
 import type { GameObject, Scene } from "../types/scene.js";
-import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType } from "../config/config-types.js";
+import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType, AlignMode, DistributeMode } from "../config/config-types.js";
 
-/** پیام config که بین extension و webview رد و بدل می‌شود */
 export interface LibGdxEditorConfigMessage {
 	version: string;
 	defaultTheme: string;
@@ -61,6 +60,8 @@ export type WebviewToExtensionMessage =
 	| { type: "openSceneSettings" }
 	| { type: "duplicateObjects"; objectIds: string[]; offsetX: number; offsetY: number }
 	| { type: "pasteObjects"; objects: GameObject[]; historyLabel?: string }
+	| { type: "alignObjects"; objectIds: string[]; mode: AlignMode }
+	| { type: "distributeObjects"; objectIds: string[]; mode: DistributeMode }
 	| { type: "undo" }
 	| { type: "redo" }
 	| { type: "updateConfig"; key: string; value: unknown }
@@ -76,6 +77,7 @@ export type ExtensionToWebviewMessage =
 	| { type: "objectUpdated"; object: GameObject }
 	| { type: "focusObject"; objectId: string }
 	| { type: "texturesLoaded"; textures: Record<string, string> }
+	| { type: "brokenAssets"; paths: string[] }
 	| { type: "historyState"; canUndo: boolean; canRedo: boolean }
 	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
 	| { type: "configUpdated"; config: LibGdxEditorConfigMessage };

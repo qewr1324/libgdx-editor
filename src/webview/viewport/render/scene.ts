@@ -1,5 +1,5 @@
 import { Container, Graphics, Rectangle, Sprite, Text, TextStyle } from "pixi.js";
-import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode } from "../state.js";
+import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode, getBrokenAssets } from "../state.js";
 import type { GameObject, Scene } from "../../../types/scene.js";
 import type { ShapeType } from "../../../config/config-types.js";
 import { redrawGrid } from "./grid.js";
@@ -39,6 +39,7 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	const t = obj.transform;
 
 	const isWireframe = getConfig()?.view.renderMode === "wireframe";
+	const broken = getBrokenAssets();
 	let rendered = false;
 
 	if (obj.type === "sprite" && obj.texture) {
@@ -69,7 +70,6 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 			container.addChild(txt);
 			rendered = true;
 		} else {
-			// پیش‌فرض: مستطیل (sprite بدون texture یا group)
 			g.rect(0, 0, t.width, t.height);
 		}
 
@@ -83,6 +83,18 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 			g.eventMode = "none";
 			container.addChild(g);
 		}
+	}
+
+	// ✅ بج broken asset
+	if (obj.texture && broken.includes(obj.texture)) {
+		const badge = new Text({
+			text: "❗",
+			style: new TextStyle({ fontSize: 18, fill: "#ff4a4a", stroke: { color: 0x000000, width: 3 } }),
+		});
+		badge.x = 2;
+		badge.y = 2;
+		badge.eventMode = "none";
+		container.addChild(badge);
 	}
 
 	container.hitArea = new Rectangle(0, 0, t.width, t.height);
@@ -122,9 +134,6 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	objectSprites.set(obj.id, container);
 }
 
-/**
- * ✅ رسم شکل بر اساس نوع.
- */
 function drawShape(g: Graphics, shapeType: ShapeType, width: number, height: number): void {
 	const cx = width / 2;
 	const cy = height / 2;

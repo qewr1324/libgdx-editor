@@ -7,12 +7,13 @@ import { ConfigManager } from "../config/config-manager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
-import { addObjectToScene, createObjectAt, createShapeAt, deleteObjectFromScene, updateObjectsInScene } from "./scene-mutations.js";
+import { addObjectToScene, alignObjectsInScene, createObjectAt, createShapeAt, deleteObjectFromScene, distributeObjectsInScene, updateObjectsInScene } from "./scene-mutations.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
 import { undoOp, redoOp } from "./scene-ops/historyOps.js";
 import type { SceneHost } from "./scene-types.js";
+import { log } from "../shared/logger.js";
 
 export interface MessageHandlerContext {
 	host: SceneHost;
@@ -113,6 +114,20 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "duplicateObjects":
 			duplicateObjectsOp(host, msg.objectIds, msg.offsetX, msg.offsetY);
 			break;
+		case "alignObjects": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = alignObjectsInScene(current, msg.objectIds, msg.mode);
+			host.getHistory().commit(updated, `align ${msg.mode}`);
+			break;
+		}
+		case "distributeObjects": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = distributeObjectsInScene(current, msg.objectIds, msg.mode);
+			host.getHistory().commit(updated, `distribute ${msg.mode}`);
+			break;
+		}
 		case "openSceneSettings": {
 			SceneRegistry.setActiveInstance(host);
 			const scene = host.getScene() ?? parseDocument(ctx.document);
@@ -132,7 +147,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "updateConfigPartial": {
 			await config.update(msg.partial as never);
 
-			const cfg = config.get();
 			const scene = host.getScene();
 			if (scene && msg.partial.grid) {
 				const partial = msg.partial.grid as { snap?: boolean; size?: number };
@@ -159,13 +173,15 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	const host = ctx.host;
 	const scene = parseDocument(ctx.document);
 	host.setScene(scene);
-	// ✅ reset history از طریق HistoryController
 	host.getHistory().reset(scene);
 
 	ctx.webviewPanel.webview.postMessage({ type: "load", scene } satisfies ExtensionToWebviewMessage);
 
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, scene);
 	ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+	const broken = await AssetManager.findBrokenAssets(ctx.document.uri, scene);
+	ctx.webviewPanel.webview.postMessage({ type: "brokenAssets", paths: broken } satisfies ExtensionToWebviewMessage);
 
 	const config = ConfigManager.getInstance().get();
 	ctx.webviewPanel.webview.postMessage({
@@ -199,6 +215,9 @@ export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void>
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, fileScene);
 	ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
+	const broken = await AssetManager.findBrokenAssets(ctx.document.uri, fileScene);
+	ctx.webviewPanel.webview.postMessage({ type: "brokenAssets", paths: broken } satisfies ExtensionToWebviewMessage);
+
 	if (host.isActive()) {
 		SceneRegistry.emitSceneChange(host, fileScene);
 	}
@@ -213,14 +232,13 @@ async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Pr
 		await saveDocument(ctx.document);
 		ctx.markNotDirty();
 
-		// ✅ فقط broadcast history state — بدون دست زدن به snapshot ها
 		ctx.host.broadcastHistoryState();
 
 		if (ctx.host.isActive()) {
 			SceneRegistry.emitSceneChange(ctx.host, msg.scene);
 		}
 	} catch (err) {
-		console.error("[handleSave] failed:", err);
+		log.error("[handleSave] failed:", err);
 	}
 }
 

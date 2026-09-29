@@ -6,9 +6,14 @@ import { importTextureCommand, cleanupAssetsCommand } from "./commands/importTex
 import { ConfigManager } from "./config/config-manager.js";
 import { SceneRegistry } from "./editor/scene-registry.js";
 import { updateObjectOp, deleteObjectOp, focusObjectOp, updateSceneFieldOp } from "./editor/scene-ops.js";
+import { setDebugEnabled, log } from "./shared/logger.js";
 
 export async function activate(context: vscode.ExtensionContext) {
-	console.log("LibGDX Editor activated");
+	if (context.extensionMode === vscode.ExtensionMode.Development) {
+		setDebugEnabled(true);
+	}
+
+	log.debug("LibGDX Editor activated");
 
 	const configManager = ConfigManager.getInstance();
 	await configManager.load();
@@ -33,6 +38,16 @@ export async function activate(context: vscode.ExtensionContext) {
 		SceneEditorProvider.onDidRequestSceneSettings((host, scene) => {
 			inspector.showSceneSettings(host, scene);
 			void vscode.commands.executeCommand("libgdx-editor.inspector.focus");
+		}),
+	);
+
+	context.subscriptions.push(
+		SceneRegistry.onDidChangeActiveInstance((instance) => {
+			if (!instance) return;
+			const scene = instance.getScene();
+			if (scene) {
+				inspector.setScene(instance, scene);
+			}
 		}),
 	);
 

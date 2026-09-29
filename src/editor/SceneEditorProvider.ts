@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { GameObject, Scene } from "../types/scene.js";
+import type { Scene } from "../types/scene.js";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { toConfigMessage } from "../protocol/messages.js";
 import { getWebviewHtml } from "./webviewHtml.js";
@@ -9,8 +9,13 @@ import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
 import type { SceneHost } from "./scene-types.js";
 import { handleWebviewMessage, sendScene, sendSceneUpdate, type MessageHandlerContext } from "./message-handler.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
+import { log } from "../shared/logger.js";
 
 export type { ObjectSelectionHandler, SceneChangeHandler, OpenSceneSettingsHandler } from "./scene-types.js";
+
+const AUTOSAVE_MIN_DELAY_MS = 1500;
+const AUTOSAVE_MAX_DELAY_MS = 5000;
+const AUTOSAVE_DELAY_PER_CHANGE_MS = 100;
 
 class DocumentHost implements SceneHost {
 	public readonly document: vscode.TextDocument;
@@ -20,15 +25,14 @@ class DocumentHost implements SceneHost {
 	public autoSaveTimer: NodeJS.Timeout | null = null;
 	public programmaticChangeUntil = 0;
 
+	private pendingChanges = 0;
 	private readonly historyController: HistoryController;
 
 	constructor(document: vscode.TextDocument) {
 		this.document = document;
-		// ✅ HistoryController یک بار ساخته می‌شود و به این host بایند است
 		this.historyController = new HistoryController(this);
 	}
 
-	// ---------- Scene ----------
 	public getScene(): Scene | null {
 		return this.scene;
 	}
@@ -39,7 +43,6 @@ class DocumentHost implements SceneHost {
 		return this.document;
 	}
 
-	// ---------- Webview ----------
 	public postToWebview(msg: unknown): void {
 		for (const webview of this.webviews) {
 			try {
@@ -50,13 +53,19 @@ class DocumentHost implements SceneHost {
 		}
 	}
 
-	// ---------- Dirty / AutoSave ----------
 	public markDirty(): void {
 		this.isDirty = true;
+		this.pendingChanges++;
+
 		if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+
+		const delay = Math.min(AUTOSAVE_MAX_DELAY_MS, AUTOSAVE_MIN_DELAY_MS + this.pendingChanges * AUTOSAVE_DELAY_PER_CHANGE_MS);
+
+		log.debug(`[DocumentHost] markDirty (pending=${this.pendingChanges}, delay=${delay}ms)`);
+
 		this.autoSaveTimer = setTimeout(() => {
 			void this.autoSave();
-		}, 3000);
+		}, delay);
 	}
 
 	public async autoSave(): Promise<void> {
@@ -64,7 +73,7 @@ class DocumentHost implements SceneHost {
 
 		const docName = this.document.uri.path.split("/").pop()?.replace(".lgdx.json", "");
 		if (docName && this.scene.name !== docName) {
-			console.warn(`[DocumentHost] autoSave skip: scene.name (${this.scene.name}) != doc name (${docName})`);
+			log.warn(`[DocumentHost] autoSave skip: scene.name (${this.scene.name}) != doc name (${docName})`);
 			return;
 		}
 
@@ -73,12 +82,13 @@ class DocumentHost implements SceneHost {
 			await writeDocument(this.document, this.scene);
 			await saveDocument(this.document);
 			this.isDirty = false;
+			this.pendingChanges = 0;
+			log.debug(`[DocumentHost] autoSaved: ${this.document.uri.fsPath}`);
 		} catch (err) {
-			console.error("Auto-save failed:", err);
+			log.error("[DocumentHost] autoSave failed:", err);
 		}
 	}
 
-	// ---------- Programmatic change flag ----------
 	public markProgrammaticChange(durationMs: number): void {
 		const until = Date.now() + durationMs;
 		if (until > this.programmaticChangeUntil) {
@@ -89,7 +99,6 @@ class DocumentHost implements SceneHost {
 		return Date.now() < this.programmaticChangeUntil;
 	}
 
-	// ---------- Broadcast ----------
 	public broadcastUpdate(scene: Scene): void {
 		this.postToWebview({ type: "update", scene } satisfies ExtensionToWebviewMessage);
 		if (this.isActive()) {
@@ -109,8 +118,6 @@ class DocumentHost implements SceneHost {
 		return SceneRegistry.isActive(this);
 	}
 
-	// ---------- History ----------
-	// ✅ فقط یک متد — بقیه کارها در HistoryController است
 	public getHistory(): HistoryController {
 		return this.historyController;
 	}
@@ -142,7 +149,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			try {
 				inst.postToWebview(msg);
 			} catch (err) {
-				console.error("[SceneEditorProvider] postMessage failed:", err);
+				log.error("[SceneEditorProvider] postMessage failed:", err);
 			}
 		}
 	}

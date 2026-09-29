@@ -1,10 +1,13 @@
 import type { Scene } from "../types/scene.js";
+import { log } from "../shared/logger.js";
 
 interface Snapshot {
 	scene: Scene;
 	timestamp: number;
 	label: string;
 }
+
+const COALESCE_WINDOW_MS = 500;
 
 export class HistoryManager {
 	private static MAX_HISTORY = 100;
@@ -15,7 +18,16 @@ export class HistoryManager {
 	push(scene: Scene, label: string): void {
 		const serialized = JSON.stringify(scene);
 		const current = this.snapshots[this.currentIndex];
+
 		if (current && JSON.stringify(current.scene) === serialized) {
+			return;
+		}
+
+		const now = Date.now();
+		if (current && current.label === label && this.currentIndex === this.snapshots.length - 1 && now - current.timestamp < COALESCE_WINDOW_MS) {
+			current.scene = structuredClone(scene) as Scene;
+			current.timestamp = now;
+			log.debug(`[History] coalesced "${label}" (size=${this.snapshots.length}, idx=${this.currentIndex})`);
 			return;
 		}
 
@@ -25,7 +37,7 @@ export class HistoryManager {
 
 		this.snapshots.push({
 			scene: structuredClone(scene) as Scene,
-			timestamp: Date.now(),
+			timestamp: now,
 			label,
 		});
 
@@ -37,6 +49,7 @@ export class HistoryManager {
 		}
 
 		this.currentIndex = this.snapshots.length - 1;
+		log.debug(`[History] push "${label}" (size=${this.snapshots.length}, idx=${this.currentIndex})`);
 	}
 
 	canUndo(): boolean {
@@ -51,6 +64,7 @@ export class HistoryManager {
 		if (!this.canUndo()) return null;
 		this.currentIndex--;
 		const snap = this.snapshots[this.currentIndex];
+		log.debug(`[History] undo → "${snap.label}" (idx=${this.currentIndex})`);
 		return structuredClone(snap.scene) as Scene;
 	}
 
@@ -58,6 +72,7 @@ export class HistoryManager {
 		if (!this.canRedo()) return null;
 		this.currentIndex++;
 		const snap = this.snapshots[this.currentIndex];
+		log.debug(`[History] redo → "${snap.label}" (idx=${this.currentIndex})`);
 		return structuredClone(snap.scene) as Scene;
 	}
 
@@ -70,19 +85,19 @@ export class HistoryManager {
 			},
 		];
 		this.currentIndex = 0;
+		log.debug(`[History] reset (size=1)`);
 	}
 
 	clear(): void {
 		this.snapshots = [];
 		this.currentIndex = -1;
+		log.debug(`[History] cleared`);
 	}
 
-	// ✅ برای دیباگ
 	size(): number {
 		return this.snapshots.length;
 	}
 
-	// ✅ برای دیباگ
 	currentSnapshotLabel(): string | null {
 		const snap = this.snapshots[this.currentIndex];
 		return snap ? snap.label : null;

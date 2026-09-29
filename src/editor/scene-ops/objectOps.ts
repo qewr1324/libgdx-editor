@@ -7,7 +7,6 @@ export function updateObjectOp(host: SceneHost, obj: GameObject, historyLabel = 
 	const scene = host.getScene();
 	if (!scene) return;
 	const updated = updateObjectInScene(scene, obj);
-	// ✅ فقط commit — خودش setScene، markDirty، pushHistory، broadcastUpdate و historyState را انجام می‌دهد
 	host.getHistory().commit(updated, historyLabel);
 }
 

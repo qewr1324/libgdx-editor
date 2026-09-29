@@ -8,20 +8,12 @@ export interface ImageDimensions {
 }
 
 export class AssetManager {
-	/**
-	 * پوشه assets مخصوص این صحنه.
-	 * مثال: level1.lgdx.json → level1.assets/
-	 */
 	private static getAssetsDir(sceneUri: vscode.Uri): vscode.Uri {
 		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
 		const sceneName = path.basename(sceneUri.fsPath, ".lgdx.json");
 		return vscode.Uri.joinPath(sceneDir, `${sceneName}.assets`);
 	}
 
-	/**
-	 * نام پوشه assets را نسبی برمی‌گرداند (برای ذخیره در JSON).
-	 * مثال: "level1.assets"
-	 */
 	public static getAssetsDirName(sceneUri: vscode.Uri): string {
 		const sceneName = path.basename(sceneUri.fsPath, ".lgdx.json");
 		return `${sceneName}.assets`;
@@ -106,6 +98,26 @@ export class AssetManager {
 		return set;
 	}
 
+	/**
+	 * ✅ چک می‌کند کدام texture های صحنه فایلشون وجود نداره.
+	 */
+	public static async findBrokenAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; children?: unknown }> }> }): Promise<string[]> {
+		const used = AssetManager.getAllUsedTextures(scene);
+		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
+		const broken: string[] = [];
+
+		for (const relPath of used) {
+			try {
+				const targetUri = vscode.Uri.joinPath(sceneDir, relPath);
+				await vscode.workspace.fs.stat(targetUri);
+			} catch {
+				broken.push(relPath);
+			}
+		}
+
+		return broken;
+	}
+
 	public static async cleanupUnusedAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; children?: unknown }> }> }): Promise<void> {
 		const assetsDir = AssetManager.getAssetsDir(sceneUri);
 		const assetsDirName = AssetManager.getAssetsDirName(sceneUri);
@@ -148,10 +160,6 @@ export class AssetManager {
 		return result;
 	}
 
-	/**
-	 * اگر فایل‌های قدیمی در assets/ (بدون نام صحنه) وجود دارند،
-	 * آن‌ها را به پوشه جدید منتقل می‌کند. (migration)
-	 */
 	public static async migrateOldAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; children?: unknown }> }> }): Promise<boolean> {
 		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
 		const oldAssetsDir = vscode.Uri.joinPath(sceneDir, "assets");
@@ -159,7 +167,6 @@ export class AssetManager {
 		const newAssetsDirName = AssetManager.getAssetsDirName(sceneUri);
 
 		const used = AssetManager.getAllUsedTextures(scene);
-		// چک کن که آیا در scene از مسیرهای "assets/..." استفاده شده
 		const hasOldPaths = Array.from(used).some((t) => t.startsWith("assets/"));
 		if (!hasOldPaths) return false;
 
@@ -171,7 +178,6 @@ export class AssetManager {
 				const oldRelative = `assets/${name}`;
 				if (!used.has(oldRelative)) continue;
 
-				// مطمئن شو پوشه جدید هست
 				try {
 					await vscode.workspace.fs.createDirectory(newAssetsDir);
 				} catch {
@@ -190,7 +196,6 @@ export class AssetManager {
 				}
 			}
 
-			// اگر پوشه قدیمی خالی شد، حذفش کن
 			try {
 				const remaining = await vscode.workspace.fs.readDirectory(oldAssetsDir);
 				if (remaining.length === 0) {
@@ -203,7 +208,6 @@ export class AssetManager {
 			// پوشه قدیمی وجود ندارد
 		}
 
-		// مسیرها را در scene به‌روز کن
 		if (migrated) {
 			for (const layer of scene.layers) {
 				const visit = (objects: Array<{ texture?: string; children?: unknown }>) => {

@@ -44,6 +44,7 @@ export function setupRulers(): void {
 
 	applyRulerVisibility();
 	drawRulers();
+
 	window.addEventListener("resize", () => {
 		applyRulerVisibility();
 		drawRulers();
@@ -60,17 +61,12 @@ export function setupRulers(): void {
 		drawRulers();
 	});
 
-	// ✅ وقتی config عوض شد، نمایش ruler ها را به‌روز کن
 	onConfigChange(() => {
 		applyRulerVisibility();
 		drawRulers();
 	});
 }
 
-/**
- * ✅ نمایش/مخفی کردن ruler ها بر اساس config.
- * از DOM query مستقیم استفاده می‌کنیم چون state ها setter-only هستند.
- */
 export function applyRulerVisibility(): void {
 	const show = getConfig()?.view.showRulers !== false;
 	const rh = document.getElementById("ruler-h") as HTMLCanvasElement | null;
@@ -83,9 +79,7 @@ export function applyRulerVisibility(): void {
 }
 
 export function drawRulers(): void {
-	// ✅ اگر ruler ها مخفی هستند، رسم نکن (صرفه‌جویی CPU)
 	if (getConfig()?.view.showRulers === false) return;
-
 	if (!rulerH || !rulerV || !viewport) return;
 
 	const theme = getCurrentTheme();

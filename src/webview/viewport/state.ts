@@ -77,6 +77,16 @@ export function setMouseWorld(x: number, y: number): void {
 	mouseWorldY = y;
 }
 
+// ---------- Broken Assets ----------
+let _brokenAssets: string[] = [];
+export function getBrokenAssets(): string[] {
+	return _brokenAssets;
+}
+export function setBrokenAssets(paths: string[]): void {
+	_brokenAssets = paths;
+}
+
+// ---------- Rulers ----------
 export let rulerInfo: HTMLDivElement | null = null;
 export function setRulerInfo(el: HTMLDivElement | null): void {
 	rulerInfo = el;

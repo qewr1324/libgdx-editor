@@ -1,38 +1,30 @@
 export type RenderMode = "solid" | "wireframe";
 export type GizmoMode = "world" | "object";
 export type ShapeType = "rectangle" | "circle" | "triangle" | "diamond" | "pentagon" | "hexagon" | "star";
+export type AlignMode = "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom";
+export type DistributeMode = "horizontal" | "vertical";
 
 export interface LibGdxEditorConfig {
-	// ---------- General ----------
 	version: string;
 	defaultTheme: string;
 	autoSaveDelayMs: number;
-
-	// ---------- Editor defaults ----------
 	showRulers: boolean;
 	showGrid: boolean;
 	defaultGridSize: number;
 
-	// ---------- View ----------
 	view: {
 		renderMode: RenderMode;
 		showGrid: boolean;
 		showWorldBorder: boolean;
 		showRulers: boolean;
 	};
-
-	// ---------- Gizmo ----------
 	gizmo: {
 		mode: GizmoMode;
 	};
-
-	// ---------- Grid ----------
 	grid: {
 		size: number;
 		snap: boolean;
 	};
-
-	// ---------- UI ----------
 	ui: {
 		lastShapeType: ShapeType;
 	};

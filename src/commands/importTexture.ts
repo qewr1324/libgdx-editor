@@ -70,7 +70,6 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 
 		const relativePath = await AssetManager.importTexture(document.uri, sourceUri);
 
-		// ✅ از host مستقیم استفاده می‌کنیم
 		const added = await addSpriteWithTextureOp(host, relativePath, dims ? Math.round(dims.width * scale) : undefined, dims ? Math.round(dims.height * scale) : undefined);
 
 		if (added) {

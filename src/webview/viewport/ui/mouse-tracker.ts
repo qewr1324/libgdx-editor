@@ -8,7 +8,6 @@ export function setupMouseTracker(): void {
 		const world = viewport.toWorld(e.clientX - rect.left, e.clientY - rect.top);
 		setMouseWorld(Math.round(world.x), Math.round(world.y));
 
-		// ✅ اگر ruler مخفی است، ruler-info را آپدیت نکن
 		if (rulerInfo && getConfig()?.view.showRulers !== false) {
 			rulerInfo.textContent = `${Math.round(world.x)}, ${Math.round(world.y)}`;
 		}

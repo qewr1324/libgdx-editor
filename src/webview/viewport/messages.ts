@@ -2,7 +2,7 @@ import { vscode } from "./types.js";
 import { loadTexture } from "./pixi/textures.js";
 import { renderScene } from "./render/scene.js";
 import { redrawGrid } from "./render/grid.js";
-import { interactionMode, scene, selectedIds, viewport } from "./state.js";
+import { interactionMode, scene, selectedIds, setBrokenAssets, viewport } from "./state.js";
 import { selectObjects } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
 import { applyTheme } from "./theme/theme-manager.js";
@@ -44,7 +44,6 @@ function handleConfig(config: LibGdxEditorConfigMessage): void {
 
 	applyEffectiveTheme();
 
-	// اگر renderMode یا showGrid عوض شد، دوباره رندر کن
 	const viewChanged = !previous || previous.view.renderMode !== config.view.renderMode || previous.view.showGrid !== config.view.showGrid || previous.view.showWorldBorder !== config.view.showWorldBorder;
 
 	if (viewChanged) {
@@ -54,7 +53,6 @@ function handleConfig(config: LibGdxEditorConfigMessage): void {
 		});
 	}
 
-	// toolbar بازسازی شود
 	window.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
 }
 
@@ -82,6 +80,12 @@ export function setupMessages(): void {
 				});
 				break;
 			}
+			case "brokenAssets":
+				setBrokenAssets(msg.paths as string[]);
+				scheduleRender(() => {
+					if (scene) renderScene(scene);
+				});
+				break;
 			case "configLoaded":
 			case "configUpdated":
 				handleConfig(msg.config);

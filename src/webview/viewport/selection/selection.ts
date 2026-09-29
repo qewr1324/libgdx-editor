@@ -1,13 +1,12 @@
-import { Container, Graphics } from "pixi.js";
-import { scene, selectionLayer, selectedIds, setSelectedIds, setPrimarySelectedId, primarySelectedId } from "../state.js";
+import { Container, Graphics, Rectangle } from "pixi.js";
+import { app, interactionMode, scene, selectionLayer, selectedIds, setSelectedIds, setPrimarySelectedId } from "../state.js";
 import type { GameObject } from "../../../types/scene.js";
 import { findObject } from "../utils/geometry.js";
 import { vscode } from "../types.js";
 import { beginResize } from "../interaction/resize.js";
 import { beginRotate } from "../interaction/rotate.js";
+import { beginMarquee, cancelMarquee, finishMarquee, updateMarquee } from "../interaction/marquee.js";
 import type { HandleType } from "../types.js";
-import { Rectangle } from "pixi.js";
-import { app, interactionMode } from "../state.js";
 
 export function selectObjects(ids: string[], primaryId?: string | null): void {
 	setSelectedIds(ids);
@@ -155,12 +154,47 @@ function drawRotateHandle(obj: GameObject, t: GameObject["transform"]): void {
 	selectionLayer.addChild(rotateContainer);
 }
 
+// ============================================================
+// Marquee + Deselect
+// ============================================================
+
 export function setupDeselect(): void {
 	app.stage.eventMode = "static";
 	app.stage.hitArea = new Rectangle(0, 0, window.innerWidth, window.innerHeight);
-	app.stage.on("pointerdown", () => {
-		if (interactionMode === "idle") {
-			selectObjects([]);
+
+	let marqueeStarted = false;
+
+	app.stage.on("pointerdown", (e) => {
+		if (interactionMode !== "idle") return;
+		if (e.button !== 0) return;
+		const rect = app.canvas.getBoundingClientRect();
+		const screenX = e.clientX - rect.left;
+		const screenY = e.clientY - rect.top;
+		beginMarquee(screenX, screenY);
+		marqueeStarted = true;
+	});
+
+	window.addEventListener("pointermove", (e) => {
+		if (!marqueeStarted || interactionMode !== "marquee") return;
+		const rect = app.canvas.getBoundingClientRect();
+		const screenX = e.clientX - rect.left;
+		const screenY = e.clientY - rect.top;
+		updateMarquee(screenX, screenY);
+	});
+
+	window.addEventListener("pointerup", (e) => {
+		if (!marqueeStarted) return;
+		marqueeStarted = false;
+		const rect = app.canvas.getBoundingClientRect();
+		const screenX = e.clientX - rect.left;
+		const screenY = e.clientY - rect.top;
+		finishMarquee(screenX, screenY);
+	});
+
+	window.addEventListener("pointercancel", () => {
+		if (marqueeStarted) {
+			marqueeStarted = false;
+			cancelMarquee();
 		}
 	});
 }

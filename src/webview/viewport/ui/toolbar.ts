@@ -3,7 +3,7 @@ import { scene, setScene, viewport } from "../state.js";
 import { getConfig } from "../config-store.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
 import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
-import type { ShapeType } from "../../../config/config-types.js";
+import type { ShapeType, AlignMode, DistributeMode } from "../../../config/config-types.js";
 
 let currentToolbar: HTMLDivElement | null = null;
 let keyboardShortcutsInstalled = false;
@@ -16,18 +16,14 @@ export function setupToolbar(): void {
 	window.addEventListener("theme-changed", () => rebuildToolbar());
 	window.addEventListener("config-changed", () => rebuildToolbar());
 
-	// ✅ بستن dropdown ها با کلیک بیرون
 	document.addEventListener(
 		"click",
 		(e) => {
 			if (!openDropdown) return;
 			const target = e.target as Node;
 
-			// اگر داخل dropdown کلیک شد، کاری نکن (خود handler اصلی مدیریت می‌کند)
 			if (openDropdown.contains(target)) return;
 
-			// اگر روی trigger همان dropdown یا trigger هر dropdown دیگری کلیک شد،
-			// نگذار document listener آن را ببندد — handler اصلی toggle می‌کند
 			const trigger = (target as HTMLElement).closest?.("[data-action$='-menu']");
 			if (trigger) return;
 
@@ -123,6 +119,25 @@ function buildToolbar(): HTMLDivElement {
 			<button class="tb-seg ${gizmoMode === "object" ? "active" : ""}" data-action="gizmo-object">📦 Object</button>
 		</div>
 
+		<div class="tb-group" data-dropdown="arrange">
+			<button class="tb-btn tb-dropdown-trigger" data-action="arrange-menu">
+				<span>📐 Arrange</span>
+				<span class="tb-caret">▼</span>
+			</button>
+			<div class="tb-dropdown" data-menu="arrange">
+				<div class="tb-menu-item" data-align="left"><span class="shape-icon">⇤</span> Align Left</div>
+				<div class="tb-menu-item" data-align="hcenter"><span class="shape-icon">↔</span> Align H-Center</div>
+				<div class="tb-menu-item" data-align="right"><span class="shape-icon">⇥</span> Align Right</div>
+				<div class="tb-menu-sep"></div>
+				<div class="tb-menu-item" data-align="top"><span class="shape-icon">⤒</span> Align Top</div>
+				<div class="tb-menu-item" data-align="vcenter"><span class="shape-icon">↕</span> Align V-Center</div>
+				<div class="tb-menu-item" data-align="bottom"><span class="shape-icon">⤓</span> Align Bottom</div>
+				<div class="tb-menu-sep"></div>
+				<div class="tb-menu-item" data-distribute="horizontal"><span class="shape-icon">⇹</span> Distribute H</div>
+				<div class="tb-menu-item" data-distribute="vertical"><span class="shape-icon">⇳</span> Distribute V</div>
+			</div>
+		</div>
+
 		<span class="tb-sep"></span>
 
 		<button class="tb-btn ${snapGrid ? "active" : ""}" data-action="snap-grid" title="Snap to Grid">
@@ -142,14 +157,12 @@ function buildToolbar(): HTMLDivElement {
 	`;
 
 	toolbar.addEventListener("click", (e) => {
-		const target = (e.target as HTMLElement).closest("[data-action], [data-shape], [data-view-mode], [data-view-toggle]") as HTMLElement | null;
+		const target = (e.target as HTMLElement).closest("[data-action], [data-shape], [data-view-mode], [data-view-toggle], [data-align], [data-distribute]") as HTMLElement | null;
 		if (!target) return;
 
 		const action = target.dataset.action;
 
-		// ---------- Dropdown triggers ----------
-		if (action === "sprite-menu" || action === "shapes-menu" || action === "view-menu") {
-			// ✅ جلوگیری از رسیدن به document listener
+		if (action === "sprite-menu" || action === "shapes-menu" || action === "view-menu" || action === "arrange-menu") {
 			e.stopPropagation();
 			const group = target.closest(".tb-group") as HTMLElement;
 			const dropdown = group.querySelector(".tb-dropdown") as HTMLDivElement;
@@ -157,7 +170,6 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- Menu item: shape ----------
 		if (target.dataset.shape) {
 			e.stopPropagation();
 			closeDropdown();
@@ -165,7 +177,6 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- Menu item: view mode ----------
 		if (target.dataset.viewMode) {
 			e.stopPropagation();
 			closeDropdown();
@@ -174,7 +185,6 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- Menu item: view toggle ----------
 		if (target.dataset.viewToggle) {
 			e.stopPropagation();
 			const key = target.dataset.viewToggle as "showGrid" | "showWorldBorder" | "showRulers";
@@ -185,7 +195,20 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- Toolbar buttons ----------
+		if (target.dataset.align) {
+			e.stopPropagation();
+			closeDropdown();
+			alignSelection(target.dataset.align as AlignMode);
+			return;
+		}
+
+		if (target.dataset.distribute) {
+			e.stopPropagation();
+			closeDropdown();
+			distributeSelection(target.dataset.distribute as DistributeMode);
+			return;
+		}
+
 		switch (action) {
 			case "add-sprite":
 				closeDropdown();
@@ -254,10 +277,6 @@ export function updateToolbarInfo(text: string): void {
 	if (el) el.textContent = text;
 }
 
-// ============================================================
-// Actions
-// ============================================================
-
 function addObject(type: "sprite" | "shape" | "text" | "group"): void {
 	if (!viewport) return;
 	const center = viewport.center;
@@ -299,6 +318,28 @@ function deleteSelection(): void {
 	});
 }
 
+function alignSelection(mode: AlignMode): void {
+	void import("../state.js").then((state) => {
+		if (state.selectedIds.length < 2) {
+			updateToolbarInfo("Select at least 2 objects");
+			setTimeout(() => updateToolbarInfo(""), 1500);
+			return;
+		}
+		vscode.postMessage({ type: "alignObjects", objectIds: state.selectedIds, mode });
+	});
+}
+
+function distributeSelection(mode: DistributeMode): void {
+	void import("../state.js").then((state) => {
+		if (state.selectedIds.length < 3) {
+			updateToolbarInfo("Select at least 3 objects");
+			setTimeout(() => updateToolbarInfo(""), 1500);
+			return;
+		}
+		vscode.postMessage({ type: "distributeObjects", objectIds: state.selectedIds, mode });
+	});
+}
+
 function toggleSnapGrid(button: HTMLElement): void {
 	if (!scene) return;
 	const next = !scene.snapToGrid;
@@ -319,10 +360,6 @@ function saveScene(): void {
 function updateConfigPartial(partial: Record<string, unknown>): void {
 	vscode.postMessage({ type: "updateConfigPartial", partial });
 }
-
-// ============================================================
-// Keyboard
-// ============================================================
 
 function setupKeyboardShortcuts(): void {
 	window.addEventListener("keydown", (e) => {
