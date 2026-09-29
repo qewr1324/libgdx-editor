@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { getAnimatorWebviewHtml } from "./webviewHtml.js";
 import { parseAnimationDocument, writeAnimationDocument, saveAnimationDocument } from "./animatorParser.js";
 import { DEFAULT_ANIMATION, type Animation } from "./animatorConfig.js";
+import { AssetManager } from "../editor/assetManager.js";
 import { log } from "../shared/logger.js";
 import type { AnimatorMessageFromWebview, AnimatorMessageToWebview } from "../webview/animator/protocol.js";
 
@@ -12,6 +13,7 @@ interface AnimatorDocumentState {
 	isDirty: boolean;
 	autoSaveTimer: NodeJS.Timeout | null;
 	programmaticChangeUntil: number;
+	currentSceneUri: vscode.Uri | null;
 }
 
 export class AnimatorEditorProvider implements vscode.CustomTextEditorProvider {
@@ -53,6 +55,7 @@ export class AnimatorEditorProvider implements vscode.CustomTextEditorProvider {
 				isDirty: false,
 				autoSaveTimer: null,
 				programmaticChangeUntil: 0,
+				currentSceneUri: null,
 			};
 			this.states.set(uriKey, state);
 		}
@@ -210,6 +213,8 @@ export class AnimatorEditorProvider implements vscode.CustomTextEditorProvider {
 
 			const objects = this.collectObjects(scene);
 
+			ctx.state.currentSceneUri = sceneUri;
+
 			this.postToAllWebviews(ctx.state, {
 				type: "sceneLoaded",
 				sceneName,
@@ -217,6 +222,17 @@ export class AnimatorEditorProvider implements vscode.CustomTextEditorProvider {
 				scene,
 				objects,
 			});
+
+			// ✅ لود کردن texture ها به عنوان data URL و فرستادن به webview
+			try {
+				const textures = await AssetManager.loadTexturesAsDataUrls(sceneUri, scene);
+				this.postToAllWebviews(ctx.state, {
+					type: "texturesLoaded",
+					textures,
+				});
+			} catch (err) {
+				log.error("[Animator] loadTextures failed:", err);
+			}
 		} catch (err) {
 			log.error("[Animator] sendScene failed:", err);
 			this.postToAllWebviews(ctx.state, {

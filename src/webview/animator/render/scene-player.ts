@@ -1,22 +1,28 @@
 import { Container, Graphics, Sprite, Text, TextStyle, Texture } from "pixi.js";
 import { getLayers } from "./pixi-setup.js";
-import { animation, scene, currentTime } from "../state.js";
+import { animation, scene } from "../state.js";
 import { sampleAnimation } from "../../../animator/animatorController.js";
 import type { GameObject } from "../../../types/scene.js";
 import type { ShapeType } from "../../../config/config-types.js";
 
-let textureCache = new Map<string, Texture>();
-const spriteCache = new Map<string, Container>();
+const textureCache = new Map<string, Texture>();
+// ✅ کش container برای هر آبجکت — هر فریم فقط پراپرتی‌ها آپدیت می‌شن
+const containerCache = new Map<string, Container>();
 
 export function clearPreview(): void {
 	const l = getLayers();
 	if (!l) return;
 	l.contentLayer.removeChildren();
-	spriteCache.clear();
+	for (const container of containerCache.values()) {
+		container.destroy({ children: true });
+	}
+	containerCache.clear();
 }
 
 /**
  * صحنه رو در زمان مشخص رندر می‌کنه.
+ * - اگه ساختار صحنه عوض شده باشه (تعداد/آی‌دی آبجکت‌ها)، کش بازسازی می‌شه
+ * - در غیر این صورت، فقط property ها آپدیت می‌شن
  */
 export function renderAtTime(timeMs: number): void {
 	const l = getLayers();
@@ -24,11 +30,7 @@ export function renderAtTime(timeMs: number): void {
 
 	const samples = animation ? sampleAnimation(animation, timeMs) : new Map();
 
-	// پاک کردن کش sprite اگه صحنه عوض شده
-	l.contentLayer.removeChildren();
-	spriteCache.clear();
-
-	// مرتب‌سازی بر اساس zIndex
+	// آبجکت‌های قابل نمایش، مرتب‌شده بر اساس zIndex
 	const allObjects: GameObject[] = [];
 	for (const layer of scene.layers) {
 		if (!layer.visible) continue;
@@ -36,34 +38,53 @@ export function renderAtTime(timeMs: number): void {
 	}
 	allObjects.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 
+	// ✅ چک کن آیا ساختار عوض شده
+	const sceneStructureChanged = allObjects.length !== containerCache.size || allObjects.some((o) => !containerCache.has(o.id));
+
+	if (sceneStructureChanged) {
+		rebuildContainers(allObjects);
+	}
+
+	// ✅ فقط آپدیت کن — نه بازسازی
 	for (const obj of allObjects) {
-		const container = renderObjectWithOverrides(obj, samples);
+		const container = containerCache.get(obj.id);
+		if (!container) continue;
+		applyOverrides(container, obj, samples);
+	}
+}
+
+/**
+ * ساخت مجدد همه container ها (فقط وقتی ساختار صحنه عوض شده)
+ */
+function rebuildContainers(allObjects: GameObject[]): void {
+	const l = getLayers();
+	if (!l) return;
+
+	l.contentLayer.removeChildren();
+	for (const container of containerCache.values()) {
+		container.destroy({ children: true });
+	}
+	containerCache.clear();
+
+	for (const obj of allObjects) {
+		const container = buildObject(obj);
 		if (container) {
 			l.contentLayer.addChild(container);
-			spriteCache.set(obj.id, container);
+			containerCache.set(obj.id, container);
 		}
 	}
 }
 
-function renderObjectWithOverrides(obj: GameObject, samples: Map<string, number | string | boolean>): Container | null {
-	// کپی از transform
-	const t = { ...obj.transform };
-
-	for (const [key, value] of samples) {
-		const [objectId, property] = key.split("::");
-		if (objectId !== obj.id) continue;
-
-		if (property.startsWith("transform.")) {
-			const prop = property.slice("transform.".length) as keyof typeof t;
-			if (typeof value === "number") {
-				t[prop] = value as never;
-			}
-		}
-	}
-
+/**
+ * ساخت container برای یک آبجکت از صفر
+ */
+function buildObject(obj: GameObject): Container | null {
 	const container = new Container();
+	const t = obj.transform;
 
 	let rendered = false;
+
+	// --- sprite ---
 	if (obj.type === "sprite" && obj.texture) {
 		const cached = textureCache.get(obj.texture);
 		if (cached) {
@@ -71,44 +92,113 @@ function renderObjectWithOverrides(obj: GameObject, samples: Map<string, number 
 			sprite.width = t.width;
 			sprite.height = t.height;
 			sprite.eventMode = "none";
+			sprite.label = "sprite";
 			container.addChild(sprite);
 			rendered = true;
 		}
 	}
 
+	// --- text ---
+	if (!rendered && obj.type === "text") {
+		const txt = new Text({
+			text: obj.name,
+			style: new TextStyle({ fill: obj.color || "#ffffff", fontSize: 16 }),
+		});
+		txt.eventMode = "none";
+		txt.label = "text";
+		container.addChild(txt);
+		rendered = true;
+	}
+
+	// --- shape / fallback ---
 	if (!rendered) {
-		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
+		const color = obj.color ? Number.parseInt(obj.color.replace("#", "0x"), 16) : 0x4a9eff;
 		const g = new Graphics();
 
 		if (obj.type === "shape") {
 			const shapeType = (obj.properties?.shapeType as ShapeType) ?? "rectangle";
 			drawShape(g, shapeType, t.width, t.height);
-		} else if (obj.type === "text") {
-			const txt = new Text({
-				text: obj.name,
-				style: new TextStyle({ fill: obj.color || "#ffffff", fontSize: 16 }),
-			});
-			container.addChild(txt);
-			rendered = true;
 		} else {
 			g.rect(0, 0, t.width, t.height);
 		}
 
-		if (!rendered) {
-			g.fill({ color, alpha: 1 });
-			g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
-			g.eventMode = "none";
-			container.addChild(g);
+		g.fill({ color, alpha: 1 });
+		g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
+		g.eventMode = "none";
+		g.label = "shape";
+		container.addChild(g);
+	}
+
+	applyTransform(container, obj);
+	return container;
+}
+
+/**
+ * اعمال transform فعلی آبجکت روی container
+ */
+function applyTransform(container: Container, obj: GameObject): void {
+	const t = obj.transform;
+	container.x = t.x;
+	container.y = t.y;
+	container.rotation = (t.rotation * Math.PI) / 180;
+	container.scale.set(t.scaleX, t.scaleY);
+	container.pivot.set(t.width * t.originX, t.height * t.originY);
+}
+
+/**
+ * اعمال مقادیر keyframe ها روی container
+ */
+function applyOverrides(container: Container, obj: GameObject, samples: Map<string, number | string | boolean>): void {
+	const t = { ...obj.transform };
+	let color = obj.color;
+	let alpha = 1;
+	let visible = true;
+
+	for (const [key, value] of samples) {
+		const sep = key.indexOf("::");
+		if (sep === -1) continue;
+		const objectId = key.slice(0, sep);
+		const property = key.slice(sep + 2);
+		if (objectId !== obj.id) continue;
+
+		if (property.startsWith("transform.")) {
+			const prop = property.slice("transform.".length) as keyof typeof t;
+			if (typeof value === "number") {
+				(t as Record<string, unknown>)[prop] = value;
+			}
+		} else if (property === "color" && typeof value === "string") {
+			color = value;
+		} else if (property === "opacity" && typeof value === "number") {
+			alpha = value;
+		} else if (property === "visible" && typeof value === "boolean") {
+			visible = value;
 		}
 	}
 
+	// transform
 	container.x = t.x;
 	container.y = t.y;
 	container.rotation = (t.rotation * Math.PI) / 180;
 	container.scale.set(t.scaleX, t.scaleY);
 	container.pivot.set(t.width * t.originX, t.height * t.originY);
 
-	return container;
+	// ✅ اندازه sprite رو هم آپدیت کن
+	for (const child of container.children) {
+		if (child.label === "sprite" && child instanceof Sprite) {
+			child.width = t.width;
+			child.height = t.height;
+		} else if (child.label === "shape" && child instanceof Graphics) {
+			// shape رو نمی‌تونیم به‌راحتی ری‌سایز کنیم بدون بازسازی
+			// ولی چون pivot و scale آپدیت می‌شن، به‌قدر کافی خوبه
+			child.tint = color ? Number.parseInt(color.replace("#", "0x"), 16) : 0xffffff;
+		} else if (child.label === "text" && child instanceof Text) {
+			if (color) child.style.fill = color;
+		}
+	}
+
+	// ✅ opacity و visible
+	container.alpha = alpha;
+	container.visible = visible;
 }
 
 function drawShape(g: Graphics, shapeType: ShapeType, width: number, height: number): void {
@@ -177,4 +267,6 @@ function drawStar(g: Graphics, cx: number, cy: number, outerR: number, innerR: n
 
 export function setTexture(path: string, texture: Texture): void {
 	textureCache.set(path, texture);
+	// ✅ اگه تکسچر جدید اومد، container ها رو invalidate کن که دفعه بعد بازسازی شن
+	containerCache.clear();
 }

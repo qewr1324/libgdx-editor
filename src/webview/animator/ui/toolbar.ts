@@ -28,6 +28,27 @@ export function rerenderToolbar(): void {
 	render();
 }
 
+/**
+ * ✅ فقط دکمه play/pause رو آپدیت می‌کنه — بدون بازسازی کل toolbar
+ */
+export function updateToolbarPlayButton(isPlaying: boolean): void {
+	if (!container) return;
+	const btn = container.querySelector<HTMLButtonElement>('[data-action="play-pause"]');
+	if (!btn) return;
+	if (isPlaying) {
+		btn.textContent = "⏸";
+		btn.classList.add("active");
+	} else {
+		btn.textContent = "▶";
+		btn.classList.remove("active");
+	}
+	// زمان فعلی رو هم آپدیت کن
+	const timeDisplay = container.querySelector<HTMLSpanElement>(".anim-time-display");
+	if (timeDisplay && animation) {
+		timeDisplay.textContent = `${formatTime(currentTime)} / ${formatTime(animation.duration)}`;
+	}
+}
+
 function render(): void {
 	if (!container) return;
 	if (!animation) {
@@ -103,7 +124,7 @@ function attachListeners(): void {
 
 	container.querySelector<HTMLInputElement>("[data-duration]")?.addEventListener("change", (e) => {
 		const target = e.target as HTMLInputElement;
-		const value = Math.max(100, parseInt(target.value, 10));
+		const value = Math.max(100, Number.parseInt(target.value, 10));
 		if (!Number.isNaN(value)) {
 			callbacks!.onMetadataChanged({ duration: value });
 		}
@@ -111,7 +132,7 @@ function attachListeners(): void {
 
 	container.querySelector<HTMLInputElement>("[data-fps]")?.addEventListener("change", (e) => {
 		const target = e.target as HTMLInputElement;
-		const value = Math.max(1, Math.min(120, parseInt(target.value, 10)));
+		const value = Math.max(1, Math.min(120, Number.parseInt(target.value, 10)));
 		if (!Number.isNaN(value)) {
 			callbacks!.onMetadataChanged({ fps: value });
 		}

@@ -10,7 +10,8 @@ export type AnimatorMessageToWebview =
 	| { type: "sceneList"; scenes: Array<{ name: string; uri: string }> }
 	| { type: "sceneLoaded"; sceneName: string; sceneUri: string; scene: Scene; objects: ObjectInfo[] }
 	| { type: "sceneError"; message: string }
-	| { type: "objectList"; objects: ObjectInfo[] };
+	| { type: "objectList"; objects: ObjectInfo[] }
+	| { type: "texturesLoaded"; textures: Record<string, string> };
 
 /**
  * پیام‌هایی که از webview به extension می‌ره

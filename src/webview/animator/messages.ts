@@ -1,5 +1,6 @@
 import { vscode } from "./types.js";
 import { setAnimation, setScene, setSceneName, setObjects, setFilePath } from "./state.js";
+import { loadTexture } from "./render/textures.js";
 import type { AnimatorMessageToWebview } from "./protocol.js";
 
 type LoadCallback = () => void;
@@ -23,7 +24,7 @@ export function setSceneListCallback(cb: SceneListCallback): void {
 }
 
 export function setupMessages(): void {
-	window.addEventListener("message", (event) => {
+	window.addEventListener("message", async (event) => {
 		const msg = event.data as AnimatorMessageToWebview;
 
 		switch (msg.type) {
@@ -53,6 +54,22 @@ export function setupMessages(): void {
 				setObjects(msg.objects);
 				onAnimationUpdate?.();
 				break;
+
+			// ✅ لود کردن texture ها و رفرش کردن پیش‌نمایش
+			case "texturesLoaded": {
+				const entries = Object.entries(msg.textures);
+				await Promise.all(
+					entries.map(async ([path, dataUrl]) => {
+						try {
+							await loadTexture(path, dataUrl);
+						} catch (err) {
+							console.error("[Animator] Failed to load texture:", path, err);
+						}
+					}),
+				);
+				onAnimationUpdate?.();
+				break;
+			}
 
 			case "sceneError":
 				console.error("[Animator] Scene error:", msg.message);

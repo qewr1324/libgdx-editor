@@ -1,18 +1,19 @@
 import "./style.css";
-import { vscode } from "./types.js";
 import { animation, setAnimation, setCurrentTime, playing, setPlaying, currentTime, setSelectedTrackIndex, setSelectedKeyframeIndex, objects } from "./state.js";
 import { setupMessages, setLoadCallback, setAnimationUpdateCallback, setSceneListCallback, postToExtension } from "./messages.js";
-import { setupToolbar, rerenderToolbar } from "./ui/toolbar.js";
+import { setupToolbar, rerenderToolbar, updateToolbarPlayButton } from "./ui/toolbar.js";
 import { setupTimelinePanel, rerenderTimeline, updatePlayheadPosition } from "./ui/timeline-panel.js";
 import { setupKeyframeInspector, rerenderKeyframeInspector } from "./ui/keyframe-inspector.js";
 import { setupPreviewPanel, refreshPreview } from "./ui/preview-panel.js";
 import { AnimatorController } from "../../animator/animatorController.js";
-import { loadTexture } from "./render/textures.js";
 import type { EasingType, Track } from "../../animator/animatorConfig.js";
 
 const root = document.getElementById("animator-root")!;
 let controller: AnimatorController | null = null;
 let sceneList: Array<{ name: string; uri: string }> = [];
+
+// ✅ برای اینکه بدونیم آخرین وضعیت playing چی بوده
+let lastPlayingState = false;
 
 // ============================================================
 // Layout
@@ -160,14 +161,21 @@ function onSceneList(scenes: Array<{ name: string; uri: string }>): void {
 }
 
 function onPlaybackUpdate(state: { playing: boolean; currentTime: number }): void {
+	const playingChanged = state.playing !== lastPlayingState;
+	lastPlayingState = state.playing;
+
 	setPlaying(state.playing);
 	setCurrentTime(state.currentTime);
 
 	updatePlayheadPosition(state.currentTime);
 	refreshPreview(state.currentTime);
 
-	// آپدیت toolbar اگه وضعیت playing عوض شده
-	rerenderToolbar();
+	// ✅ فقط وقتی وضعیت playing عوض شده، toolbar رو دوباره بساز
+	if (playingChanged) {
+		rerenderToolbar();
+	} else {
+		updateToolbarPlayButton(state.playing);
+	}
 }
 
 // ============================================================
