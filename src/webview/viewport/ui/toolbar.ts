@@ -1,3 +1,4 @@
+// src/webview/viewport/ui/toolbar.ts
 import { vscode } from "../types.js";
 import { scene, setScene, viewport } from "../state.js";
 import { getConfig } from "../config-store.js";
@@ -52,6 +53,7 @@ function buildToolbar(): HTMLDivElement {
 	const showWorldBorder = config?.view.showWorldBorder !== false;
 	const showRulers = config?.view.showRulers !== false;
 	const snapGrid = scene?.snapToGrid ?? false;
+	const snapObjects = config?.snapping?.enabled ?? false;
 	const gizmoMode = config?.gizmo.mode ?? "world";
 	const lastShape = config?.ui.lastShapeType ?? "rectangle";
 
@@ -121,8 +123,12 @@ function buildToolbar(): HTMLDivElement {
 
 		<span class="tb-sep"></span>
 
-		<button class="tb-btn ${snapGrid ? "active" : ""}" data-action="snap-grid" title="Snap to Grid">
-			<span>🧲 Snap</span>
+		<button class="tb-btn ${snapGrid ? "active" : ""}" data-action="snap-grid" title="Snap to Grid (Toggle)">
+			<span>🧲 Grid</span>
+		</button>
+
+		<button class="tb-btn ${snapObjects ? "active" : ""}" data-action="snap-objects" title="Snap to Objects (Toggle)">
+			<span>🧷 Objects</span>
 		</button>
 
 		<button class="tb-btn" data-action="delete" title="Delete Selected">
@@ -199,6 +205,9 @@ function buildToolbar(): HTMLDivElement {
 				break;
 			case "snap-grid":
 				toggleSnapGrid(target);
+				break;
+			case "snap-objects":
+				toggleSnapObjects(target);
 				break;
 			case "delete":
 				deleteSelection();
@@ -285,13 +294,38 @@ function deleteSelection(): void {
 	});
 }
 
+/**
+ * 🧲 Snap to Grid — رفتار قبلی، از scene.snapToGrid
+ */
 function toggleSnapGrid(button: HTMLElement): void {
 	if (!scene) return;
 	const next = !scene.snapToGrid;
 	setScene({ ...scene, snapToGrid: next });
 	button.classList.toggle("active", next);
-	vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: next, historyLabel: "toggle snap" });
+	vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: next, historyLabel: "toggle snap grid" });
 	updateConfigPartial({ grid: { snap: next } });
+
+	updateToolbarInfo(next ? "Snap to Grid: ON" : "Snap to Grid: OFF");
+	setTimeout(() => updateToolbarInfo(""), 1200);
+}
+
+/**
+ * 🧷 Snap to Objects — جدید، از config.snapping.enabled
+ */
+function toggleSnapObjects(button: HTMLElement): void {
+	const config = getConfig();
+	const current = config?.snapping?.enabled ?? false;
+	const next = !current;
+
+	button.classList.toggle("active", next);
+
+	vscode.postMessage({
+		type: "updateConfigPartial",
+		partial: { snapping: { enabled: next } },
+	});
+
+	updateToolbarInfo(next ? "Snap to Objects: ON" : "Snap to Objects: OFF");
+	setTimeout(() => updateToolbarInfo(""), 1200);
 }
 
 function saveScene(): void {

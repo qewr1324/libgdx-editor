@@ -5,8 +5,8 @@ import type { GuideLine, SnapCandidate, SnapConfig, SnapResult } from "./snap-ty
 const EPSILON = 0.001;
 
 /**
- * موتور snap خالص. ورودی می‌گیره، خروجی محاسبه‌شده برمی‌گردونه.
- * worldToScreenScale: برای تبدیل threshold از screen به world.
+ * موتور snap برای snap-to-objects و snap-to-world-edges.
+ * snap-to-grid جداگانه توسط scene.snapToGrid کنترل میشه.
  */
 export function computeSnap(proposedX: number, proposedY: number, width: number, height: number, originX: number, originY: number, excludeIds: Set<string>, scene: Scene, config: SnapConfig, worldToScreenScale: number): SnapResult {
 	if (!config.enabled) {
@@ -169,27 +169,6 @@ export function computeSnap(proposedX: number, proposedY: number, width: number,
 					};
 				}
 			}
-		}
-	}
-
-	// 3. snap به grid (اگه فعال باشه)
-	if (config.snapToGrid) {
-		const g = scene.gridSize || 32;
-		const gridX = Math.round(proposedX / g) * g;
-		const gridY = Math.round(proposedY / g) * g;
-		const deltaX = gridX - proposedX;
-		const deltaY = gridY - proposedY;
-		if (Math.abs(deltaX) <= worldThresholdX && (!bestSnapX || Math.abs(deltaX) < Math.abs(bestSnapX.delta))) {
-			bestSnapX = {
-				delta: deltaX,
-				candidate: { axis: "x", position: gridX, source: "grid", refMin: 0, refMax: scene.worldSize.height },
-			};
-		}
-		if (Math.abs(deltaY) <= worldThresholdY && (!bestSnapY || Math.abs(deltaY) < Math.abs(bestSnapY.delta))) {
-			bestSnapY = {
-				delta: deltaY,
-				candidate: { axis: "y", position: gridY, source: "grid", refMin: 0, refMax: scene.worldSize.width },
-			};
 		}
 	}
 

@@ -5,7 +5,7 @@ import type { InteractionData } from "../types.js";
 import { findObject } from "../utils/geometry.js";
 import { drawSelectionOutlines } from "../selection/selection.js";
 import { drawDragGuides } from "../selection/gizmo.js";
-import { applySnapDuringDrag } from "../features/snapping/index.js";
+import { applySnapDuringDrag, clearSnapGuides } from "../features/snapping/index.js";
 
 export function beginDrag(e: any, primaryObj: GameObject): void {
 	if (!viewport) return;
@@ -44,17 +44,27 @@ export function handleDragMove(_e: PointerEvent, worldX: number, worldY: number)
 	const dy = worldY - data.startWorldY;
 
 	const primaryStart = data.startTransforms.get(data.primaryObj.id)!;
-	let newPrimaryX = primaryStart.x + dx;
-	let newPrimaryY = primaryStart.y + dy;
+	let proposedX = primaryStart.x + dx;
+	let proposedY = primaryStart.y + dy;
 
-	// ✅ Snap: به جای فقط grid، حالا snap به آبجکت‌ها و world هم فعاله
+	// ✅ مرحله ۱: snap-to-grid (قدیمی، مستقل، از scene.snapToGrid)
+	if (scene.snapToGrid) {
+		const g = scene.gridSize || 32;
+		proposedX = Math.round(proposedX / g) * g;
+		proposedY = Math.round(proposedY / g) * g;
+	}
+
+	// ✅ مرحله ۲: snap-to-objects + snap-to-world (جدید، از config.snapping)
+	//    اگه snap-to-grid فعال بود، این مرحله ممکنه باز هم موقعیت رو تغییر بده
+	//    (معمولاً snap-to-objects دقیق‌تره و اولویت داره)
 	const excludeIds = new Set<string>(data.startTransforms.keys());
-	const snapped = applySnapDuringDrag(newPrimaryX, newPrimaryY, data.primaryObj, excludeIds, scene);
-	newPrimaryX = snapped.x;
-	newPrimaryY = snapped.y;
+	const snapped = applySnapDuringDrag(proposedX, proposedY, data.primaryObj, excludeIds, scene);
+	const finalX = snapped.x;
+	const finalY = snapped.y;
 
-	const snapDX = newPrimaryX - (primaryStart.x + dx);
-	const snapDY = newPrimaryY - (primaryStart.y + dy);
+	// دلتای نهایی برای همه‌ی آبجکت‌های انتخاب‌شده
+	const snapDX = finalX - (primaryStart.x + dx);
+	const snapDY = finalY - (primaryStart.y + dy);
 
 	for (const [id, start] of data.startTransforms) {
 		const obj = findObject(scene, id);
@@ -74,3 +84,7 @@ export function handleDragMove(_e: PointerEvent, worldX: number, worldY: number)
 	drawSelectionOutlines();
 	drawDragGuides(data.primaryObj);
 }
+
+// این تابع رو نگه می‌داریم که global.ts بتواند صدا بزند (در پیام قبلی global.ts
+// clearSnapGuides را صدا می‌زند، ولی اینجا هم برای سازگاری export می‌کنیم)
+export { clearSnapGuides };

@@ -1,14 +1,18 @@
 // src/features/snapping/snap-types.ts
 /**
  * تایپ‌های مشترک بین extension و webview برای snap.
+ *
+ * دو سیستم snap جدا:
+ *   - snapToGrid:  فقط grid (کنترل از scene.snapToGrid)
+ *   - snapToObjects: فقط object/world edges (کنترل از config.snapping.enabled)
  */
 
 export interface SnapConfig {
+	/** فقط snap به آبجکت‌ها و لبه‌های world رو کنترل می‌کنه */
 	enabled: boolean;
-	threshold: number; // در screen pixels
+	threshold: number;
 	snapToObjects: boolean;
 	snapToWorldEdges: boolean;
-	snapToGrid: boolean;
 	showGuides: boolean;
 	guideColor: string;
 }
@@ -18,7 +22,6 @@ export const DEFAULT_SNAP_CONFIG: SnapConfig = {
 	threshold: 8,
 	snapToObjects: true,
 	snapToWorldEdges: true,
-	snapToGrid: false,
 	showGuides: true,
 	guideColor: "#00d4ff",
 };
@@ -37,7 +40,7 @@ export interface GuideLine {
 export interface SnapCandidate {
 	axis: GuideAxis;
 	position: number;
-	source: "object" | "world" | "grid";
+	source: "object" | "world";
 	refMin: number;
 	refMax: number;
 }

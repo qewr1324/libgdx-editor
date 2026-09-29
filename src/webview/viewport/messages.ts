@@ -1,3 +1,4 @@
+// src/webview/viewport/messages.ts
 import { vscode } from "./types.js";
 import { loadTexture } from "./pixi/textures.js";
 import { renderScene } from "./render/scene.js";
@@ -58,6 +59,9 @@ function handleConfig(config: LibGdxEditorConfigMessage): void {
 		drawSelectionOutlines();
 	}
 
+	// ✅ event برای toolbar و snapping
+	// toolbar.ts به این event گوش می‌ده و rebuild می‌کنه
+	// snapping/index.ts به این event گوش می‌ده و refreshSnapConfig می‌کنه
 	window.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
 }
 
