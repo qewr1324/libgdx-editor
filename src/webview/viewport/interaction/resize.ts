@@ -4,6 +4,7 @@ import type { HandleType, InteractionData } from "../types.js";
 import { rerenderObject } from "../render/scene.js";
 import { drawSelectionOutlines } from "../selection/selection.js";
 import { drawResizeLabel } from "../selection/gizmo.js";
+import { getConfig } from "../config-store.js";
 
 export function beginResize(e: any, obj: GameObject, handle: HandleType): void {
 	if (!viewport) return;
@@ -35,8 +36,21 @@ export function handleResizeMove(e: PointerEvent, worldX: number, worldY: number
 	const handle = data.resizeHandle!;
 	const startTransform = data.startTransforms.get(obj.id)!;
 
-	const dx = worldX - data.startWorldX;
-	const dy = worldY - data.startWorldY;
+	let dx = worldX - data.startWorldX;
+	let dy = worldY - data.startWorldY;
+
+	// ✅ در object mode، delta رو به محور محلی آبجکت تبدیل می‌کنیم
+	const isObjectMode = getConfig()?.gizmo.mode === "object";
+	if (isObjectMode && startTransform.r !== 0) {
+		const rad = (startTransform.r * Math.PI) / 180;
+		const cos = Math.cos(rad);
+		const sin = Math.sin(rad);
+		// rotation برعکس برای برگردوندن به محور محلی
+		const localDx = dx * cos + dy * sin;
+		const localDy = -dx * sin + dy * cos;
+		dx = localDx;
+		dy = localDy;
+	}
 
 	const shift = e.shiftKey;
 	const alt = e.altKey;
@@ -94,6 +108,20 @@ export function handleResizeMove(e: PointerEvent, worldX: number, worldY: number
 		const g = scene.gridSize || 32;
 		newW = Math.round(newW / g) * g;
 		newH = Math.round(newH / g) * g;
+	}
+
+	// ✅ در object mode، موقعیت جدید رو باید به محور جهانی برگردونیم
+	if (isObjectMode && startTransform.r !== 0) {
+		// delta موقعیت رو در محور محلی حساب کردیم، حالا برگردون به جهانی
+		const offsetX = newX - startTransform.x;
+		const offsetY = newY - startTransform.y;
+		const rad = (startTransform.r * Math.PI) / 180;
+		const cos = Math.cos(rad);
+		const sin = Math.sin(rad);
+		const globalOffsetX = offsetX * cos - offsetY * sin;
+		const globalOffsetY = offsetX * sin + offsetY * cos;
+		newX = startTransform.x + globalOffsetX;
+		newY = startTransform.y + globalOffsetY;
 	}
 
 	obj.transform.width = Math.round(newW);

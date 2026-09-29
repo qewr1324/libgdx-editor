@@ -3,7 +3,7 @@ import { loadTexture } from "./pixi/textures.js";
 import { renderScene } from "./render/scene.js";
 import { redrawGrid } from "./render/grid.js";
 import { interactionMode, scene, selectedIds, setBrokenAssets, viewport } from "./state.js";
-import { selectObjects } from "./selection/selection.js";
+import { selectObjects, drawSelectionOutlines } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
 import { applyTheme } from "./theme/theme-manager.js";
 import { setConfig, getConfig } from "./config-store.js";
@@ -51,6 +51,12 @@ function handleConfig(config: LibGdxEditorConfigMessage): void {
 			redrawGrid();
 			if (scene) renderScene(scene);
 		});
+	}
+
+	// ✅ اگر gizmo mode عوض شد، دسته‌های انتخاب رو دوباره رسم کن
+	const gizmoChanged = previous && previous.gizmo.mode !== config.gizmo.mode;
+	if (gizmoChanged) {
+		drawSelectionOutlines();
 	}
 
 	window.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
