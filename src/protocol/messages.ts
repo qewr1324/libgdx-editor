@@ -60,6 +60,11 @@ export type WebviewToExtensionMessage =
 	| { type: "openSceneSettings" }
 	| { type: "duplicateObjects"; objectIds: string[]; offsetX: number; offsetY: number }
 	| { type: "pasteObjects"; objects: GameObject[]; historyLabel?: string }
+	| { type: "setObjectZIndex"; objectId: string; zIndex: number }
+	| { type: "bringForward"; objectId: string }
+	| { type: "sendBackward"; objectId: string }
+	| { type: "bringToFront"; objectId: string }
+	| { type: "sendToBack"; objectId: string }
 	| { type: "undo" }
 	| { type: "redo" }
 	| { type: "updateConfig"; key: string; value: unknown }
@@ -86,6 +91,11 @@ export type InspectorToExtensionMessage =
 	| { type: "updateSceneField"; field: string; value: unknown; historyLabel?: string }
 	| { type: "deleteObject"; objectId: string }
 	| { type: "focusObject"; objectId: string }
+	| { type: "setObjectZIndex"; objectId: string; zIndex: number }
+	| { type: "bringForward"; objectId: string }
+	| { type: "sendBackward"; objectId: string }
+	| { type: "bringToFront"; objectId: string }
+	| { type: "sendToBack"; objectId: string }
 	| { type: "updateConfig"; key: string; value: unknown }
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
 	| { type: "requestConfig" };

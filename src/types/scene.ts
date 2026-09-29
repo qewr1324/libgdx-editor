@@ -23,6 +23,7 @@ export interface GameObject {
 	name: string;
 	texture?: string;
 	color?: string;
+	zIndex?: number;
 	transform: Transform;
 	properties: Record<string, unknown>;
 	children?: GameObject[];
@@ -84,6 +85,7 @@ export function createGameObject(type: GameObjectType, x: number, y: number): Ga
 		id: `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
 		type,
 		name: type,
+		zIndex: 0,
 		transform: {
 			x,
 			y,
@@ -97,4 +99,9 @@ export function createGameObject(type: GameObjectType, x: number, y: number): Ga
 		},
 		properties: {},
 	};
+}
+
+/** مرتب‌سازی آبجکت‌های یک لایه بر اساس zIndex (ascending) */
+export function sortObjectsByZIndex(objects: GameObject[]): GameObject[] {
+	return [...objects].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 }

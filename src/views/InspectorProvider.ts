@@ -13,18 +13,17 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 	private currentScene: Scene | null = null;
 	private selectedIds: string[] = [];
 	private sceneMode = false;
-
-	/**
-	 * ✅ host مخصوص Inspector.
-	 * این باعث می‌شود عملیات Inspector روی scene درست اجرا شوند،
-	 * حتی اگر SceneRegistry.active عوض شود.
-	 */
 	private boundHost: SceneHost | null = null;
 
 	private onUpdateObject: ((host: SceneHost, object: GameObject, historyLabel?: string) => void) | null = null;
 	private onDeleteObject: ((host: SceneHost, objectId: string) => void) | null = null;
 	private onFocusObject: ((host: SceneHost, objectId: string) => void) | null = null;
 	private onUpdateSceneField: ((host: SceneHost, field: string, value: unknown, historyLabel?: string) => void) | null = null;
+	private onSetObjectZIndex: ((host: SceneHost, objectId: string, zIndex: number) => void) | null = null;
+	private onBringForward: ((host: SceneHost, objectId: string) => void) | null = null;
+	private onSendBackward: ((host: SceneHost, objectId: string) => void) | null = null;
+	private onBringToFront: ((host: SceneHost, objectId: string) => void) | null = null;
+	private onSendToBack: ((host: SceneHost, objectId: string) => void) | null = null;
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -33,17 +32,23 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		onDeleteObject: (host: SceneHost, objectId: string) => void;
 		onFocusObject: (host: SceneHost, objectId: string) => void;
 		onUpdateSceneField: (host: SceneHost, field: string, value: unknown, historyLabel?: string) => void;
+		onSetObjectZIndex: (host: SceneHost, objectId: string, zIndex: number) => void;
+		onBringForward: (host: SceneHost, objectId: string) => void;
+		onSendBackward: (host: SceneHost, objectId: string) => void;
+		onBringToFront: (host: SceneHost, objectId: string) => void;
+		onSendToBack: (host: SceneHost, objectId: string) => void;
 	}): void {
 		this.onUpdateObject = handlers.onUpdateObject;
 		this.onDeleteObject = handlers.onDeleteObject;
 		this.onFocusObject = handlers.onFocusObject;
 		this.onUpdateSceneField = handlers.onUpdateSceneField;
+		this.onSetObjectZIndex = handlers.onSetObjectZIndex;
+		this.onBringForward = handlers.onBringForward;
+		this.onSendBackward = handlers.onSendBackward;
+		this.onBringToFront = handlers.onBringToFront;
+		this.onSendToBack = handlers.onSendToBack;
 	}
 
-	/**
-	 * ✅ broadcast config به Inspector.
-	 * از toConfigMessage استفاده می‌کنیم تا شکل پیام یکسان باشد.
-	 */
 	public broadcastConfigChange(config: LibGdxEditorConfig): void {
 		if (!this.view) return;
 		try {
@@ -73,10 +78,7 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					break;
 
 				case "updateObjectField": {
-					if (!this.boundHost) {
-						console.warn("[InspectorProvider] updateObjectField: no boundHost");
-						break;
-					}
+					if (!this.boundHost) break;
 					const updated = this.applyFieldUpdate(msg.objectId, msg.field, msg.value);
 					if (updated && this.onUpdateObject) {
 						this.onUpdateObject(this.boundHost, updated, `inspector: ${msg.field}`);
@@ -102,7 +104,36 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					}
 					break;
 
-				// ---------- Config ----------
+				case "setObjectZIndex":
+					if (this.boundHost) {
+						this.onSetObjectZIndex?.(this.boundHost, msg.objectId, msg.zIndex);
+					}
+					break;
+
+				case "bringForward":
+					if (this.boundHost) {
+						this.onBringForward?.(this.boundHost, msg.objectId);
+					}
+					break;
+
+				case "sendBackward":
+					if (this.boundHost) {
+						this.onSendBackward?.(this.boundHost, msg.objectId);
+					}
+					break;
+
+				case "bringToFront":
+					if (this.boundHost) {
+						this.onBringToFront?.(this.boundHost, msg.objectId);
+					}
+					break;
+
+				case "sendToBack":
+					if (this.boundHost) {
+						this.onSendToBack?.(this.boundHost, msg.objectId);
+					}
+					break;
+
 				case "updateConfig": {
 					const config = ConfigManager.getInstance();
 					await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
@@ -129,9 +160,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
-	/**
-	 * ✅ از extension صدا زده می‌شود وقتی یک آبجکت انتخاب/لغو انتخاب شد.
-	 */
 	public setSelection(host: SceneHost, objectIds: string[], scene: Scene): void {
 		this.boundHost = host;
 		this.selectedIds = objectIds;
@@ -142,16 +170,8 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
-	/**
-	 * ✅ آپدیت scene.
-	 * اگر host با boundHost فرق کند و scene از یک فایل دیگر بیاید،
-	 * این آپدیت را نادیده می‌گیریم تا Inspector قاطی نشود.
-	 *
-	 * استثنا: اگر boundHost قبلاً null باشد (بار اول)، قبول می‌کنیم.
-	 */
 	public setScene(host: SceneHost, scene: Scene): void {
 		if (this.boundHost && this.boundHost !== host) {
-			// scene از یک فایل دیگر است — نادیده بگیر
 			return;
 		}
 		this.boundHost = host;
@@ -159,9 +179,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		this.pushSelectionToWebview();
 	}
 
-	/**
-	 * ✅ نمایش Scene Settings برای یک host مشخص.
-	 */
 	public showSceneSettings(host: SceneHost, scene: Scene): void {
 		this.boundHost = host;
 		this.currentScene = scene;
@@ -203,9 +220,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		}
 	}
 
-	/**
-	 * ✅ یک field را در آبجکت جاری آپدیت می‌کند و کپی برمی‌گرداند.
-	 */
 	private applyFieldUpdate(objectId: string, field: string, value: unknown): GameObject | null {
 		if (!this.currentScene) return null;
 		const obj = this.findObject(this.currentScene, objectId);

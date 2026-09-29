@@ -7,7 +7,7 @@ import { ConfigManager } from "../config/config-manager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
-import { addObjectToScene, createObjectAt, createShapeAt, deleteObjectFromScene, updateObjectsInScene } from "./scene-mutations.js";
+import { addObjectToScene, bringForwardInScene, bringToFrontInScene, createObjectAt, createShapeAt, deleteObjectFromScene, getNextZIndex, sendBackwardInScene, sendToBackInScene, setObjectZIndexInScene, updateObjectsInScene } from "./scene-mutations.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
@@ -55,6 +55,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const scene = host.getScene();
 			if (!scene) break;
 			const newObj = createObjectAt(msg.objectType, msg.x, msg.y);
+			newObj.zIndex = getNextZIndex(scene);
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, `add ${msg.objectType}`);
 			break;
@@ -63,6 +64,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const scene = host.getScene();
 			if (!scene) break;
 			const newObj = createShapeAt(msg.shapeType, msg.x, msg.y);
+			newObj.zIndex = getNextZIndex(scene);
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, `add ${msg.shapeType}`);
 
@@ -106,7 +108,8 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			if (!current) break;
 			let updated = current;
 			for (const obj of msg.objects) {
-				updated = addObjectToScene(updated, obj);
+				const withZ = { ...obj, zIndex: getNextZIndex(updated) };
+				updated = addObjectToScene(updated, withZ);
 			}
 			host.getHistory().commit(updated, msg.historyLabel ?? "paste");
 			break;
@@ -114,6 +117,45 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "duplicateObjects":
 			duplicateObjectsOp(host, msg.objectIds, msg.offsetX, msg.offsetY);
 			break;
+		case "setObjectZIndex": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = setObjectZIndexInScene(current, msg.objectId, msg.zIndex);
+			host.getHistory().commit(updated, "set z-index");
+			break;
+		}
+		case "bringForward": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = bringForwardInScene(current, msg.objectId);
+			if (updated !== current) {
+				host.getHistory().commit(updated, "bring forward");
+			}
+			break;
+		}
+		case "sendBackward": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = sendBackwardInScene(current, msg.objectId);
+			if (updated !== current) {
+				host.getHistory().commit(updated, "send backward");
+			}
+			break;
+		}
+		case "bringToFront": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = bringToFrontInScene(current, msg.objectId);
+			host.getHistory().commit(updated, "bring to front");
+			break;
+		}
+		case "sendToBack": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = sendToBackInScene(current, msg.objectId);
+			host.getHistory().commit(updated, "send to back");
+			break;
+		}
 		case "openSceneSettings": {
 			SceneRegistry.setActiveInstance(host);
 			const scene = host.getScene() ?? parseDocument(ctx.document);

@@ -1,6 +1,7 @@
 import { Container, Graphics, Rectangle, Sprite, Text, TextStyle } from "pixi.js";
 import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode, getBrokenAssets } from "../state.js";
 import type { GameObject, Scene } from "../../../types/scene.js";
+import { sortObjectsByZIndex } from "../../../types/scene.js";
 import type { ShapeType } from "../../../config/config-types.js";
 import { redrawGrid } from "./grid.js";
 import { beginDrag } from "../interaction/drag.js";
@@ -24,7 +25,8 @@ export function renderScene(newScene: Scene): void {
 
 	for (const layer of newScene.layers) {
 		if (!layer.visible) continue;
-		for (const obj of layer.objects) {
+		const sorted = sortObjectsByZIndex(layer.objects);
+		for (const obj of sorted) {
 			renderObject(obj, layer.locked ?? false);
 		}
 	}
@@ -85,7 +87,6 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 		}
 	}
 
-	// ✅ بج broken asset
 	if (obj.texture && broken.includes(obj.texture)) {
 		const badge = new Text({
 			text: "❗",

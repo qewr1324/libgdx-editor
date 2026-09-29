@@ -498,6 +498,12 @@ export function buildThemeCss(theme: Theme): string {
 			background: ${theme.scrollThumb};
 			border: ${theme.isClassic ? `2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : `1px solid ${theme.scrollThumbBorder}; border-radius: 5px;`};
 		}
+
+		.layer-btn {
+			margin-left: 0 !important;
+			font-size: 11px;
+			padding: 4px 6px;
+		}
 	`;
 }
 

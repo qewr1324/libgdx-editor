@@ -20,6 +20,7 @@ export function createObjectAt(type: GameObject["type"], x: number, y: number): 
 		type,
 		name: `${names[type]}_${id.slice(-4)}`,
 		color: colors[type],
+		zIndex: 0,
 		transform: {
 			x,
 			y,
@@ -131,6 +132,7 @@ export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offse
 				clone.name = `${obj.name}_copy`;
 				clone.transform.x += offsetX;
 				clone.transform.y += offsetY;
+				clone.zIndex = getNextZIndex(newScene);
 				objectsToClone.push(clone);
 				newIds.push(clone.id);
 			}
@@ -139,4 +141,133 @@ export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offse
 	}
 
 	return { scene: newScene, newIds };
+}
+
+// ============================================================
+// Z-Index / Layer Operations
+// ============================================================
+
+export function getNextZIndex(scene: Scene): number {
+	let max = -1;
+	for (const layer of scene.layers) {
+		for (const obj of layer.objects) {
+			const z = obj.zIndex ?? 0;
+			if (z > max) max = z;
+		}
+	}
+	return max + 1;
+}
+
+export function setObjectZIndexInScene(scene: Scene, objectId: string, zIndex: number): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (obj) {
+			obj.zIndex = zIndex;
+			return newScene;
+		}
+	}
+	return newScene;
+}
+
+export function bringForwardInScene(scene: Scene, objectId: string): Scene {
+	const newScene = structuredClone(scene) as Scene;
+
+	const allZ: number[] = [];
+	for (const layer of newScene.layers) {
+		for (const obj of layer.objects) {
+			if (obj.id !== objectId) allZ.push(obj.zIndex ?? 0);
+		}
+	}
+	if (allZ.length === 0) return scene;
+
+	allZ.sort((a, b) => a - b);
+	const maxOther = allZ[allZ.length - 1];
+
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (obj) {
+			const currentZ = obj.zIndex ?? 0;
+			if (currentZ > maxOther) return scene;
+
+			const above = allZ.find((z) => z > currentZ);
+			obj.zIndex = above !== undefined ? above + 0.5 : maxOther + 1;
+			return newScene;
+		}
+	}
+	return scene;
+}
+
+export function sendBackwardInScene(scene: Scene, objectId: string): Scene {
+	const newScene = structuredClone(scene) as Scene;
+
+	const allZ: number[] = [];
+	for (const layer of newScene.layers) {
+		for (const obj of layer.objects) {
+			if (obj.id !== objectId) allZ.push(obj.zIndex ?? 0);
+		}
+	}
+	if (allZ.length === 0) return scene;
+
+	allZ.sort((a, b) => a - b);
+	const minOther = allZ[0];
+
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (obj) {
+			const currentZ = obj.zIndex ?? 0;
+			if (currentZ < minOther) return scene;
+
+			const below = [...allZ].reverse().find((z) => z < currentZ);
+			obj.zIndex = below !== undefined ? below - 0.5 : minOther - 1;
+			return newScene;
+		}
+	}
+	return scene;
+}
+
+export function bringToFrontInScene(scene: Scene, objectId: string): Scene {
+	const newScene = structuredClone(scene) as Scene;
+
+	let max = -1;
+	for (const layer of newScene.layers) {
+		for (const obj of layer.objects) {
+			if (obj.id !== objectId) {
+				const z = obj.zIndex ?? 0;
+				if (z > max) max = z;
+			}
+		}
+	}
+
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (obj) {
+			obj.zIndex = max + 1;
+			return newScene;
+		}
+	}
+	return scene;
+}
+
+export function sendToBackInScene(scene: Scene, objectId: string): Scene {
+	const newScene = structuredClone(scene) as Scene;
+
+	let min = 0;
+	for (const layer of newScene.layers) {
+		for (const obj of layer.objects) {
+			if (obj.id !== objectId) {
+				const z = obj.zIndex ?? 0;
+				if (z < min) min = z;
+			}
+		}
+	}
+
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (obj) {
+			obj.zIndex = min - 1;
+			return newScene;
+		}
+	}
+	return scene;
 }

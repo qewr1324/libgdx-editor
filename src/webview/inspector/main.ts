@@ -29,7 +29,6 @@ function applyEffectiveTheme(): void {
 	const themeName = currentScene?.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
 	if (themeName === lastAppliedTheme) return;
 	lastAppliedTheme = themeName;
-	// ✅ برای Inspector، force نکن تا CSS دوباره ساخته نشود و DOM نپرد
 	applyTheme(themeName, false);
 }
 
@@ -41,17 +40,14 @@ function render(force = false): void {
 	applyEffectiveTheme();
 
 	if (sceneMode && currentScene) {
-		// ✅ اگر DOM از قبل هست و force نیست، فقط مقادیر را آپدیت کن
 		if (!force && app.querySelector(".inspector-scene")) {
 			updateSceneFieldValues();
 			return;
 		}
-		// ✅ اگر کاربر در حال ویرایش یک input است، DOM را دوباره نساز
 		const active = document.activeElement;
 		if (active instanceof HTMLInputElement && (active.type === "color" || active.type === "number" || active.type === "text") && app.contains(active)) {
 			return;
 		}
-		// ✅ اگر کاربر روی یک select فوکوس دارد، DOM را دوباره نساز
 		if (active instanceof HTMLSelectElement && app.contains(active)) {
 			return;
 		}
@@ -201,9 +197,7 @@ function updateSceneFieldValues(): void {
 function setSceneFieldValue(field: string, value: unknown, kind: "number" | "text" | "color" | "checkbox" | "select"): void {
 	const elements = app.querySelectorAll<HTMLInputElement | HTMLSelectElement>(`[data-scene-field="${field}"]`);
 	for (const el of elements) {
-		// ✅ اگر فوکوس دارد، دست نزن
 		if (document.activeElement === el) continue;
-		// ✅ اگر داخل یک color-row هست و هم‌خانه‌اش فوکوس دارد، دست نزن
 		const colorRow = el.closest(".color-row");
 		if (colorRow && colorRow.contains(document.activeElement)) continue;
 
@@ -267,7 +261,6 @@ function attachSceneListeners(): void {
 				vscode.postMessage({ type: "updateSceneField", field, value: input.checked, historyLabel: `scene: ${field}` });
 			});
 		} else if (input.type === "color") {
-			// ✅ فقط روی input رنگ (نه change) تا live باشد
 			input.addEventListener("input", () => {
 				const textInput = input.parentElement?.querySelector<HTMLInputElement>('input[type="text"]');
 				if (textInput && document.activeElement !== textInput) {
@@ -376,6 +369,24 @@ function buildInspectorHtml(obj: GameObject): string {
 			</div>
 
 			<div class="section">
+				<div class="section-title">Layer</div>
+				<div class="field-row">
+					<div class="field">
+						<label>Z-Index</label>
+						<input type="number" data-field="zIndex" value="${obj.zIndex ?? 0}" step="1" />
+					</div>
+				</div>
+				<div class="field-row" style="margin-top: 4px;">
+					<button class="btn-icon layer-btn" data-layer-action="front" title="Bring to Front" style="flex:1; margin-left:0;">⏫ Front</button>
+					<button class="btn-icon layer-btn" data-layer-action="forward" title="Bring Forward" style="flex:1; margin-left:0;">⬆️ Forward</button>
+				</div>
+				<div class="field-row" style="margin-top: 4px;">
+					<button class="btn-icon layer-btn" data-layer-action="backward" title="Send Backward" style="flex:1; margin-left:0;">⬇️ Backward</button>
+					<button class="btn-icon layer-btn" data-layer-action="back" title="Send to Back" style="flex:1; margin-left:0;">⏬ Back</button>
+				</div>
+			</div>
+
+			<div class="section">
 				<div class="section-title">Appearance</div>
 				<div class="field">
 					<label>Color</label>
@@ -410,6 +421,7 @@ function updateFieldValues(): void {
 	setFieldValue("transform.scaleY", t.scaleY, "number");
 	setFieldValue("transform.originX", t.originX, "number");
 	setFieldValue("transform.originY", t.originY, "number");
+	setFieldValue("zIndex", obj.zIndex ?? 0, "number");
 	setFieldValue("color", obj.color || "#4a9eff", "color");
 	setFieldValue("color", obj.color || "#4a9eff", "text");
 	setFieldValue("properties", JSON.stringify(obj.properties || {}, null, 2), "textarea");
@@ -459,7 +471,17 @@ function attachEventListeners(): void {
 	for (const input of inputs) {
 		const field = input.dataset.field!;
 
-		if (input instanceof HTMLInputElement && input.type === "number") {
+		if (field === "zIndex" && input instanceof HTMLInputElement) {
+			input.addEventListener("change", () => {
+				const value = Number.parseInt(input.value, 10);
+				if (!Number.isNaN(value) && currentObject) {
+					vscode.postMessage({ type: "setObjectZIndex", objectId: currentObject.id, zIndex: value });
+				}
+			});
+			input.addEventListener("keydown", (e) => {
+				if (e.key === "Enter") input.blur();
+			});
+		} else if (input instanceof HTMLInputElement && input.type === "number") {
 			input.addEventListener("change", () => {
 				const value = Number.parseFloat(input.value);
 				if (!Number.isNaN(value)) {
@@ -499,6 +521,28 @@ function attachEventListeners(): void {
 				}
 			});
 		}
+	}
+
+	const layerButtons = app.querySelectorAll<HTMLButtonElement>("[data-layer-action]");
+	for (const btn of layerButtons) {
+		btn.addEventListener("click", () => {
+			if (!currentObject) return;
+			const action = btn.dataset.layerAction;
+			switch (action) {
+				case "front":
+					vscode.postMessage({ type: "bringToFront", objectId: currentObject.id });
+					break;
+				case "forward":
+					vscode.postMessage({ type: "bringForward", objectId: currentObject.id });
+					break;
+				case "backward":
+					vscode.postMessage({ type: "sendBackward", objectId: currentObject.id });
+					break;
+				case "back":
+					vscode.postMessage({ type: "sendToBack", objectId: currentObject.id });
+					break;
+			}
+		});
 	}
 }
 
@@ -550,7 +594,6 @@ window.addEventListener("message", (event) => {
 			currentScene = msg.scene;
 			applyEffectiveTheme();
 			if (sceneMode) {
-				// ✅ فقط مقادیر را آپدیت کن، DOM را دوباره نساز
 				updateSceneFieldValues();
 			}
 			break;
@@ -576,7 +619,6 @@ window.addEventListener("message", (event) => {
 			const previousTheme = lastAppliedTheme;
 			applyEffectiveTheme();
 			const themeChanged = previousTheme !== lastAppliedTheme;
-			// ✅ فقط اگر تم عوض شده، DOM را دوباره بساز
 			if (sceneMode && themeChanged) {
 				render(true);
 			}
