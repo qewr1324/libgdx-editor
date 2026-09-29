@@ -1,3 +1,4 @@
+// src/config/config-manager.ts
 import * as vscode from "vscode";
 import { CONFIG_DIR_NAME, CONFIG_FILE_NAME, DEFAULT_CONFIG, type LibGdxEditorConfig } from "./config-types.js";
 
@@ -68,10 +69,6 @@ export class ConfigManager {
 		this.notifyListeners();
 	}
 
-	/**
-	 * ✅ به‌روزرسانی تودرتو (برای view/gizmo/grid/ui).
-	 * مثال: update({ view: { renderMode: "wireframe" } })
-	 */
 	public async update(partial: DeepPartial<LibGdxEditorConfig>): Promise<void> {
 		this.config = this.merge(this.config, partial);
 		await this.saveToDisk(this.config);
@@ -114,6 +111,7 @@ export class ConfigManager {
 			gizmo: { ...base.gizmo, ...(partial.gizmo ?? {}) },
 			grid: { ...base.grid, ...(partial.grid ?? {}) },
 			ui: { ...base.ui, ...(partial.ui ?? {}) },
+			snapping: { ...base.snapping, ...(partial.snapping ?? {}) },
 		};
 	}
 

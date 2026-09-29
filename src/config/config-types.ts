@@ -1,3 +1,7 @@
+// src/config/config-types.ts
+import type { SnapConfig } from "../features/snapping/snap-types.js";
+import { DEFAULT_SNAP_CONFIG } from "../features/snapping/snap-types.js";
+
 export type RenderMode = "solid" | "wireframe";
 export type GizmoMode = "world" | "object";
 export type ShapeType = "rectangle" | "circle" | "triangle" | "diamond" | "pentagon" | "hexagon" | "star";
@@ -26,6 +30,7 @@ export interface LibGdxEditorConfig {
 	ui: {
 		lastShapeType: ShapeType;
 	};
+	snapping: SnapConfig;
 }
 
 export const DEFAULT_CONFIG: LibGdxEditorConfig = {
@@ -52,6 +57,7 @@ export const DEFAULT_CONFIG: LibGdxEditorConfig = {
 	ui: {
 		lastShapeType: "rectangle",
 	},
+	snapping: { ...DEFAULT_SNAP_CONFIG },
 };
 
 export const CONFIG_DIR_NAME = ".libgdx-editor";

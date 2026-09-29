@@ -1,3 +1,4 @@
+// src/webview/viewport/main.ts
 import "./style-init.js";
 import { initPixi } from "./pixi/setup.js";
 import { setupToolbar } from "./ui/toolbar.js";
@@ -9,9 +10,11 @@ import { setupMessages } from "./messages.js";
 import { vscode } from "./types.js";
 import { applyTheme } from "./theme/theme-manager.js";
 import { DEFAULT_THEME } from "./theme/themes.js";
+import { installSnapping } from "./features/snapping/index.js";
 
 (async () => {
 	applyTheme(DEFAULT_THEME);
+	installSnapping();
 
 	await initPixi();
 	setupToolbar();

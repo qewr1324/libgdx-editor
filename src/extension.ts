@@ -1,6 +1,8 @@
+// src/extension.ts
 import * as vscode from "vscode";
 import { SceneEditorProvider } from "./editor/SceneEditorProvider.js";
 import { InspectorProvider } from "./views/InspectorProvider.js";
+import { LayersProvider } from "./features/layers/index.js";
 import { newSceneCommand } from "./commands/newScene.js";
 import { importTextureCommand, cleanupAssetsCommand } from "./commands/importTexture.js";
 import { generateCodeCommand } from "./commands/generateCode.js";
@@ -21,8 +23,18 @@ export async function activate(context: vscode.ExtensionContext) {
 	await configManager.load();
 
 	const inspector = new InspectorProvider(context.extensionUri);
+	const layersProvider = new LayersProvider(context.extensionUri);
 
-	context.subscriptions.push(vscode.window.registerWebviewViewProvider(InspectorProvider.viewType, inspector, { webviewOptions: { retainContextWhenHidden: true } }), SceneEditorProvider.register(context));
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider(InspectorProvider.viewType, inspector, {
+			webviewOptions: { retainContextWhenHidden: true },
+		}),
+		vscode.window.registerWebviewViewProvider(LayersProvider.viewType, layersProvider, {
+			webviewOptions: { retainContextWhenHidden: true },
+		}),
+		{ dispose: () => layersProvider.dispose() },
+		SceneEditorProvider.register(context),
+	);
 
 	context.subscriptions.push(
 		SceneEditorProvider.onDidSelectObject((host, objectIds, scene) => {

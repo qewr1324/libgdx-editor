@@ -1,5 +1,7 @@
-import type { GameObject, Scene } from "../types/scene.js";
+// src/protocol/messages.ts
+import type { GameObject, Layer, Scene } from "../types/scene.js";
 import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType } from "../config/config-types.js";
+import type { AtlasSpriteProperties } from "../features/texture-atlas/atlas-types.js";
 
 export interface LibGdxEditorConfigMessage {
 	version: string;
@@ -25,6 +27,15 @@ export interface LibGdxEditorConfigMessage {
 	ui: {
 		lastShapeType: ShapeType;
 	};
+	snapping: {
+		enabled: boolean;
+		threshold: number;
+		snapToObjects: boolean;
+		snapToWorldEdges: boolean;
+		snapToGrid: boolean;
+		showGuides: boolean;
+		guideColor: string;
+	};
 }
 
 export function toConfigMessage(config: LibGdxEditorConfig): LibGdxEditorConfigMessage {
@@ -39,8 +50,13 @@ export function toConfigMessage(config: LibGdxEditorConfig): LibGdxEditorConfigM
 		gizmo: { ...config.gizmo },
 		grid: { ...config.grid },
 		ui: { ...config.ui },
+		snapping: { ...config.snapping },
 	};
 }
+
+// ============================================================
+// Webview (viewport) <-> Extension
+// ============================================================
 
 export type WebviewToExtensionMessage =
 	| { type: "ready" }
@@ -71,7 +87,8 @@ export type WebviewToExtensionMessage =
 	| { type: "redo" }
 	| { type: "updateConfig"; key: string; value: unknown }
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
-	| { type: "requestConfig" };
+	| { type: "requestConfig" }
+	| { type: "requestAtlasRegions"; texturePath: string };
 
 export type ExtensionToWebviewMessage =
 	| { type: "load"; scene: Scene }
@@ -86,7 +103,13 @@ export type ExtensionToWebviewMessage =
 	| { type: "clipboardChanged"; count: number }
 	| { type: "historyState"; canUndo: boolean; canRedo: boolean }
 	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
-	| { type: "configUpdated"; config: LibGdxEditorConfigMessage };
+	| { type: "configUpdated"; config: LibGdxEditorConfigMessage }
+	| AtlasRegionsMessage
+	| AtlasNotFoundMessage;
+
+// ============================================================
+// Inspector <-> Extension
+// ============================================================
 
 export type InspectorToExtensionMessage =
 	| { type: "inspectorReady" }
@@ -101,7 +124,9 @@ export type InspectorToExtensionMessage =
 	| { type: "sendToBack"; objectId: string }
 	| { type: "updateConfig"; key: string; value: unknown }
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
-	| { type: "requestConfig" };
+	| { type: "requestConfig" }
+	| { type: "requestAtlasRegions"; texturePath: string }
+	| { type: "updateObjectAtlas"; objectId: string; atlas: AtlasSpriteProperties };
 
 export type ExtensionToInspectorMessage =
 	| { type: "showObject"; object: GameObject }
@@ -110,4 +135,52 @@ export type ExtensionToInspectorMessage =
 	| { type: "showSceneSettings"; scene: Scene }
 	| { type: "clearSelection" }
 	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
-	| { type: "configUpdated"; config: LibGdxEditorConfigMessage };
+	| { type: "configUpdated"; config: LibGdxEditorConfigMessage }
+	| AtlasRegionsMessage
+	| AtlasNotFoundMessage;
+
+// ============================================================
+// Layers <-> Extension
+// ============================================================
+
+export interface ExtensionToLayersMessage {
+	type: "showLayers";
+	layers: Layer[];
+	selectedLayer: string | null;
+}
+
+export type LayersToExtensionMessage =
+	| { type: "layersReady" }
+	| { type: "selectLayer"; name: string }
+	| { type: "addLayer" }
+	| { type: "deleteLayer"; name: string }
+	| { type: "renameLayer"; oldName: string; newName: string }
+	| { type: "toggleLayerVisibility"; name: string }
+	| { type: "toggleLayerLock"; name: string }
+	| { type: "moveLayerUp"; name: string }
+	| { type: "moveLayerDown"; name: string }
+	| { type: "reorderLayers"; fromIndex: number; toIndex: number };
+
+// ============================================================
+// Atlas Protocol
+// ============================================================
+
+export interface AtlasRegionsMessage {
+	type: "atlasRegionsLoaded";
+	texturePath: string;
+	atlasPath: string;
+	regions: Array<{
+		name: string;
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		rotate: boolean;
+		index: number;
+	}>;
+}
+
+export interface AtlasNotFoundMessage {
+	type: "atlasNotFound";
+	texturePath: string;
+}

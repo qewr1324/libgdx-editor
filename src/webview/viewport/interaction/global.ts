@@ -1,3 +1,4 @@
+// src/webview/viewport/interaction/global.ts
 import { app, currentInteraction, interactionMode, isFinishingInteraction, scene, setIsFinishingInteraction, setInteractionMode, setCurrentInteraction, viewport } from "../state.js";
 import { handleDragMove } from "./drag.js";
 import { handleResizeMove } from "./resize.js";
@@ -8,6 +9,7 @@ import { clearGizmo } from "../selection/gizmo.js";
 import { vscode } from "../types.js";
 import type { GameObject } from "../../../types/scene.js";
 import { findObject } from "../utils/geometry.js";
+import { clearSnapGuides } from "../features/snapping/index.js";
 
 export function setupGlobalInteractionListeners(): void {
 	window.addEventListener("pointermove", (e) => {
@@ -58,6 +60,7 @@ export function finishInteractionSafely(): void {
 	setIsFinishingInteraction(true);
 
 	try {
+		clearSnapGuides();
 		finishInteraction();
 	} finally {
 		setTimeout(() => {

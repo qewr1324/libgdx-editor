@@ -1,9 +1,11 @@
+// src/webview/viewport/interaction/drag.ts
 import { currentInteraction, objectSprites, scene, selectedIds, setCurrentInteraction, setInteractionMode, viewport } from "../state.js";
 import type { GameObject } from "../../../types/scene.js";
 import type { InteractionData } from "../types.js";
 import { findObject } from "../utils/geometry.js";
 import { drawSelectionOutlines } from "../selection/selection.js";
 import { drawDragGuides } from "../selection/gizmo.js";
+import { applySnapDuringDrag } from "../features/snapping/index.js";
 
 export function beginDrag(e: any, primaryObj: GameObject): void {
 	if (!viewport) return;
@@ -45,11 +47,11 @@ export function handleDragMove(_e: PointerEvent, worldX: number, worldY: number)
 	let newPrimaryX = primaryStart.x + dx;
 	let newPrimaryY = primaryStart.y + dy;
 
-	if (scene.snapToGrid) {
-		const g = scene.gridSize || 32;
-		newPrimaryX = Math.round(newPrimaryX / g) * g;
-		newPrimaryY = Math.round(newPrimaryY / g) * g;
-	}
+	// ✅ Snap: به جای فقط grid، حالا snap به آبجکت‌ها و world هم فعاله
+	const excludeIds = new Set<string>(data.startTransforms.keys());
+	const snapped = applySnapDuringDrag(newPrimaryX, newPrimaryY, data.primaryObj, excludeIds, scene);
+	newPrimaryX = snapped.x;
+	newPrimaryY = snapped.y;
 
 	const snapDX = newPrimaryX - (primaryStart.x + dx);
 	const snapDY = newPrimaryY - (primaryStart.y + dy);

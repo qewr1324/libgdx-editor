@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-export type WebviewKind = "viewport" | "inspector";
+export type WebviewKind = "viewport" | "inspector" | "layers";
 
 export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, kind: WebviewKind): string {
 	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "dist", "webview", `${kind}.js`));
