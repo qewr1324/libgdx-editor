@@ -1,20 +1,15 @@
 // src/webview/inspector/theme-types.ts
-// کپی مستقل از تایپ‌های تم — برای اینکه inspector به viewport وابسته نباشه
-
 export interface Theme {
 	name: string;
 	label: string;
-
 	bg: string;
 	fg: string;
 	border: string;
 	borderLight: string;
 	borderDark: string;
-
 	panelBg: string;
 	panelBorder: string;
 	panelRadius: string;
-
 	btnBg: string;
 	btnFg: string;
 	btnBorder: string;
@@ -26,24 +21,19 @@ export interface Theme {
 	btnTextTransform: string;
 	btnBoxShadow: string;
 	btnActiveBoxShadow: string;
-
 	inputBg: string;
 	inputFg: string;
 	inputBorder: string;
 	inputFocusBorder: string;
 	inputRadius: string;
 	inputPadding: string;
-
 	fontFamily: string;
 	fontSize: string;
 	fontWeight: string;
-
 	titleBg: string;
 	titleFg: string;
-
 	accent: string;
 	accentFg: string;
-
 	menuBg: string;
 	menuFg: string;
 	menuHoverBg: string;
@@ -51,11 +41,9 @@ export interface Theme {
 	menuBorder: string;
 	menuRadius: string;
 	menuShadow: string;
-
 	scrollTrack: string;
 	scrollThumb: string;
 	scrollThumbBorder: string;
-
 	isClassic?: boolean;
 }
 
@@ -107,7 +95,6 @@ export const THEMES: Record<string, Theme> = {
 		scrollThumbBorder: "#808080",
 		isClassic: true,
 	},
-
 	unity5: {
 		name: "unity5",
 		label: "Unity 5",
@@ -154,7 +141,6 @@ export const THEMES: Record<string, Theme> = {
 		scrollThumb: "#c0c0c0",
 		scrollThumbBorder: "#b0b0b0",
 	},
-
 	unity6: {
 		name: "unity6",
 		label: "Unity 6",
@@ -201,7 +187,6 @@ export const THEMES: Record<string, Theme> = {
 		scrollThumb: "#3a3a3a",
 		scrollThumbBorder: "#1e1e1e",
 	},
-
 	ue4: {
 		name: "ue4",
 		label: "Unreal Engine 4",
@@ -248,7 +233,6 @@ export const THEMES: Record<string, Theme> = {
 		scrollThumb: "#2c2c2c",
 		scrollThumbBorder: "#0d0d0d",
 	},
-
 	ue5: {
 		name: "ue5",
 		label: "Unreal Engine 5",
@@ -297,9 +281,8 @@ export const THEMES: Record<string, Theme> = {
 	},
 };
 
-export const THEME_ORDER: string[] = ["win98", "unity5", "unity6", "ue4", "ue5"];
+export const THEME_ORDER = ["win98", "unity5", "unity6", "ue4", "ue5"];
 export const DEFAULT_THEME = "win98";
-
 export function getTheme(name: string | undefined): Theme {
 	if (name && THEMES[name]) return THEMES[name];
 	return THEMES[DEFAULT_THEME];

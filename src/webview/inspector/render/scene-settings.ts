@@ -1,6 +1,6 @@
 // src/webview/inspector/render/scene-settings.ts
 import type { Scene } from "../../../types/scene.js";
-import { THEMES, THEME_ORDER } from "../theme-types.js";   // ← تغییر: قبلاً ../viewport/theme/themes.js بود
+import { THEMES, THEME_ORDER } from "../theme-types.js";
 import { vscode } from "../vscode-api.js";
 import { currentConfig, setSceneMode } from "../state.js";
 import { ICONS } from "../icons.js";
@@ -201,4 +201,3 @@ export function attachSceneListeners(): void {
 
 	attachDragHandles("scene");
 }
-
