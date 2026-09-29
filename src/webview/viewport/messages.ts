@@ -1,11 +1,12 @@
 import { vscode } from "./types.js";
 import { loadTexture } from "./pixi/textures.js";
 import { renderScene } from "./render/scene.js";
-import { interactionMode, scene, selectedIds, viewport } from "./state.js";
+import { interactionMode, scene, selectedIds, setLevelConfig, viewport } from "./state.js";
 import { selectObjects } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
 import { applyTheme } from "./theme/theme-manager.js";
-import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
+import { applyLevelConfigToUI } from "./ui/toolbar.js";
+import type { LibGdxEditorConfigMessage, LevelConfigMessage } from "../../protocol/messages.js";
 import type { Scene } from "../../types/scene.js";
 
 let pendingRender: (() => void) | null = null;
@@ -31,12 +32,18 @@ export function flushPendingRender(): void {
 
 function applyEffectiveTheme(): void {
 	const themeName = currentSceneFromMessage?.themeOverride ?? currentConfig?.defaultTheme ?? "win98";
-	console.log("[Viewport] applyEffectiveTheme:", themeName, "(last:", lastAppliedThemeName, ")");
 	if (themeName === lastAppliedThemeName) return;
 	lastAppliedThemeName = themeName;
-	console.log("[Viewport] applying theme:", themeName);
-	// ✅ force=true تا مطمئن شویم اعمال می‌شود — باگ ۶ رفع شد
 	applyTheme(themeName, true);
+}
+
+function handleLevelConfig(config: LevelConfigMessage): void {
+	setLevelConfig(config);
+	applyLevelConfigToUI();
+	// اگر renderMode عوض شد، صحنه را دوباره رندر کن
+	scheduleRender(() => {
+		if (scene) renderScene(scene);
+	});
 }
 
 export function setupMessages(): void {
@@ -65,9 +72,12 @@ export function setupMessages(): void {
 			}
 			case "configLoaded":
 			case "configUpdated":
-				console.log("[Viewport] configLoaded/configUpdated received:", msg.config);
 				currentConfig = msg.config;
 				applyEffectiveTheme();
+				break;
+			case "levelConfigLoaded":
+			case "levelConfigUpdated":
+				handleLevelConfig(msg.config as LevelConfigMessage);
 				break;
 			case "selectFromOutliner":
 				if (msg.objectId) {
@@ -97,4 +107,5 @@ export function setupMessages(): void {
 	});
 
 	vscode.postMessage({ type: "requestConfig" });
+	vscode.postMessage({ type: "requestLevelConfig" });
 }

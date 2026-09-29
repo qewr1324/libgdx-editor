@@ -1,12 +1,19 @@
 import type { Application, Container, Texture } from "pixi.js";
 import type { Viewport } from "pixi-viewport";
 import type { GameObject, Scene } from "../../types/scene.js";
+import type { LevelConfigMessage } from "../../protocol/messages.js";
 import type { InteractionData, InteractionMode } from "./types.js";
 
 // ---------- Scene ----------
 export let scene: Scene | null = null;
 export function setScene(newScene: Scene | null): void {
 	scene = newScene;
+}
+
+// ---------- Level Config ----------
+export let levelConfig: LevelConfigMessage | null = null;
+export function setLevelConfig(config: LevelConfigMessage | null): void {
+	levelConfig = config;
 }
 
 // ---------- Selection ----------

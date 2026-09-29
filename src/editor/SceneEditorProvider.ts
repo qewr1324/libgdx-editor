@@ -8,6 +8,7 @@ import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
 import type { SceneHost } from "./scene-types.js";
 import { handleWebviewMessage, sendScene, sendSceneUpdate, type MessageHandlerContext } from "./message-handler.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
+import { LevelConfigManager } from "./levelConfigManager.js";
 
 export type { ObjectSelectionHandler, SceneChangeHandler, OpenSceneSettingsHandler } from "./scene-types.js";
 
@@ -252,6 +253,8 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 				}
 				this.hosts.delete(uriKey);
 				SceneRegistry.removeInstance(host);
+				// ✅ level config cache را پاک کن
+				LevelConfigManager.invalidate(document.uri);
 			}
 		});
 	}

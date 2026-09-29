@@ -1,12 +1,14 @@
 import type * as vscode from "vscode";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import type { Scene } from "../types/scene.js";
+import type { LevelConfig } from "../types/level-config.js";
 import { AssetManager } from "./assetManager.js";
 import { ConfigManager } from "../config/config-manager.js";
+import { LevelConfigManager } from "./levelConfigManager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
-import { addObjectToScene, createObjectAt, deleteObjectFromScene, updateObjectsInScene } from "./scene-mutations.js";
+import { addObjectToScene, createObjectAt, createShapeAt, deleteObjectFromScene, updateObjectsInScene } from "./scene-mutations.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
@@ -58,6 +60,22 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.pushHistory(updated, `add ${msg.objectType}`);
 			host.broadcastUpdate(updated);
 			host.broadcastHistoryState();
+			break;
+		}
+		case "requestAddShape": {
+			const scene = host.getScene();
+			if (!scene) break;
+			const newObj = createShapeAt(msg.shapeType, msg.x, msg.y);
+			const updated = addObjectToScene(scene, newObj);
+			host.setScene(updated);
+			host.markDirty();
+			host.pushHistory(updated, `add ${msg.shapeType}`);
+			host.broadcastUpdate(updated);
+			host.broadcastHistoryState();
+
+			// ✅ lastShapeType را در level config ذخیره کن
+			await LevelConfigManager.update(ctx.document.uri, { ui: { lastShapeType: msg.shapeType } });
+			await broadcastLevelConfig(ctx);
 			break;
 		}
 		case "requestAddTexture":
@@ -149,7 +167,47 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			} satisfies ExtensionToWebviewMessage);
 			break;
 		}
+		case "requestLevelConfig":
+			await broadcastLevelConfig(ctx);
+			break;
+		case "updateLevelConfig": {
+			const current = await LevelConfigManager.load(ctx.document.uri);
+			const updated = mergeLevelConfig(current, msg.partial);
+			await LevelConfigManager.save(ctx.document.uri, updated);
+
+			// اعمال فوری روی scene.snapToGrid و gridSize اگر تغییر کرده
+			if (msg.partial.grid) {
+				const scene = host.getScene();
+				if (scene) {
+					if (typeof msg.partial.grid.snap === "boolean" && scene.snapToGrid !== msg.partial.grid.snap) {
+						updateSceneFieldOp(host, "snapToGrid", msg.partial.grid.snap, "toggle snap");
+					}
+					if (typeof msg.partial.grid.size === "number" && scene.gridSize !== msg.partial.grid.size) {
+						updateSceneFieldOp(host, "gridSize", msg.partial.grid.size, "grid size");
+					}
+				}
+			}
+
+			// broadcast به همه وب‌ویوهای این host
+			await broadcastLevelConfig(ctx);
+			break;
+		}
 	}
+}
+
+function mergeLevelConfig(current: LevelConfig, partial: Partial<LevelConfig>): LevelConfig {
+	return {
+		version: partial.version ?? current.version,
+		view: { ...current.view, ...(partial.view ?? {}) },
+		gizmo: { ...current.gizmo, ...(partial.gizmo ?? {}) },
+		grid: { ...current.grid, ...(partial.grid ?? {}) },
+		ui: { ...current.ui, ...(partial.ui ?? {}) },
+	};
+}
+
+async function broadcastLevelConfig(ctx: MessageHandlerContext): Promise<void> {
+	const config = await LevelConfigManager.load(ctx.document.uri);
+	ctx.host.postToWebview({ type: "levelConfigLoaded", config });
 }
 
 export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
@@ -176,6 +234,9 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 		},
 	} satisfies ExtensionToWebviewMessage);
 
+	const levelConfig = await LevelConfigManager.load(ctx.document.uri);
+	ctx.webviewPanel.webview.postMessage({ type: "levelConfigLoaded", config: levelConfig } satisfies ExtensionToWebviewMessage);
+
 	host.broadcastHistoryState();
 
 	if (host.isActive()) {
@@ -184,23 +245,17 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 }
 
 export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void> {
-	if (ctx.getIsProgrammaticChange()) {
-		return;
-	}
+	if (ctx.getIsProgrammaticChange()) return;
 
 	const host = ctx.host;
 	const fileScene = parseDocument(ctx.document);
 
-	// ✅ چک امنیتی: اگر scene فایل با scene فعلی host یکسان است، کاری نکن
-	// (جلوگیری از overwrite بی‌مورد)
 	const currentScene = host.getScene();
 	if (currentScene) {
 		try {
-			if (JSON.stringify(currentScene) === JSON.stringify(fileScene)) {
-				return;
-			}
+			if (JSON.stringify(currentScene) === JSON.stringify(fileScene)) return;
 		} catch {
-			// ignore — اگر serialize نشد، ادامه بده
+			// ignore
 		}
 	}
 
@@ -216,32 +271,18 @@ export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void>
 }
 
 async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Promise<void> {
-	// ✅ مهم: قبل از write، isProgrammaticChange را true کن
-	// تا onDidChangeTextDocument trigger نشود
 	ctx.setProgrammaticChange(true);
 
 	try {
-		// ۱) scene فعلی host را با scene ای که کاربر ذخیره کرده یکی کن
 		ctx.host.setScene(msg.scene);
-
-		// ۲) محتوای فایل را با scene جدید جایگزین کن
 		await writeDocument(ctx.document, msg.scene);
-
-		// ۳) فایل را ذخیره کن
 		await saveDocument(ctx.document);
-
-		// ۴) dirty flag را پاک کن
 		ctx.markNotDirty();
 
-		// ۵) اگر فعال هستیم، به Inspector اطلاع بده
 		if (ctx.host.isActive()) {
 			SceneRegistry.emitSceneChange(ctx.host, msg.scene);
 		}
-
-		console.log(`[handleSave] saved: ${ctx.document.uri.fsPath}, objects: ${msg.scene.layers.reduce((n, l) => n + l.objects.length, 0)}`);
 	} finally {
-		// ✅ در finally ریست کن تا حتی در صورت خطا هم دوباره trigger شود
-		// (با یک تأخیر کوچک تا onDidChangeTextDocument قطعاً trigger و رد شود)
 		setTimeout(() => {
 			ctx.setProgrammaticChange(false);
 		}, 50);

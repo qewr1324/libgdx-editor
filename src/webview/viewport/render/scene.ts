@@ -1,6 +1,7 @@
 import { Container, Graphics, Rectangle, Sprite, Text, TextStyle } from "pixi.js";
-import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode } from "../state.js";
+import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode, levelConfig } from "../state.js";
 import type { GameObject, Scene } from "../../../types/scene.js";
+import type { ShapeType } from "../../../types/level-config.js";
 import { redrawGrid } from "./grid.js";
 import { beginDrag } from "../interaction/drag.js";
 import { selectObjects, drawSelectionOutlines } from "../selection/selection.js";
@@ -9,10 +10,7 @@ import { findObject } from "../utils/geometry.js";
 export function renderScene(newScene: Scene): void {
 	setScene(newScene);
 
-	// ⚠️ اگر در حال درگ/resize/rotate هستیم، رندر نکن
-	// چون container ها از بین می‌روند و interaction قطع می‌شود
 	if (interactionMode !== "idle") {
-		// فقط scene را ذخیره کن
 		return;
 	}
 
@@ -39,6 +37,7 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	const container = new Container();
 	const t = obj.transform;
 
+	const isWireframe = levelConfig?.view.renderMode === "wireframe";
 	let rendered = false;
 
 	if (obj.type === "sprite" && obj.texture) {
@@ -54,13 +53,12 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	}
 
 	if (!rendered) {
+		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
+		const g = new Graphics();
+
 		if (obj.type === "shape") {
-			const g = new Graphics();
-			const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0xff4a4a;
-			g.circle(t.width / 2, t.height / 2, Math.min(t.width, t.height) / 2);
-			g.fill({ color, alpha: 1 });
-			g.eventMode = "none";
-			container.addChild(g);
+			const shapeType = (obj.properties?.shapeType as ShapeType) ?? "rectangle";
+			drawShape(g, shapeType, t.width, t.height);
 		} else if (obj.type === "text") {
 			const txt = new Text({
 				text: obj.name,
@@ -68,12 +66,19 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 			});
 			txt.eventMode = "none";
 			container.addChild(txt);
+			rendered = true;
 		} else {
-			const g = new Graphics();
-			const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
+			// پیش‌فرض: مستطیل (sprite بدون texture یا group)
 			g.rect(0, 0, t.width, t.height);
-			g.fill({ color, alpha: 1 });
-			g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
+		}
+
+		if (obj.type === "shape" || (!rendered && obj.type !== "text")) {
+			if (isWireframe) {
+				g.stroke({ width: 2, color, alpha: 1 });
+			} else {
+				g.fill({ color, alpha: 1 });
+				g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
+			}
 			g.eventMode = "none";
 			container.addChild(g);
 		}
@@ -114,6 +119,85 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 
 	contentLayer.addChild(container);
 	objectSprites.set(obj.id, container);
+}
+
+/**
+ * ✅ رسم شکل بر اساس نوع.
+ */
+function drawShape(g: Graphics, shapeType: ShapeType, width: number, height: number): void {
+	const cx = width / 2;
+	const cy = height / 2;
+	const r = Math.min(width, height) / 2;
+	const rx = width / 2;
+	const ry = height / 2;
+
+	switch (shapeType) {
+		case "rectangle":
+			g.rect(0, 0, width, height);
+			break;
+
+		case "circle":
+			g.ellipse(cx, cy, rx, ry);
+			break;
+
+		case "triangle": {
+			g.moveTo(cx, 0);
+			g.lineTo(width, height);
+			g.lineTo(0, height);
+			g.closePath();
+			break;
+		}
+
+		case "diamond": {
+			g.moveTo(cx, 0);
+			g.lineTo(width, cy);
+			g.lineTo(cx, height);
+			g.lineTo(0, cy);
+			g.closePath();
+			break;
+		}
+
+		case "pentagon": {
+			drawPolygon(g, cx, cy, r, 5, -Math.PI / 2);
+			break;
+		}
+
+		case "hexagon": {
+			drawPolygon(g, cx, cy, r, 6, 0);
+			break;
+		}
+
+		case "star": {
+			drawStar(g, cx, cy, r, r * 0.45, 5, -Math.PI / 2);
+			break;
+		}
+
+		default:
+			g.rect(0, 0, width, height);
+	}
+}
+
+function drawPolygon(g: Graphics, cx: number, cy: number, r: number, sides: number, startAngle: number): void {
+	for (let i = 0; i < sides; i++) {
+		const angle = startAngle + (i * 2 * Math.PI) / sides;
+		const x = cx + Math.cos(angle) * r;
+		const y = cy + Math.sin(angle) * r;
+		if (i === 0) g.moveTo(x, y);
+		else g.lineTo(x, y);
+	}
+	g.closePath();
+}
+
+function drawStar(g: Graphics, cx: number, cy: number, outerR: number, innerR: number, points: number, startAngle: number): void {
+	for (let i = 0; i < points * 2; i++) {
+		const r = i % 2 === 0 ? outerR : innerR;
+		const angle = startAngle + (i * Math.PI) / points;
+		const x = cx + Math.cos(angle) * r;
+		const y = cy + Math.sin(angle) * r;
+		if (i === 0) g.moveTo(x, y);
+		else g.lineTo(x, y);
+	}
+	g.closePath();
 }
 
 export function rerenderObject(obj: GameObject): void {

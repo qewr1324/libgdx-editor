@@ -1,4 +1,5 @@
 import type { GameObject, Scene } from "../types/scene.js";
+import type { ShapeType } from "../types/level-config.js";
 
 export function createObjectAt(type: GameObject["type"], x: number, y: number): GameObject {
 	const id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -34,6 +35,31 @@ export function createObjectAt(type: GameObject["type"], x: number, y: number): 
 	};
 }
 
+/**
+ * ✅ یک shape با نوع مشخص می‌سازد.
+ * shapeType در properties.shapeType ذخیره می‌شود تا رندر بداند چطور رسم کند.
+ */
+export function createShapeAt(shapeType: ShapeType, x: number, y: number): GameObject {
+	const obj = createObjectAt("shape", x, y);
+	const id = obj.id;
+	obj.name = `${shapeType}_${id.slice(-4)}`;
+	obj.properties = { ...obj.properties, shapeType };
+
+	// رنگ پیش‌فرض بر اساس نوع
+	const shapeColors: Record<ShapeType, string> = {
+		rectangle: "#ff4a4a",
+		circle: "#4aff4a",
+		triangle: "#ffaa4a",
+		diamond: "#4affff",
+		pentagon: "#aa4aff",
+		hexagon: "#ffff4a",
+		star: "#ff4aff",
+	};
+	obj.color = shapeColors[shapeType] ?? "#ff4a4a";
+
+	return obj;
+}
+
 export function addObjectToScene(scene: Scene, obj: GameObject): Scene {
 	const newScene = structuredClone(scene) as Scene;
 	if (newScene.layers.length === 0) {
@@ -61,10 +87,6 @@ export function updateObjectInScene(scene: Scene, updated: GameObject): Scene {
 	return newScene;
 }
 
-/**
- * آپدیت چند آبجکت به صورت batch — فقط یک structuredClone.
- * (باگ ۲۱ رفع شد)
- */
 export function updateObjectsInScene(scene: Scene, objects: GameObject[]): Scene {
 	const newScene = structuredClone(scene) as Scene;
 	const map = new Map<string, GameObject>();
