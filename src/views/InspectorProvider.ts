@@ -1,12 +1,14 @@
 // src/views/InspectorProvider.ts
 import * as vscode from "vscode";
 import type { GameObject, Scene } from "../types/scene.js";
+import type { Component, ComponentType } from "../types/components.js";
 import { getWebviewHtml } from "../editor/webviewHtml.js";
 import { toConfigMessage, type ExtensionToInspectorMessage } from "../protocol/messages.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { ConfigManager } from "../config/config-manager.js";
 import type { SceneHost } from "../editor/scene-types.js";
 import { moveObjectToLayerOp } from "../features/layers/layer-ops.js";
+import { handleAddComponent, handleUpdateComponent, handleRemoveComponent, handleReplaceComponent } from "../editor/message-handler.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -142,6 +144,36 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					}
 					break;
 
+				// ============================================================
+				// 🆕 Component handlers
+				// ============================================================
+				case "addComponent":
+					if (this.boundHost) {
+						handleAddComponent(this.boundHost, msg.objectId, msg.componentType as ComponentType);
+					}
+					break;
+
+				case "updateComponent":
+					if (this.boundHost) {
+						handleUpdateComponent(this.boundHost, msg.objectId, msg.componentId, msg.updates as Partial<Component>);
+					}
+					break;
+
+				case "removeComponent":
+					if (this.boundHost) {
+						handleRemoveComponent(this.boundHost, msg.objectId, msg.componentId);
+					}
+					break;
+
+				case "replaceComponent":
+					if (this.boundHost) {
+						handleReplaceComponent(this.boundHost, msg.objectId, msg.component as Component);
+					}
+					break;
+
+				// ============================================================
+				// Config
+				// ============================================================
 				case "updateConfig": {
 					const config = ConfigManager.getInstance();
 					await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
@@ -201,7 +233,7 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 		if (this.currentScene) {
 			this.view.webview.postMessage({ type: "showScene", scene: this.currentScene } satisfies ExtensionToInspectorMessage);
 
-			// 🆕 ارسال لیست لایه‌ها برای dropdown
+			// ارسال لیست لایه‌ها برای dropdown
 			const layersInfo = this.currentScene.layers.map((l) => ({
 				id: l.id ?? `layer_${l.name.replace(/[^a-z0-9]/gi, "_")}`,
 				name: l.name,

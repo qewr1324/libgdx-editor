@@ -1,26 +1,59 @@
 // src/editor/scene-mutations.ts
 import type { GameObject, Layer, Scene } from "../types/scene.js";
-import type { ShapeType } from "../config/config-types.js";
+import type { ShapeType, Component } from "../types/components.js";
+import { createComponentId } from "../types/components.js";
 
+// ============================================================
+// Factory Functions
+// ============================================================
+
+/**
+ * ساخت آبجکت جدید با component پیش‌فرض بسته به نوع درخواستی.
+ */
 export function createObjectAt(type: GameObject["type"], x: number, y: number): GameObject {
 	const id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-	const names: Record<string, string> = {
-		sprite: "sprite",
-		shape: "shape",
-		text: "text",
-		group: "group",
-	};
-	const colors: Record<string, string> = {
-		sprite: "#4a9eff",
-		shape: "#ff4a4a",
-		text: "#ffffff",
-		group: "#9b59b6",
-	};
+	const components: Component[] = [];
+
+	let defaultName = "object";
+	let defaultColor = "#4a9eff";
+
+	if (type === "sprite") {
+		components.push({
+			id: createComponentId(),
+			type: "sprite",
+			texture: "",
+			tint: "#ffffff",
+		});
+		defaultName = "sprite";
+		defaultColor = "#4a9eff";
+	} else if (type === "shape") {
+		components.push({
+			id: createComponentId(),
+			type: "shape",
+			shape: "rectangle",
+			color: "#ff4a4a",
+			filled: true,
+			strokeWidth: 1,
+		});
+		defaultName = "shape";
+		defaultColor = "#ff4a4a";
+	} else if (type === "text") {
+		components.push({
+			id: createComponentId(),
+			type: "text",
+			text: "Label",
+			color: "#ffffff",
+			fontSize: 16,
+		});
+		defaultName = "text";
+		defaultColor = "#ffffff";
+	}
+
 	return {
 		id,
-		type,
-		name: `${names[type]}_${id.slice(-4)}`,
-		color: colors[type],
+		type: type === "group" ? "group" : "gameobject",
+		name: `${defaultName}_${id.slice(-4)}`,
+		color: defaultColor,
 		zIndex: 0,
 		transform: {
 			x,
@@ -34,28 +67,67 @@ export function createObjectAt(type: GameObject["type"], x: number, y: number): 
 			originY: 0.5,
 		},
 		properties: {},
+		components,
 	};
 }
+
+/**
+ * 🆕 ساخت آبجکت کاملاً خالی (فقط transform + name)
+ */
+export function createEmptyGameObject(x: number, y: number): GameObject {
+	const id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+	return {
+		id,
+		type: "gameobject",
+		name: `object_${id.slice(-4)}`,
+		zIndex: 0,
+		transform: {
+			x,
+			y,
+			width: 64,
+			height: 64,
+			rotation: 0,
+			scaleX: 1,
+			scaleY: 1,
+			originX: 0.5,
+			originY: 0.5,
+		},
+		properties: {},
+		components: [],
+	};
+}
+
+const shapeColors: Record<ShapeType, string> = {
+	rectangle: "#ff4a4a",
+	circle: "#4aff4a",
+	triangle: "#ffaa4a",
+	diamond: "#4affff",
+	pentagon: "#aa4aff",
+	hexagon: "#ffff4a",
+	star: "#ff4aff",
+};
 
 export function createShapeAt(shapeType: ShapeType, x: number, y: number): GameObject {
 	const obj = createObjectAt("shape", x, y);
 	const id = obj.id;
 	obj.name = `${shapeType}_${id.slice(-4)}`;
-	obj.properties = { ...obj.properties, shapeType };
 
-	const shapeColors: Record<ShapeType, string> = {
-		rectangle: "#ff4a4a",
-		circle: "#4aff4a",
-		triangle: "#ffaa4a",
-		diamond: "#4affff",
-		pentagon: "#aa4aff",
-		hexagon: "#ffff4a",
-		star: "#ff4aff",
-	};
-	obj.color = shapeColors[shapeType] ?? "#ff4a4a";
+	// shape component رو با نوع درست جایگزین کن
+	if (obj.components) {
+		obj.components = obj.components.map((c) => {
+			if (c.type === "shape") {
+				return { ...c, shape: shapeType, color: shapeColors[shapeType] ?? "#ff4a4a" };
+			}
+			return c;
+		});
+	}
 
 	return obj;
 }
+
+// ============================================================
+// Object Mutations
+// ============================================================
 
 export function addObjectToScene(scene: Scene, obj: GameObject, targetLayerId?: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
@@ -148,6 +220,15 @@ export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offse
 				clone.transform.y += offsetY;
 				clone.zIndex = getNextZIndex(newScene);
 				clone.layerId = layer.id;
+
+				// 🆕 component ها هم باید id جدید بگیرن
+				if (clone.components) {
+					clone.components = clone.components.map((c) => ({
+						...c,
+						id: createComponentId(),
+					}));
+				}
+
 				objectsToClone.push(clone);
 				newIds.push(clone.id);
 			}
@@ -288,13 +369,12 @@ export function sendToBackInScene(scene: Scene, objectId: string): Scene {
 }
 
 // ============================================================
-// 🆕 Layer Move
+// Layer Move
 // ============================================================
 
 export function moveObjectToLayerInScene(scene: Scene, objectId: string, targetLayerId: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
 
-	// 1. آبجکت رو پیدا کن
 	let obj: GameObject | null = null;
 	let sourceLayer: Layer | null = null;
 	let sourceIdx = -1;
@@ -311,17 +391,13 @@ export function moveObjectToLayerInScene(scene: Scene, objectId: string, targetL
 
 	if (!obj || !sourceLayer || sourceIdx === -1) return scene;
 
-	// 2. لایه‌ی مقصد
 	const targetLayer = newScene.layers.find((l) => l.id === targetLayerId);
 	if (!targetLayer) return scene;
 
-	// اگه همون لایه بود، کاری نکن
 	if (sourceLayer.id === targetLayer.id) return scene;
 
-	// 3. حذف از لایه‌ی مبدأ
 	sourceLayer.objects.splice(sourceIdx, 1);
 
-	// 4. اضافه به لایه‌ی مقصد
 	obj.layerId = targetLayer.id;
 	obj.zIndex = getNextZIndexForLayer(newScene, targetLayer.id);
 	targetLayer.objects.push(obj);
@@ -338,4 +414,69 @@ function getNextZIndexForLayer(scene: Scene, layerId: string): number {
 		if (z > max) max = z;
 	}
 	return max + 1;
+}
+
+// ============================================================
+// 🆕 Component Mutations
+// ============================================================
+
+/**
+ * یه component به آبجکت اضافه می‌کنه.
+ * اگه component از قبل از این نوع بود، جایگزینش می‌کنه (به‌جز text که چندتاش مجازه).
+ */
+export function addComponentToObjectInScene(scene: Scene, objectId: string, component: Component): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (obj) {
+			if (!obj.components) obj.components = [];
+
+			// component های یکتا: sprite, atlas, animation, shape
+			const uniqueTypes: Component["type"][] = ["sprite", "atlas", "animation", "shape"];
+			if (uniqueTypes.includes(component.type)) {
+				const existingIdx = obj.components.findIndex((c) => c.type === component.type);
+				if (existingIdx !== -1) {
+					obj.components[existingIdx] = component;
+					return newScene;
+				}
+			}
+
+			obj.components.push(component);
+			return newScene;
+		}
+	}
+	return newScene;
+}
+
+/**
+ * یه component رو آپدیت می‌کنه.
+ */
+export function updateComponentInScene(scene: Scene, objectId: string, componentId: string, updates: Partial<Component>): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (obj && obj.components) {
+			const idx = obj.components.findIndex((c) => c.id === componentId);
+			if (idx !== -1) {
+				obj.components[idx] = { ...obj.components[idx], ...updates } as Component;
+				return newScene;
+			}
+		}
+	}
+	return newScene;
+}
+
+/**
+ * یه component رو حذف می‌کنه.
+ */
+export function removeComponentFromScene(scene: Scene, objectId: string, componentId: string): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (obj && obj.components) {
+			obj.components = obj.components.filter((c) => c.id !== componentId);
+			return newScene;
+		}
+	}
+	return newScene;
 }

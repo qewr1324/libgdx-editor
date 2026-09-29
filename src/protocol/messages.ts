@@ -2,6 +2,7 @@
 import type { GameObject, Layer, Scene } from "../types/scene.js";
 import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType } from "../config/config-types.js";
 import type { AtlasSpriteProperties } from "../features/texture-atlas/atlas-types.js";
+import type { Component, ComponentType } from "../types/components.js";
 
 export interface LibGdxEditorConfigMessage {
 	version: string;
@@ -67,6 +68,7 @@ export type WebviewToExtensionMessage =
 	| { type: "requestAddObject"; objectType: GameObject["type"]; x: number; y: number; layerId?: string }
 	| { type: "requestAddShape"; shapeType: ShapeType; x: number; y: number; layerId?: string }
 	| { type: "requestAddTexture"; x: number; y: number; layerId?: string }
+	| { type: "requestAddEmptyObject"; x: number; y: number; layerId?: string }
 	| { type: "requestImportTexture" }
 	| { type: "updateObject"; object: GameObject; historyLabel?: string }
 	| { type: "updateObjects"; objects: GameObject[]; historyLabel?: string }
@@ -127,7 +129,12 @@ export type InspectorToExtensionMessage =
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
 	| { type: "requestConfig" }
 	| { type: "requestAtlasRegions"; texturePath: string }
-	| { type: "updateObjectAtlas"; objectId: string; atlas: AtlasSpriteProperties };
+	| { type: "updateObjectAtlas"; objectId: string; atlas: AtlasSpriteProperties }
+	// 🆕 Component messages
+	| { type: "addComponent"; objectId: string; componentType: ComponentType }
+	| { type: "updateComponent"; objectId: string; componentId: string; updates: Partial<Component> }
+	| { type: "removeComponent"; objectId: string; componentId: string }
+	| { type: "replaceComponent"; objectId: string; component: Component };
 
 export type ExtensionToInspectorMessage =
 	| { type: "showObject"; object: GameObject }

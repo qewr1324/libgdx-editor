@@ -1,18 +1,38 @@
+// src/editor/message-handler.ts
 import type * as vscode from "vscode";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { toConfigMessage } from "../protocol/messages.js";
 import type { GameObject, Scene } from "../types/scene.js";
+import type { Component } from "../types/components.js";
+import { createComponentId, createDefaultComponent } from "../types/components.js";
 import { AssetManager } from "./assetManager.js";
 import { ConfigManager } from "../config/config-manager.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { SceneRegistry } from "./scene-registry.js";
 import { parseDocument, writeDocument, saveDocument } from "./scene-parser.js";
-import { addObjectToScene, bringForwardInScene, bringToFrontInScene, createObjectAt, createShapeAt, deleteObjectFromScene, getNextZIndex, sendBackwardInScene, sendToBackInScene, setObjectZIndexInScene, updateObjectsInScene } from "./scene-mutations.js";
+import {
+	addObjectToScene,
+	bringForwardInScene,
+	bringToFrontInScene,
+	createEmptyGameObject,
+	createObjectAt,
+	createShapeAt,
+	deleteObjectFromScene,
+	getNextZIndex,
+	sendBackwardInScene,
+	sendToBackInScene,
+	setObjectZIndexInScene,
+	updateObjectsInScene,
+	addComponentToObjectInScene,
+	updateComponentInScene,
+	removeComponentFromScene,
+} from "./scene-mutations.js";
 import { ClipboardStore } from "./clipboardStore.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
 import { undoOp, redoOp } from "./scene-ops/historyOps.js";
+import { AtlasImporter } from "../features/texture-atlas/atlas-importer.js";
 import type { SceneHost } from "./scene-types.js";
 import { log } from "../shared/logger.js";
 
@@ -70,6 +90,20 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.getHistory().commit(updated, `add ${msg.shapeType}`);
 
 			await config.update({ ui: { lastShapeType: msg.shapeType } });
+			break;
+		}
+		case "requestAddEmptyObject": {
+			const scene = host.getScene();
+			if (!scene) break;
+			const newObj = createEmptyGameObject(msg.x, msg.y);
+			newObj.zIndex = getNextZIndex(scene);
+			const updated = addObjectToScene(scene, newObj);
+			host.getHistory().commit(updated, "add empty object");
+
+			// آبجکت جدید رو انتخاب کن
+			setTimeout(() => {
+				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
+			}, 50);
 			break;
 		}
 		case "requestAddTexture":
@@ -147,6 +181,13 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			if (ClipboardStore.isEmpty()) break;
 
 			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
+
+			// 🆕 component ها id جدید بگیرن
+			for (const obj of pasted) {
+				if (obj.components) {
+					obj.components = obj.components.map((c) => ({ ...c, id: createComponentId() }));
+				}
+			}
 
 			let updated = current;
 			for (const obj of pasted) {
@@ -241,8 +282,102 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			} satisfies ExtensionToWebviewMessage);
 			break;
 		}
+		// ============================================================
+		// 🆕 Atlas region request
+		// ============================================================
+		case "requestAtlasRegions": {
+			const scene = host.getScene();
+			if (!scene) break;
+
+			try {
+				const atlas = await AtlasImporter.loadAtlasRegions(ctx.document.uri, msg.texturePath);
+				if (atlas) {
+					ctx.webviewPanel.webview.postMessage({
+						type: "atlasRegionsLoaded",
+						texturePath: msg.texturePath,
+						atlasPath: atlas.atlasPath,
+						regions: atlas.regions.map((r) => ({
+							name: r.name,
+							x: r.x,
+							y: r.y,
+							width: r.width,
+							height: r.height,
+							rotate: r.rotate,
+							index: r.index,
+						})),
+					} satisfies ExtensionToWebviewMessage);
+				} else {
+					ctx.webviewPanel.webview.postMessage({
+						type: "atlasNotFound",
+						texturePath: msg.texturePath,
+					} satisfies ExtensionToWebviewMessage);
+				}
+			} catch (err) {
+				log.error("[message-handler] requestAtlasRegions failed:", err);
+				ctx.webviewPanel.webview.postMessage({
+					type: "atlasNotFound",
+					texturePath: msg.texturePath,
+				} satisfies ExtensionToWebviewMessage);
+			}
+			break;
+		}
 	}
 }
+
+// ============================================================
+// 🆕 Component Operations (از Inspector میاد)
+// ============================================================
+
+/**
+ * این تابع از InspectorProvider صدا زده میشه.
+ * یه component جدید به آبجکت اضافه می‌کنه.
+ */
+export function handleAddComponent(host: SceneHost, objectId: string, componentType: Component["type"]): void {
+	const scene = host.getScene();
+	if (!scene) return;
+
+	const newComponent = createDefaultComponent(componentType);
+	const updated = addComponentToObjectInScene(scene, objectId, newComponent);
+	host.getHistory().commit(updated, `add ${componentType} component`);
+}
+
+/**
+ * یه component رو آپدیت می‌کنه.
+ */
+export function handleUpdateComponent(host: SceneHost, objectId: string, componentId: string, updates: Partial<Component>): void {
+	const scene = host.getScene();
+	if (!scene) return;
+
+	const updated = updateComponentInScene(scene, objectId, componentId, updates);
+	host.getHistory().commit(updated, "update component");
+}
+
+/**
+ * یه component رو حذف می‌کنه.
+ */
+export function handleRemoveComponent(host: SceneHost, objectId: string, componentId: string): void {
+	const scene = host.getScene();
+	if (!scene) return;
+
+	const updated = removeComponentFromScene(scene, objectId, componentId);
+	host.getHistory().commit(updated, "remove component");
+}
+
+/**
+ * یه component رو کامل جایگزین می‌کنه.
+ * (مثلاً وقتی کاربر یه shape رو عوض می‌کنه، همون id بمونه)
+ */
+export function handleReplaceComponent(host: SceneHost, objectId: string, component: Component): void {
+	const scene = host.getScene();
+	if (!scene) return;
+
+	const updated = addComponentToObjectInScene(scene, objectId, component);
+	host.getHistory().commit(updated, "update component");
+}
+
+// ============================================================
+// Scene Send
+// ============================================================
 
 export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	const host = ctx.host;

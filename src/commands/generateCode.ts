@@ -1,7 +1,9 @@
+// src/commands/generateCode.ts
 import * as vscode from "vscode";
 import * as path from "node:path";
 import { SceneEditorProvider } from "../editor/SceneEditorProvider.js";
-import { generateCode } from "../generator/javaGenerator.js";
+import { generateCodeWithHelpers } from "../generator/javaGenerator.js";
+import { findComponent } from "../types/components.js";
 
 export async function generateCodeCommand(): Promise<void> {
 	const host = SceneEditorProvider.getActiveProvider();
@@ -44,6 +46,23 @@ export async function generateCodeCommand(): Promise<void> {
 		value: "com.example.scenes",
 	});
 
+	// 🆕 چک کن آیا صحنه انیمیشن داره
+	const hasAnimation = scene.layers.some((layer) => layer.objects.some((obj) => !!findComponent(obj.components, "animation")));
+
+	// 🆕 اگه انیمیشن داشت، بپرس AnimatedActor رو هم بسازه یا نه
+	let includeAnimatedActorHelper = false;
+	if (hasAnimation) {
+		const choice = await vscode.window.showQuickPick(
+			[
+				{ label: "Yes", value: true, description: "Also generate AnimatedActor helper class" },
+				{ label: "No", value: false, description: "Only generate the main scene file" },
+			],
+			{ title: "Generate Code", placeHolder: "Include AnimatedActor helper?" },
+		);
+		if (!choice) return;
+		includeAnimatedActorHelper = choice.value;
+	}
+
 	const ext = language.value === "java" ? "java" : "kt";
 	const sceneDir = vscode.Uri.joinPath(document.uri, "..");
 	const defaultUri = vscode.Uri.joinPath(sceneDir, `${className}.${ext}`);
@@ -55,19 +74,37 @@ export async function generateCodeCommand(): Promise<void> {
 	});
 	if (!saveUri) return;
 
-	const code = generateCode(scene, {
+	const result = generateCodeWithHelpers(scene, {
 		className,
 		packageName: packageName?.trim() || undefined,
 		language: language.value,
 		includeComments: true,
+		includeAnimatedActorHelper,
+		helperPackageName: packageName?.trim() || undefined,
 	});
 
-	await vscode.workspace.fs.writeFile(saveUri, new TextEncoder().encode(code));
+	// فایل اصلی
+	await vscode.workspace.fs.writeFile(saveUri, new TextEncoder().encode(result.main));
 
+	// فایل‌های کمکی
+	const helperUris: vscode.Uri[] = [];
+	for (const helper of result.helpers) {
+		const helperUri = vscode.Uri.joinPath(saveUri, "..", helper.fileName);
+		await vscode.workspace.fs.writeFile(helperUri, new TextEncoder().encode(helper.content));
+		helperUris.push(helperUri);
+	}
+
+	// فایل اصلی رو باز کن
 	const doc = await vscode.workspace.openTextDocument(saveUri);
 	await vscode.window.showTextDocument(doc);
 
-	vscode.window.showInformationMessage(`Generated ${path.basename(saveUri.fsPath)}`);
+	// پیام موفقیت
+	if (helperUris.length > 0) {
+		const names = helperUris.map((u) => path.basename(u.fsPath)).join(", ");
+		vscode.window.showInformationMessage(`Generated ${path.basename(saveUri.fsPath)} + ${names}`);
+	} else {
+		vscode.window.showInformationMessage(`Generated ${path.basename(saveUri.fsPath)}`);
+	}
 }
 
 function toPascalCase(s: string): string {

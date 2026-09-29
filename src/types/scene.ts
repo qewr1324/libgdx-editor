@@ -1,4 +1,10 @@
 // src/types/scene.ts
+import type { Component } from "./components.js";
+
+// ============================================================
+// Basic Types
+// ============================================================
+
 export interface Vec2 {
 	x: number;
 	y: number;
@@ -16,20 +22,37 @@ export interface Transform {
 	originY: number;
 }
 
-export type GameObjectType = "sprite" | "shape" | "text" | "group";
+export type GameObjectType = "gameobject" | "sprite" | "shape" | "text" | "group";
+
+// ============================================================
+// GameObject
+// ============================================================
 
 export interface GameObject {
 	id: string;
 	type: GameObjectType;
 	name: string;
+
+	// ---------- Legacy fields (برای backward-compat) ----------
+	/** @deprecated از components (sprite/atlas) استفاده کن */
 	texture?: string;
+	/** @deprecated از components.shape.color استفاده کن */
 	color?: string;
+
 	zIndex?: number;
 	layerId?: string;
 	transform: Transform;
 	properties: Record<string, unknown>;
+
+	/** 🆕 سیستم کامپوننت‌ها */
+	components?: Component[];
+
 	children?: GameObject[];
 }
+
+// ============================================================
+// Layer / Scene
+// ============================================================
 
 export interface Layer {
 	id?: string;
@@ -59,6 +82,10 @@ export interface Scene {
 	camera: Camera;
 	layers: Layer[];
 }
+
+// ============================================================
+// Factory Functions
+// ============================================================
 
 export function createEmptyScene(name = "untitled"): Scene {
 	return {
@@ -102,8 +129,13 @@ export function createGameObject(type: GameObjectType, x: number, y: number): Ga
 			originY: 0.5,
 		},
 		properties: {},
+		components: [],
 	};
 }
+
+// ============================================================
+// Utilities
+// ============================================================
 
 /** مرتب‌سازی آبجکت‌های یک لایه بر اساس zIndex (ascending) */
 export function sortObjectsByZIndex(objects: GameObject[]): GameObject[] {

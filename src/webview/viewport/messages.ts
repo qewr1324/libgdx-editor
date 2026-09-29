@@ -1,19 +1,25 @@
 // src/webview/viewport/messages.ts
 import { vscode } from "./types.js";
 import { loadTexture } from "./pixi/textures.js";
-import { renderScene } from "./render/scene.js";
+import { renderScene, clearSubTextureCache } from "./render/scene.js";
 import { redrawGrid } from "./render/grid.js";
-import { interactionMode, scene, selectedIds, setBrokenAssets, viewport } from "./state.js";
+import { interactionMode, scene, selectedIds, setBrokenAssets, viewport, textureCache } from "./state.js";
 import { selectObjects, drawSelectionOutlines } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
 import { applyTheme } from "./theme/theme-manager.js";
 import { setConfig, getConfig } from "./config-store.js";
+import { registerAtlas } from "./features/texture-atlas/atlas-picker.js";
+import type { AtlasData } from "../../features/texture-atlas/atlas-types.js";
 import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 import type { Scene } from "../../types/scene.js";
 
 let pendingRender: (() => void) | null = null;
 let currentSceneFromMessage: Scene | null = null;
 let lastAppliedThemeName: string | null = null;
+
+// ============================================================
+// Helpers
+// ============================================================
 
 function scheduleRender(callback: () => void): void {
 	if (interactionMode !== "idle") {
@@ -39,6 +45,14 @@ function applyEffectiveTheme(): void {
 	applyTheme(themeName, true);
 }
 
+function textureCacheHas(path: string): boolean {
+	return textureCache.has(path);
+}
+
+// ============================================================
+// Config
+// ============================================================
+
 function handleConfig(config: LibGdxEditorConfigMessage): void {
 	const previous = getConfig();
 	setConfig(config);
@@ -59,11 +73,13 @@ function handleConfig(config: LibGdxEditorConfigMessage): void {
 		drawSelectionOutlines();
 	}
 
-	// ✅ event برای toolbar و snapping
-	// toolbar.ts به این event گوش می‌ده و rebuild می‌کنه
-	// snapping/index.ts به این event گوش می‌ده و refreshSnapConfig می‌کنه
+	// event برای toolbar و snapping
 	window.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
 }
+
+// ============================================================
+// Setup
+// ============================================================
 
 export function setupMessages(): void {
 	window.addEventListener("message", async (event) => {
@@ -75,32 +91,93 @@ export function setupMessages(): void {
 				applyEffectiveTheme();
 				scheduleRender(() => renderScene(msg.scene));
 				break;
+
 			case "texturesLoaded": {
 				const textures = msg.textures as Record<string, string>;
+				let anyLoaded = false;
 				for (const [path, dataUrl] of Object.entries(textures)) {
 					try {
+						const had = textureCacheHas(path);
 						await loadTexture(path, dataUrl);
+						if (!had) anyLoaded = true;
 					} catch (err) {
 						console.error("Failed to load texture:", path, err);
 					}
+				}
+				if (anyLoaded) {
+					// sub-texture cache هم باید پاک بشه چون texture ها عوض شدن
+					clearSubTextureCache();
 				}
 				scheduleRender(() => {
 					if (scene) renderScene(scene);
 				});
 				break;
 			}
+
+			// ============================================================
+			// 🆕 Atlas regions loaded
+			// ============================================================
+			//
+			// وقتی کاربر یه آبجکت با AtlasComponent داره یا یه atlas رو
+			// import می‌کنه، extension پیام atlasRegionsLoaded می‌فرسته.
+			//
+			// ما اینجا:
+			//   ۱. داده رو به فرمت AtlasData تبدیل می‌کنیم
+			//   ۲. با registerAtlas توی cache ذخیره می‌کنیم
+			//   ۳. sub-texture cache رو پاک می‌کنیم
+			//   ۴. صحنه رو دوباره رندر می‌کنیم
+			//
+			case "atlasRegionsLoaded": {
+				const atlasData: AtlasData = {
+					texturePath: msg.texturePath,
+					atlasPath: msg.atlasPath,
+					regions: (msg.regions as Array<{ name: string; x: number; y: number; width: number; height: number; rotate: boolean; index: number }>).map((r) => ({
+						name: r.name,
+						x: r.x,
+						y: r.y,
+						width: r.width,
+						height: r.height,
+						origWidth: r.width,
+						origHeight: r.height,
+						offsetX: 0,
+						offsetY: 0,
+						rotate: r.rotate,
+						index: r.index,
+					})),
+				};
+
+				registerAtlas(msg.texturePath, atlasData);
+
+				// چون region ها عوض شدن، sub-texture cache باید پاک بشه
+				clearSubTextureCache();
+
+				scheduleRender(() => {
+					if (scene) renderScene(scene);
+				});
+				break;
+			}
+
+			case "atlasNotFound": {
+				// atlas پیدا نشد — شاید یه texture معمولیه
+				// fallback: texture بدون region کشیده میشه
+				break;
+			}
+
 			case "brokenAssets":
 				setBrokenAssets(msg.paths as string[]);
 				scheduleRender(() => {
 					if (scene) renderScene(scene);
 				});
 				break;
+
 			case "clipboardChanged":
 				break;
+
 			case "configLoaded":
 			case "configUpdated":
 				handleConfig(msg.config);
 				break;
+
 			case "selectFromOutliner":
 				if (msg.objectId) {
 					selectObjects([msg.objectId], msg.objectId);
@@ -112,11 +189,13 @@ export function setupMessages(): void {
 					selectObjects([]);
 				}
 				break;
+
 			case "selectObjects":
 				if (JSON.stringify(msg.objectIds) !== JSON.stringify(selectedIds)) {
 					selectObjects(msg.objectIds, msg.objectIds[msg.objectIds.length - 1] ?? null);
 				}
 				break;
+
 			case "focusObject":
 				if (viewport) {
 					const obj = scene ? findObject(scene, msg.objectId) : null;

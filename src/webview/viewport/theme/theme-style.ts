@@ -1,3 +1,4 @@
+// src/webview/viewport/theme/theme-style.ts
 import type { Theme } from "./themes.js";
 
 export function buildThemeCss(theme: Theme): string {
@@ -278,6 +279,7 @@ export function buildThemeCss(theme: Theme): string {
 			z-index: 10;
 		}
 
+		.inspector-header.type-gameobject { border-left: 3px solid #9b59b6; }
 		.inspector-header.type-sprite { border-left: 3px solid #4a9eff; }
 		.inspector-header.type-shape { border-left: 3px solid #ff4a4a; }
 		.inspector-header.type-text { border-left: 3px solid #ffffff; }
@@ -747,7 +749,7 @@ export function buildThemeCss(theme: Theme): string {
 			border: ${theme.isClassic ? `2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : `1px solid ${theme.scrollThumbBorder}; border-radius: 5px;`};
 		}
 
-				/* --- Number wrap + drag handle --- */
+		/* --- Number wrap + drag handle --- */
 		.inspector-number-wrap {
 			position: relative;
 			display: flex;
@@ -784,6 +786,214 @@ export function buildThemeCss(theme: Theme): string {
 
 		.inspector-drag-handle svg {
 			pointer-events: none;
+		}
+
+		/* ============================================================
+		   🆕 Components Section
+		   ============================================================ */
+
+		/* --- Empty state --- */
+		.inspector-components-empty {
+			font-size: 11px;
+			opacity: 0.5;
+			font-style: italic;
+			padding: 6px 4px;
+			color: ${theme.fg};
+			text-align: center;
+		}
+
+		/* --- Add Component button + menu --- */
+		.inspector-component-add-wrap {
+			position: relative;
+			margin-top: 6px;
+		}
+
+		.inspector-component-add-btn {
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			gap: 6px;
+			width: 100%;
+			padding: 5px 8px;
+			background: ${theme.isClassic ? theme.btnBg : "transparent"};
+			color: ${theme.fg};
+			border: ${theme.isClassic ? "2px" : "1px"} dashed ${theme.isClassic ? theme.border : theme.border};
+			${theme.isClassic ? `border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : ""}
+			border-radius: ${theme.btnRadius};
+			cursor: pointer;
+			font-family: inherit;
+			font-size: 11px;
+			opacity: 0.75;
+			transition: opacity 0.1s, background 0.1s;
+		}
+
+		.inspector-component-add-btn:hover {
+			opacity: 1;
+			background: ${theme.btnHoverBg};
+		}
+
+		.inspector-component-add-btn svg {
+			display: block;
+			flex-shrink: 0;
+		}
+
+		.inspector-component-add-menu {
+			display: none;
+			position: absolute;
+			top: calc(100% + 2px);
+			left: 0;
+			right: 0;
+			background: ${theme.menuBg};
+			color: ${theme.menuFg};
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.menuBorder};
+			${theme.isClassic ? `border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : ""}
+			border-radius: ${theme.menuRadius};
+			box-shadow: ${theme.menuShadow};
+			padding: 3px 0;
+			z-index: 300;
+			max-height: 240px;
+			overflow-y: auto;
+		}
+
+		.inspector-component-add-menu.open {
+			display: block;
+		}
+
+		.inspector-component-add-item {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 5px 10px;
+			cursor: pointer;
+			font-size: 11px;
+			font-family: inherit;
+			color: ${theme.menuFg};
+			white-space: nowrap;
+		}
+
+		.inspector-component-add-item:hover {
+			background: ${theme.menuHoverBg};
+			color: ${theme.menuHoverFg};
+		}
+
+		/* --- Component card --- */
+		.inspector-component-card {
+			background: ${theme.isClassic ? theme.bg : "rgba(255,255,255,0.025)"};
+			border: 1px solid ${theme.isClassic ? theme.border : theme.panelBorder};
+			${theme.isClassic ? `border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : ""}
+			border-radius: ${theme.isClassic ? "0" : "3px"};
+			margin-bottom: 6px;
+			overflow: hidden;
+		}
+
+		.inspector-component-header {
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			padding: 4px 6px;
+			background: ${theme.isClassic ? theme.bg : theme.titleBg};
+			border-bottom: 1px solid ${theme.isClassic ? theme.border : theme.panelBorder};
+			cursor: default;
+			user-select: none;
+		}
+
+		.inspector-component-icon {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 16px;
+			height: 16px;
+			font-size: 12px;
+			flex-shrink: 0;
+		}
+
+		.inspector-component-label {
+			flex: 1;
+			font-size: 11px;
+			font-weight: 600;
+			color: ${theme.fg};
+			letter-spacing: 0.2px;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.inspector-component-remove {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 18px;
+			height: 18px;
+			padding: 0;
+			background: transparent;
+			border: none;
+			color: ${theme.fg};
+			cursor: pointer;
+			opacity: 0.4;
+			border-radius: 2px;
+			flex-shrink: 0;
+			transition: opacity 0.1s, background 0.1s;
+		}
+
+		.inspector-component-remove:hover {
+			opacity: 1;
+			background: rgba(255, 74, 74, 0.2);
+			color: #ff4a4a;
+		}
+
+		.inspector-component-remove svg {
+			display: block;
+		}
+
+		.inspector-component-body {
+			padding: 6px 6px 4px 6px;
+		}
+
+		/* --- Frames textarea --- */
+		.inspector-frames-textarea {
+			width: 100%;
+			font-family: "Courier New", monospace !important;
+			font-size: 10px !important;
+			resize: vertical;
+			min-height: 44px;
+			background: ${theme.inputBg};
+			color: ${theme.inputFg};
+			border: 1px solid ${theme.inputBorder};
+			border-radius: ${theme.inputRadius};
+			padding: 4px 6px;
+			outline: none;
+			box-sizing: border-box;
+		}
+
+		/* --- Component hint --- */
+		.inspector-component-hint {
+			font-size: 10px;
+			opacity: 0.55;
+			font-style: italic;
+			padding: 2px 0;
+			color: ${theme.fg};
+		}
+
+		/* --- Component reload button --- */
+		.inspector-component-reload {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 22px;
+			height: 22px;
+			padding: 0;
+			background: ${theme.btnBg};
+			color: ${theme.btnFg};
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.btnBorder};
+			${theme.isClassic ? `border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : ""}
+			border-radius: ${theme.btnRadius};
+			cursor: pointer;
+			font-size: 11px;
+			flex-shrink: 0;
+		}
+
+		.inspector-component-reload:hover {
+			background: ${theme.btnHoverBg};
 		}
 	`;
 }

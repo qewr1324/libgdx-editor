@@ -58,14 +58,18 @@ function buildToolbar(): HTMLDivElement {
 	const lastShape = config?.ui.lastShapeType ?? "rectangle";
 
 	toolbar.innerHTML = `
-		<div class="tb-group" data-dropdown="sprite">
-			<button class="tb-btn tb-dropdown-trigger" data-action="sprite-menu">
-				<span>🖼️ Sprite</span>
+		<div class="tb-group" data-dropdown="add">
+			<button class="tb-btn tb-dropdown-trigger" data-action="add-menu">
+				<span>➕ Add</span>
 				<span class="tb-caret">▼</span>
 			</button>
-			<div class="tb-dropdown" data-menu="sprite">
-				<div class="tb-menu-item" data-action="add-sprite">➕ Add Sprite at Center</div>
-				<div class="tb-menu-item" data-action="add-texture">📁 Import Texture…</div>
+			<div class="tb-dropdown" data-menu="add">
+				<div class="tb-menu-item" data-action="add-empty-object"><span class="shape-icon">◇</span> Empty Object</div>
+				<div class="tb-menu-sep"></div>
+				<div class="tb-menu-item" data-action="add-sprite"><span class="shape-icon">🖼️</span> Sprite</div>
+				<div class="tb-menu-item" data-action="add-texture"><span class="shape-icon">📁</span> Import Texture…</div>
+				<div class="tb-menu-sep"></div>
+				<div class="tb-menu-item" data-action="add-shape-current"><span class="shape-icon">⬛</span> Shape (${lastShape})</div>
 			</div>
 		</div>
 
@@ -149,7 +153,7 @@ function buildToolbar(): HTMLDivElement {
 
 		const action = target.dataset.action;
 
-		if (action === "sprite-menu" || action === "shapes-menu" || action === "view-menu") {
+		if (action === "add-menu" || action === "shapes-menu" || action === "view-menu") {
 			e.stopPropagation();
 			const group = target.closest(".tb-group") as HTMLElement;
 			const dropdown = group.querySelector(".tb-dropdown") as HTMLDivElement;
@@ -183,6 +187,10 @@ function buildToolbar(): HTMLDivElement {
 		}
 
 		switch (action) {
+			case "add-empty-object":
+				closeDropdown();
+				addEmptyObject();
+				break;
 			case "add-sprite":
 				closeDropdown();
 				addObject("sprite");
@@ -191,6 +199,12 @@ function buildToolbar(): HTMLDivElement {
 				closeDropdown();
 				addTexture();
 				break;
+			case "add-shape-current": {
+				closeDropdown();
+				const cfg = getConfig();
+				addShape(cfg?.ui.lastShapeType ?? "rectangle");
+				break;
+			}
 			case "toggle-grid": {
 				const config = getConfig();
 				const next = !(config?.view.showGrid ?? true);
@@ -280,6 +294,19 @@ function addTexture(): void {
 	const center = viewport.center;
 	vscode.postMessage({
 		type: "requestAddTexture",
+		x: Math.round(center.x),
+		y: Math.round(center.y),
+	});
+}
+
+/**
+ * 🆕 اضافه کردن آبجکت کاملاً خالی (فقط transform)
+ */
+function addEmptyObject(): void {
+	if (!viewport) return;
+	const center = viewport.center;
+	vscode.postMessage({
+		type: "requestAddEmptyObject",
 		x: Math.round(center.x),
 		y: Math.round(center.y),
 	});

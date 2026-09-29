@@ -1,3 +1,4 @@
+// src/webview/viewport/ui/context-menu.ts
 import { app, viewport } from "../state.js";
 import { vscode } from "../types.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
@@ -19,6 +20,7 @@ function buildContextMenu(): HTMLDivElement {
 	menu.innerHTML = `
 		<div class="context-menu-item" data-action="scene-settings">⚙️ Scene Settings</div>
 		<div class="context-menu-separator"></div>
+		<div class="context-menu-item" data-action="add-empty-here">◇ Add Empty Object Here</div>
 		<div class="context-menu-item" data-action="add-sprite-here">➕ Add Sprite Here</div>
 		<div class="context-menu-item" data-action="add-shape-here">⭕ Add Shape Here</div>
 		<div class="context-menu-item" data-action="add-text-here">🔤 Add Text Here</div>
@@ -92,6 +94,9 @@ function handleMenuAction(action: string, worldX: number, worldY: number): void 
 	switch (action) {
 		case "scene-settings":
 			vscode.postMessage({ type: "openSceneSettings" });
+			break;
+		case "add-empty-here":
+			vscode.postMessage({ type: "requestAddEmptyObject", x: worldX, y: worldY });
 			break;
 		case "add-sprite-here":
 			vscode.postMessage({ type: "requestAddObject", objectType: "sprite", x: worldX, y: worldY });

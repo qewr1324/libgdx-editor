@@ -1,13 +1,51 @@
-import { Container, Graphics, Rectangle, Sprite, Text, TextStyle } from "pixi.js";
+// src/webview/viewport/render/scene.ts
+import { Container, Graphics, Rectangle, Sprite, Text, TextStyle, Texture } from "pixi.js";
 import { app, contentLayer, objectSprites, scene, selectedIds, setScene, textureCache, interactionMode, getBrokenAssets } from "../state.js";
 import type { GameObject, Scene } from "../../../types/scene.js";
 import { sortObjectsByZIndex } from "../../../types/scene.js";
-import type { ShapeType } from "../../../config/config-types.js";
+import type { Component, ShapeType } from "../../../types/components.js";
+import { findComponent } from "../../../types/components.js";
 import { redrawGrid } from "./grid.js";
 import { beginDrag } from "../interaction/drag.js";
 import { selectObjects, drawSelectionOutlines } from "../selection/selection.js";
 import { findObject } from "../utils/geometry.js";
 import { getConfig } from "../config-store.js";
+
+// ============================================================
+// Sub-texture cache
+// ============================================================
+
+const subTextureCache = new Map<string, Texture>();
+
+function getSubTexture(texturePath: string, region: { x: number; y: number; width: number; height: number; rotate?: boolean }): Texture | null {
+	const cacheKey = `${texturePath}::${region.x},${region.y},${region.width},${region.height},${region.rotate ? 1 : 0}`;
+	const cached = subTextureCache.get(cacheKey);
+	if (cached) return cached;
+
+	const baseTexture = textureCache.get(texturePath);
+	if (!baseTexture) return null;
+
+	// LibGDX atlas Y مختصاتش از پایین-چپه، Pixi از بالا-چپ
+	// پس باید flip بشه
+	const texHeight = baseTexture.height;
+	const flippedY = texHeight - region.y - region.height;
+
+	const subTex = new Texture({
+		source: baseTexture.source,
+		frame: new Rectangle(region.x, flippedY, region.width, region.height),
+	});
+
+	subTextureCache.set(cacheKey, subTex);
+	return subTex;
+}
+
+export function clearSubTextureCache(): void {
+	subTextureCache.clear();
+}
+
+// ============================================================
+// Scene render
+// ============================================================
 
 export function renderScene(newScene: Scene): void {
 	setScene(newScene);
@@ -36,57 +74,35 @@ export function renderScene(newScene: Scene): void {
 	}
 }
 
+// ============================================================
+// Object render
+// ============================================================
+
 export function renderObject(obj: GameObject, layerLocked = false): void {
 	const container = new Container();
 	const t = obj.transform;
 
 	const isWireframe = getConfig()?.view.renderMode === "wireframe";
 	const broken = getBrokenAssets();
-	let rendered = false;
 
-	if (obj.type === "sprite" && obj.texture) {
-		const cached = textureCache.get(obj.texture);
-		if (cached) {
-			const sprite = new Sprite(cached);
-			sprite.width = t.width;
-			sprite.height = t.height;
-			sprite.eventMode = "none";
-			container.addChild(sprite);
-			rendered = true;
+	// ---------- Render all components in order ----------
+	const components = obj.components ?? [];
+
+	// اگه هیچ component ای نداشت، legacy rendering رو امتحان کن
+	if (components.length === 0) {
+		renderLegacy(obj, container, isWireframe);
+	} else {
+		for (const comp of components) {
+			renderComponent(comp, obj, container, isWireframe);
 		}
 	}
 
-	if (!rendered) {
-		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
-		const g = new Graphics();
-
-		if (obj.type === "shape") {
-			const shapeType = (obj.properties?.shapeType as ShapeType) ?? "rectangle";
-			drawShape(g, shapeType, t.width, t.height);
-		} else if (obj.type === "text") {
-			const txt = new Text({
-				text: obj.name,
-				style: new TextStyle({ fill: obj.color || "#ffffff", fontSize: 16 }),
-			});
-			txt.eventMode = "none";
-			container.addChild(txt);
-			rendered = true;
-		} else {
-			g.rect(0, 0, t.width, t.height);
-		}
-
-		if (obj.type === "shape" || (!rendered && obj.type !== "text")) {
-			if (isWireframe) {
-				g.stroke({ width: 2, color, alpha: 1 });
-			} else {
-				g.fill({ color, alpha: 1 });
-				g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
-			}
-			g.eventMode = "none";
-			container.addChild(g);
-		}
+	// ---------- اگه هیچی رندر نشد، fallback نمایش بده ----------
+	if (container.children.length === 0) {
+		renderEmptyFallback(obj, container);
 	}
 
+	// ---------- Broken asset badge ----------
 	if (obj.texture && broken.includes(obj.texture)) {
 		const badge = new Text({
 			text: "❗",
@@ -98,6 +114,7 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 		container.addChild(badge);
 	}
 
+	// ---------- Transform + hitArea ----------
 	container.hitArea = new Rectangle(0, 0, t.width, t.height);
 	container.x = t.x;
 	container.y = t.y;
@@ -134,6 +151,252 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	contentLayer.addChild(container);
 	objectSprites.set(obj.id, container);
 }
+
+// ============================================================
+// Component renderers
+// ============================================================
+
+function renderComponent(comp: Component, obj: GameObject, container: Container, isWireframe: boolean): void {
+	const t = obj.transform;
+
+	switch (comp.type) {
+		case "sprite": {
+			if (!comp.texture) break;
+			const cached = textureCache.get(comp.texture);
+			if (!cached) break;
+
+			const sprite = new Sprite(cached);
+			sprite.width = t.width;
+			sprite.height = t.height;
+			sprite.eventMode = "none";
+
+			// tint
+			if (comp.tint) {
+				const color = parseInt(comp.tint.replace("#", "0x"));
+				if (!Number.isNaN(color)) sprite.tint = color;
+			}
+
+			// flip
+			if (comp.flipX) sprite.scale.x *= -1;
+			if (comp.flipY) sprite.scale.y *= -1;
+
+			container.addChild(sprite);
+			break;
+		}
+
+		case "atlas": {
+			if (!comp.texture || !comp.region) break;
+			const subTex = getSubTexture(comp.texture, getRegionFromAtlas(comp.texture, comp.region) ?? { x: 0, y: 0, width: 0, height: 0 });
+			if (!subTex) break;
+
+			const sprite = new Sprite(subTex);
+			sprite.width = t.width;
+			sprite.height = t.height;
+			sprite.eventMode = "none";
+
+			if (comp.tint) {
+				const color = parseInt(comp.tint.replace("#", "0x"));
+				if (!Number.isNaN(color)) sprite.tint = color;
+			}
+
+			container.addChild(sprite);
+			break;
+		}
+
+		case "animation": {
+			// فقط فریم اول رو نشون بده (پیش‌نمایش ساده)
+			if (!comp.texture || comp.frames.length === 0) break;
+			const firstFrame = comp.frames[0];
+			const subTex = getSubTexture(comp.texture, getRegionFromAtlas(comp.texture, firstFrame) ?? { x: 0, y: 0, width: 0, height: 0 });
+			if (!subTex) break;
+
+			const sprite = new Sprite(subTex);
+			sprite.width = t.width;
+			sprite.height = t.height;
+			sprite.eventMode = "none";
+			container.addChild(sprite);
+
+			// یه badge کوچیک که نشون بده انیمیشنه
+			const badge = new Text({
+				text: "🎬",
+				style: new TextStyle({ fontSize: 12 }),
+			});
+			badge.x = t.width - 16;
+			badge.y = 2;
+			badge.eventMode = "none";
+			container.addChild(badge);
+			break;
+		}
+
+		case "shape": {
+			const g = new Graphics();
+			drawShape(g, comp.shape, t.width, t.height);
+
+			const color = parseInt(comp.color.replace("#", "0x")) || 0x4a9eff;
+
+			if (isWireframe) {
+				g.stroke({ width: 2, color, alpha: 1 });
+			} else if (comp.filled) {
+				g.fill({ color, alpha: 1 });
+				if (comp.strokeWidth && comp.strokeWidth > 0) {
+					const strokeColor = comp.strokeColor ? parseInt(comp.strokeColor.replace("#", "0x")) : 0x000000;
+					g.stroke({ width: comp.strokeWidth, color: strokeColor, alpha: 0.5 });
+				}
+			} else {
+				g.stroke({ width: comp.strokeWidth ?? 2, color, alpha: 1 });
+			}
+
+			g.eventMode = "none";
+			container.addChild(g);
+			break;
+		}
+
+		case "text": {
+			const txt = new Text({
+				text: comp.text,
+				style: new TextStyle({
+					fill: comp.color || "#ffffff",
+					fontSize: comp.fontSize || 16,
+				}),
+			});
+			txt.eventMode = "none";
+			container.addChild(txt);
+			break;
+		}
+	}
+}
+
+// ============================================================
+// Legacy rendering (برای backward-compat)
+// ============================================================
+
+function renderLegacy(obj: GameObject, container: Container, isWireframe: boolean): void {
+	const t = obj.transform;
+	let rendered = false;
+
+	// sprite قدیمی
+	if (obj.type === "sprite" && obj.texture) {
+		const cached = textureCache.get(obj.texture);
+		if (cached) {
+			const sprite = new Sprite(cached);
+			sprite.width = t.width;
+			sprite.height = t.height;
+			sprite.eventMode = "none";
+			container.addChild(sprite);
+			rendered = true;
+		}
+	}
+
+	// shape/text قدیمی
+	if (!rendered) {
+		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
+		const g = new Graphics();
+
+		if (obj.type === "shape") {
+			const shapeType = (obj.properties?.shapeType as ShapeType) ?? "rectangle";
+			drawShape(g, shapeType, t.width, t.height);
+			if (isWireframe) {
+				g.stroke({ width: 2, color, alpha: 1 });
+			} else {
+				g.fill({ color, alpha: 1 });
+				g.stroke({ width: 1, color: 0x000000, alpha: 0.4 });
+			}
+			g.eventMode = "none";
+			container.addChild(g);
+		} else if (obj.type === "text") {
+			const txt = new Text({
+				text: obj.name,
+				style: new TextStyle({ fill: obj.color || "#ffffff", fontSize: 16 }),
+			});
+			txt.eventMode = "none";
+			container.addChild(txt);
+		} else if (obj.type === "sprite") {
+			// sprite بدون texture → fallback
+			renderEmptyFallback(obj, container);
+		} else {
+			// gameobject/group بدون component
+			renderEmptyFallback(obj, container);
+		}
+	}
+}
+
+// ============================================================
+// Empty fallback (آیکون وسط + خط دور)
+// ============================================================
+
+function renderEmptyFallback(obj: GameObject, container: Container): void {
+	const t = obj.transform;
+	const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x9b59b6;
+
+	// ---------- dashed border ----------
+	const border = new Graphics();
+	drawDashedRect(border, 0, 0, t.width, t.height, 6, 4);
+	border.stroke({ width: 1.5, color, alpha: 0.55 });
+	border.eventMode = "none";
+	container.addChild(border);
+
+	// ---------- آیکون وسط ----------
+	const iconSize = Math.min(t.width, t.height) * 0.35;
+	const half = iconSize / 2;
+	const cx = t.width / 2;
+	const cy = t.height / 2;
+
+	const icon = new Graphics();
+
+	// یه مربع کوچیک که با خط‌چین دورشه
+	icon.rect(cx - half, cy - half, iconSize, iconSize);
+	icon.fill({ color, alpha: 0.25 });
+	icon.stroke({ width: 1.5, color, alpha: 0.9 });
+
+	// یه نقطه‌ی کوچیک وسط
+	icon.circle(cx, cy, Math.max(1.5, iconSize * 0.08));
+	icon.fill({ color, alpha: 1 });
+
+	icon.eventMode = "none";
+	container.addChild(icon);
+}
+
+/**
+ * خط‌چین دور یه مستطیل می‌کشه.
+ */
+function drawDashedRect(g: Graphics, x: number, y: number, w: number, h: number, dashLen: number, gapLen: number): void {
+	const x2 = x + w;
+	const y2 = y + h;
+
+	// بالا
+	dashLine(g, x, y, x2, y, dashLen, gapLen);
+	// راست
+	dashLine(g, x2, y, x2, y2, dashLen, gapLen);
+	// پایین
+	dashLine(g, x2, y2, x, y2, dashLen, gapLen);
+	// چپ
+	dashLine(g, x, y2, x, y, dashLen, gapLen);
+}
+
+function dashLine(g: Graphics, x1: number, y1: number, x2: number, y2: number, dashLen: number, gapLen: number): void {
+	const dx = x2 - x1;
+	const dy = y2 - y1;
+	const len = Math.sqrt(dx * dx + dy * dy);
+	if (len === 0) return;
+	const ux = dx / len;
+	const uy = dy / len;
+
+	let pos = 0;
+	while (pos < len) {
+		const startX = x1 + ux * pos;
+		const startY = y1 + uy * pos;
+		const endPos = Math.min(pos + dashLen, len);
+		const endX = x1 + ux * endPos;
+		const endY = y1 + uy * endPos;
+		g.moveTo(startX, startY);
+		g.lineTo(endX, endY);
+		pos += dashLen + gapLen;
+	}
+}
+
+// ============================================================
+// Shape drawing
+// ============================================================
 
 function drawShape(g: Graphics, shapeType: ShapeType, width: number, height: number): void {
 	const cx = width / 2;
@@ -210,6 +473,22 @@ function drawStar(g: Graphics, cx: number, cy: number, outerR: number, innerR: n
 	}
 	g.closePath();
 }
+
+// ============================================================
+// Atlas region lookup (از atlas-picker که cache می‌کنه)
+// ============================================================
+
+import { findRegionByName as findAtlasRegion } from "../features/texture-atlas/atlas-picker.js";
+
+function getRegionFromAtlas(texturePath: string, regionName: string): { x: number; y: number; width: number; height: number; rotate: boolean } | null {
+	const r = findAtlasRegion(texturePath, regionName);
+	if (!r) return null;
+	return { x: r.x, y: r.y, width: r.width, height: r.height, rotate: r.rotate };
+}
+
+// ============================================================
+// Re-render object
+// ============================================================
 
 export function rerenderObject(obj: GameObject): void {
 	const old = objectSprites.get(obj.id);
