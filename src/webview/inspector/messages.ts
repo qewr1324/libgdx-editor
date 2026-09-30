@@ -3,21 +3,9 @@ import type { GameObject, Scene } from "../../types/scene.js";
 import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 import { getLayerNameOfObject } from "../../types/scene.js";
 import { vscode, app } from "./vscode-api.js";
-import { setCurrentObject, setCurrentScene, setCurrentConfig, setMultiSelection, setSceneMode, setAvailableLayers, setLastAppliedTheme, lastAppliedTheme, availableLayers, currentObject, currentScene, currentObjectId, getAtlasRegions, setAtlasRegions, clearAtlasPending } from "./state.js";
-import type { AtlasRegionInfo } from "./types.js";
+import { setCurrentObject, setCurrentScene, setCurrentConfig, setMultiSelection, setSceneMode, setAvailableLayers, setLastAppliedTheme, lastAppliedTheme, availableLayers, currentObject, currentScene } from "./state.js";
 import { escapeAttr, escapeHtml } from "./utils.js";
 import { render } from "./render/index.js";
-
-interface LoadedMsg {
-	type: "atlasRegionsLoaded";
-	texturePath: string;
-	regions: AtlasRegionInfo[];
-}
-
-interface NotFoundMsg {
-	type: "atlasNotFound";
-	texturePath: string;
-}
 
 export function setupMessages(): void {
 	window.addEventListener("message", (event) => {
@@ -89,33 +77,10 @@ export function setupMessages(): void {
 				});
 				break;
 			}
-
-			case "atlasRegionsLoaded": {
-				const m = msg as LoadedMsg;
-				const texturePath = m.texturePath;
-				const regions = m.regions;
-				setAtlasRegions(texturePath, regions);
-
-				// اگه یه atlas component با همین texture داریم، دوباره رندر کن
-				if (currentObject) {
-					const atlasComp = currentObject.components?.find((c) => c.type === "atlas" && c.texture === texturePath);
-					if (atlasComp) {
-						render(false);
-					}
-				}
-				break;
-			}
-
-			case "atlasNotFound": {
-				const m = msg as NotFoundMsg;
-				clearAtlasPending(m.texturePath);
-				break;
-			}
 		}
 	});
 }
 
 function sceneModeActive(): boolean {
-	// چک میکنه آیا در حالت scene settings هستیم
 	return document.querySelector(".inspector-scene") !== null;
 }

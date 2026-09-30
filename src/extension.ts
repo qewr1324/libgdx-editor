@@ -2,6 +2,7 @@
 import * as vscode from "vscode";
 import { SceneEditorProvider } from "./editor/SceneEditorProvider.js";
 import { InspectorProvider } from "./views/InspectorProvider.js";
+import { ComponentsProvider } from "./views/ComponentsProvider.js";
 import { LayersProvider } from "./features/layers/index.js";
 import { newSceneCommand } from "./commands/newScene.js";
 import { importTextureCommand, cleanupAssetsCommand } from "./commands/importTexture.js";
@@ -23,10 +24,14 @@ export async function activate(context: vscode.ExtensionContext) {
 	await configManager.load();
 
 	const inspector = new InspectorProvider(context.extensionUri);
+	const components = new ComponentsProvider(context.extensionUri);
 	const layersProvider = new LayersProvider(context.extensionUri);
 
 	context.subscriptions.push(
 		vscode.window.registerWebviewViewProvider(InspectorProvider.viewType, inspector, {
+			webviewOptions: { retainContextWhenHidden: true },
+		}),
+		vscode.window.registerWebviewViewProvider(ComponentsProvider.viewType, components, {
 			webviewOptions: { retainContextWhenHidden: true },
 		}),
 		vscode.window.registerWebviewViewProvider(LayersProvider.viewType, layersProvider, {
@@ -39,18 +44,21 @@ export async function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(
 		SceneEditorProvider.onDidSelectObject((host, objectIds, scene) => {
 			inspector.setSelection(host, objectIds, scene);
+			components.setSelection(host, objectIds, scene);
 		}),
 	);
 
 	context.subscriptions.push(
 		SceneEditorProvider.onDidChangeScene((host, scene) => {
 			inspector.setScene(host, scene);
+			components.setScene(host, scene);
 		}),
 	);
 
 	context.subscriptions.push(
 		SceneEditorProvider.onDidRequestSceneSettings((host, scene) => {
 			inspector.showSceneSettings(host, scene);
+			components.clearSelection(host);
 			void vscode.commands.executeCommand("libgdx-editor.inspector.focus");
 		}),
 	);
@@ -61,6 +69,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			const scene = instance.getScene();
 			if (scene) {
 				inspector.setScene(instance, scene);
+				components.setScene(instance, scene);
 			}
 		}),
 	);
@@ -69,6 +78,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		configManager.onChange((config) => {
 			SceneEditorProvider.broadcastConfigChange(config);
 			inspector.broadcastConfigChange(config);
+			components.broadcastConfigChange(config);
 		}),
 	);
 

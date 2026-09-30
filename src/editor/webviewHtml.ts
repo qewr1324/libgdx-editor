@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 
-export type WebviewKind = "viewport" | "inspector" | "layers";
+export type WebviewKind = "viewport" | "inspector" | "layers" | "components";
 
 export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, kind: WebviewKind): string {
 	const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "dist", "webview", `${kind}.js`));
@@ -18,7 +18,6 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 
 		canvas { display: block; }
 
-		/* ============ Toolbar layout ============ */
 		#toolbar {
 			position: fixed;
 			z-index: 100;
@@ -49,7 +48,6 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			display: none;
 		}
 
-		/* ============ Context Menu layout ============ */
 		#context-menu {
 			position: fixed;
 			z-index: 1000;
@@ -66,7 +64,6 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			white-space: nowrap;
 		}
 
-		/* ============ Rulers layout ============ */
 		#ruler-h, #ruler-v {
 			display: block;
 			user-select: none;
@@ -101,7 +98,6 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 			min-width: 70px;
 		}
 
-		/* ============ Inspector layout ============ */
 		#app { overflow-y: auto; }
 
 		.empty-state {

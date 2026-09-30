@@ -110,7 +110,7 @@ export type ExtensionToWebviewMessage =
 	| AtlasNotFoundMessage;
 
 // ============================================================
-// Inspector <-> Extension
+// Inspector (Properties) <-> Extension
 // ============================================================
 
 export type InspectorToExtensionMessage =
@@ -127,14 +127,7 @@ export type InspectorToExtensionMessage =
 	| { type: "moveObjectToLayer"; objectId: string; layerId: string }
 	| { type: "updateConfig"; key: string; value: unknown }
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
-	| { type: "requestConfig" }
-	| { type: "requestAtlasRegions"; texturePath: string }
-	| { type: "updateObjectAtlas"; objectId: string; atlas: AtlasSpriteProperties }
-	// 🆕 Component messages
-	| { type: "addComponent"; objectId: string; componentType: ComponentType }
-	| { type: "updateComponent"; objectId: string; componentId: string; updates: Partial<Component> }
-	| { type: "removeComponent"; objectId: string; componentId: string }
-	| { type: "replaceComponent"; objectId: string; component: Component };
+	| { type: "requestConfig" };
 
 export type ExtensionToInspectorMessage =
 	| { type: "showObject"; object: GameObject }
@@ -144,9 +137,29 @@ export type ExtensionToInspectorMessage =
 	| { type: "clearSelection" }
 	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
 	| { type: "configUpdated"; config: LibGdxEditorConfigMessage }
-	| { type: "layersLoaded"; layers: Array<{ id: string; name: string }> }
-	| AtlasRegionsMessage
-	| AtlasNotFoundMessage;
+	| { type: "layersLoaded"; layers: Array<{ id: string; name: string }> };
+
+// ============================================================
+// Components <-> Extension
+// ============================================================
+
+export type ComponentsToExtensionMessage =
+	| { type: "componentsReady" }
+	| { type: "addComponent"; objectId: string; componentType: ComponentType }
+	| { type: "updateComponent"; objectId: string; componentId: string; updates: Partial<Component> }
+	| { type: "removeComponent"; objectId: string; componentId: string }
+	| { type: "replaceComponent"; objectId: string; component: Component }
+	| { type: "requestConfig" }
+	| { type: "requestAtlasRegions"; texturePath: string };
+
+export type ExtensionToComponentsMessage =
+	| { type: "showObject"; object: GameObject }
+	| { type: "showMultiSelection"; count: number; ids: string[] }
+	| { type: "clearSelection" }
+	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
+	| { type: "configUpdated"; config: LibGdxEditorConfigMessage }
+	| { type: "atlasRegionsLoaded"; texturePath: string; atlasPath: string; regions: Array<{ name: string; x: number; y: number; width: number; height: number; rotate: boolean; index: number }> }
+	| { type: "atlasNotFound"; texturePath: string };
 
 // ============================================================
 // Layers <-> Extension

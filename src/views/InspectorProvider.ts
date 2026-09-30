@@ -1,14 +1,12 @@
 // src/views/InspectorProvider.ts
 import * as vscode from "vscode";
 import type { GameObject, Scene } from "../types/scene.js";
-import type { Component, ComponentType } from "../types/components.js";
 import { getWebviewHtml } from "../editor/webviewHtml.js";
 import { toConfigMessage, type ExtensionToInspectorMessage } from "../protocol/messages.js";
 import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { ConfigManager } from "../config/config-manager.js";
 import type { SceneHost } from "../editor/scene-types.js";
 import { moveObjectToLayerOp } from "../features/layers/layer-ops.js";
-import { handleAddComponent, handleUpdateComponent, handleRemoveComponent, handleReplaceComponent } from "../editor/message-handler.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -141,30 +139,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 				case "moveObjectToLayer":
 					if (this.boundHost) {
 						moveObjectToLayerOp(this.boundHost, msg.objectId, msg.layerId);
-					}
-					break;
-
-				case "addComponent":
-					if (this.boundHost) {
-						handleAddComponent(this.boundHost, msg.objectId, msg.componentType as ComponentType);
-					}
-					break;
-
-				case "updateComponent":
-					if (this.boundHost) {
-						handleUpdateComponent(this.boundHost, msg.objectId, msg.componentId, msg.updates as Partial<Component>);
-					}
-					break;
-
-				case "removeComponent":
-					if (this.boundHost) {
-						handleRemoveComponent(this.boundHost, msg.objectId, msg.componentId);
-					}
-					break;
-
-				case "replaceComponent":
-					if (this.boundHost) {
-						handleReplaceComponent(this.boundHost, msg.objectId, msg.component as Component);
 					}
 					break;
 

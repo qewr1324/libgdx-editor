@@ -1,5 +1,5 @@
-// src/webview/inspector/types.ts
-import type { GameObject, Scene } from "../../types/scene.js";
+// src/webview/components/types.ts
+import type { GameObject } from "../../types/scene.js";
 import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 
 export interface VsCodeApi {
@@ -15,9 +15,14 @@ export interface MultiSelection {
 	ids: string[];
 }
 
-export interface LayerInfo {
-	id: string;
+export interface AtlasRegionInfo {
 	name: string;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	rotate: boolean;
+	index: number;
 }
 
-export type { GameObject, Scene, LibGdxEditorConfigMessage };
+export type { GameObject, LibGdxEditorConfigMessage };

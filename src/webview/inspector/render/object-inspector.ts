@@ -1,20 +1,13 @@
 // src/webview/inspector/render/object-inspector.ts
 import type { GameObject, Scene } from "../../../types/scene.js";
 import { getLayerNameOfObject } from "../../../types/scene.js";
-import type { Component } from "../../../types/components.js";
 import { vscode, app } from "../vscode-api.js";
 import { currentObject, currentScene, availableLayers, setCurrentObject } from "../state.js";
 import { ICONS } from "../icons.js";
 import { escapeAttr, escapeHtml } from "../utils.js";
 import { sectionWrap, field, fieldRow, numberField, subHeader } from "./section-helpers.js";
-import { buildComponentsSection, updateComponentFieldValues } from "./components.js";
 import { attachSectionListeners } from "../events/section-listeners.js";
 import { attachDragHandles } from "../events/drag-handles.js";
-import { attachComponentAddMenu, attachComponentCards } from "../events/component-events.js";
-
-// ============================================================
-// Build
-// ============================================================
 
 export function buildInspectorHtml(obj: GameObject): string {
 	const t = obj.transform;
@@ -45,8 +38,6 @@ export function buildInspectorHtml(obj: GameObject): string {
 			${field("Name", `<input type="text" data-field="name" value="${escapeAttr(obj.name)}" />`)}
 		`,
 	);
-
-	const componentsSection = buildComponentsSection(obj);
 
 	const currentLayerId = obj.layerId ?? currentScene?.layers.find((l) => getLayerNameOfObject(currentScene!, obj) === l.name)?.id ?? "";
 
@@ -99,16 +90,11 @@ export function buildInspectorHtml(obj: GameObject): string {
 			<div class="inspector-id">${escapeHtml(obj.id)}</div>
 			${identitySection}
 			${transformSection}
-			${componentsSection}
 			${layerSection}
 			${propertiesSection}
 		</div>
 	`;
 }
-
-// ============================================================
-// Update field values
-// ============================================================
 
 export function updateFieldValues(obj: GameObject, scene: Scene | null): void {
 	const t = obj.transform;
@@ -133,12 +119,6 @@ export function updateFieldValues(obj: GameObject, scene: Scene | null): void {
 			layerSelect.value = currentLayerId;
 		}
 	}
-
-	if (obj.components) {
-		for (const comp of obj.components) {
-			updateComponentFieldValues(comp, app);
-		}
-	}
 }
 
 function setFieldValue(field: string, value: unknown, kind: "number" | "string" | "select" | "color" | "text" | "textarea"): void {
@@ -159,10 +139,6 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 		el.value = String(value);
 	}
 }
-
-// ============================================================
-// Listeners
-// ============================================================
 
 export function attachObjectListeners(): void {
 	attachSectionListeners();
@@ -269,8 +245,6 @@ export function attachObjectListeners(): void {
 		});
 	}
 
-	attachComponentAddMenu();
-	attachComponentCards();
 	attachDragHandles("object");
 }
 

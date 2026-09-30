@@ -8,7 +8,6 @@ import { buildInspectorHtml, updateFieldValues, attachObjectListeners } from "./
 export function render(force = false): void {
 	applyEffectiveTheme();
 
-	// ---------- Scene settings mode ----------
 	if (sceneMode && currentScene) {
 		if (!force && app.querySelector(".inspector-scene")) {
 			updateSceneFieldValues(currentScene);
@@ -26,7 +25,6 @@ export function render(force = false): void {
 		return;
 	}
 
-	// ---------- Multi selection ----------
 	if (multiSelection) {
 		app.innerHTML = `
 			<div class="inspector-empty">
@@ -39,7 +37,6 @@ export function render(force = false): void {
 		return;
 	}
 
-	// ---------- No selection ----------
 	if (!currentObject) {
 		app.innerHTML = `
 			<div class="inspector-empty">
@@ -52,13 +49,11 @@ export function render(force = false): void {
 		return;
 	}
 
-	// ---------- Same object, just update values ----------
 	if (!force && currentObjectId === currentObject.id && app.querySelector(".inspector:not(.inspector-scene)")) {
 		updateFieldValues(currentObject, currentScene);
 		return;
 	}
 
-	// ---------- Full re-render ----------
 	setCurrentObjectId(currentObject.id);
 	app.innerHTML = buildInspectorHtml(currentObject);
 	attachObjectListeners();
