@@ -1,0 +1,1461 @@
+// @ts-nocheck
+/**
+ * Scene Viewport — ImGui + WebGL2
+ * Crisp rendering with HiDPI support and proper anti-aliasing.
+ */
+
+import { ImGui, ImGuiImplWeb, ImVec2, ImVec4, ImGuiWindowFlags, ImGuiChildFlags, ImGuiCol, ImGuiStyleVar, ImGuiMouseButton, ImGuiMouseCursor, ImGuiKey, ImGuiCond } from "@mori2003/jsimgui";
+
+// =============================================================
+// Types
+// =============================================================
+
+type ObjectType = "rectangle" | "circle" | "triangle" | "diamond" | "star" | "text";
+
+interface Transform {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	rotation: number;
+	originX: number;
+	originY: number;
+}
+
+interface SceneObject {
+	id: string;
+	name: string;
+	type: ObjectType;
+	color: number;
+	transform: Transform;
+	text?: string;
+}
+
+interface Scene {
+	name: string;
+	worldSize: { width: number; height: number };
+	backgroundColor: number;
+	gridSize: number;
+	snapToGrid: boolean;
+	snapToObjects: boolean;
+	showGrid: boolean;
+	showWorldBorder: boolean;
+	showRulers: boolean;
+	objects: SceneObject[];
+}
+
+type InteractionMode = "idle" | "drag" | "resize" | "rotate" | "pan";
+
+interface InteractionData {
+	mode: InteractionMode;
+	startWorldX: number;
+	startWorldY: number;
+	startScreenX: number;
+	startScreenY: number;
+	startTransforms: Map<string, Transform>;
+	primaryId: string;
+	handle?: HandleType;
+	rotateCenter?: { x: number; y: number };
+	rotateStartAngle?: number;
+	rotateStartRotation?: number;
+	panStartX?: number;
+	panStartY?: number;
+}
+
+type HandleType = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+// =============================================================
+// Utility
+// =============================================================
+
+function rgba(r: number, g: number, b: number, a = 255): number {
+	return (((a & 0xff) << 24) | ((b & 0xff) << 16) | ((g & 0xff) << 8) | (r & 0xff)) >>> 0;
+}
+
+function col(hex: number): number {
+	return hex >>> 0;
+}
+
+function makeId(prefix = "obj"): string {
+	return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function round(n: number): number {
+	return Math.round(n);
+}
+
+// =============================================================
+// Global state
+// =============================================================
+
+const state = {
+	scene: null as Scene | null,
+	selectedIds: [] as string[],
+	primaryId: null as string | null,
+	interaction: null as InteractionData | null,
+	camera: { x: 0, y: 0, zoom: 1 },
+	history: [] as string[],
+	historyIndex: -1,
+	snapGuides: [] as Array<{ x1: number; y1: number; x2: number; y2: number }>,
+	contextMenu: {
+		open: false,
+		x: 0,
+		y: 0,
+		worldX: 0,
+		worldY: 0,
+	},
+};
+
+// =============================================================
+// Camera <-> World
+// =============================================================
+
+function worldToScreen(wx: number, wy: number, originX: number, originY: number) {
+	return {
+		x: originX + (wx - state.camera.x) * state.camera.zoom,
+		y: originY + (wy - state.camera.y) * state.camera.zoom,
+	};
+}
+
+function screenToWorld(sx: number, sy: number, originX: number, originY: number) {
+	return {
+		x: (sx - originX) / state.camera.zoom + state.camera.x,
+		y: (sy - originY) / state.camera.zoom + state.camera.y,
+	};
+}
+
+// =============================================================
+// Object creation & lookup
+// =============================================================
+
+function createObject(type: ObjectType, x: number, y: number): SceneObject {
+	const id = makeId();
+	const palette: Record<ObjectType, number> = {
+		rectangle: rgba(74, 158, 255),
+		circle: rgba(74, 255, 158),
+		triangle: rgba(255, 170, 74),
+		diamond: rgba(74, 255, 255),
+		star: rgba(255, 74, 255),
+		text: rgba(255, 255, 255),
+	};
+	return {
+		id,
+		name: `${type}_${id.slice(-4)}`,
+		type,
+		color: palette[type],
+		transform: {
+			x,
+			y,
+			width: 100,
+			height: 80,
+			rotation: 0,
+			originX: 0.5,
+			originY: 0.5,
+		},
+		text: type === "text" ? "Label" : undefined,
+	};
+}
+
+function findObject(id: string): SceneObject | null {
+	return state.scene?.objects.find((o) => o.id === id) ?? null;
+}
+
+// =============================================================
+// History
+// =============================================================
+
+function snapshot(): void {
+	if (!state.scene) return;
+	const json = JSON.stringify(state.scene);
+	if (state.historyIndex >= 0 && state.history[state.historyIndex] === json) return;
+	state.history = state.history.slice(0, state.historyIndex + 1);
+	state.history.push(json);
+	state.historyIndex = state.history.length - 1;
+	if (state.history.length > 100) {
+		state.history.shift();
+		state.historyIndex--;
+	}
+}
+
+function undo(): void {
+	if (state.historyIndex <= 0) return;
+	state.historyIndex--;
+	state.scene = JSON.parse(state.history[state.historyIndex]);
+}
+
+function redo(): void {
+	if (state.historyIndex >= state.history.length - 1) return;
+	state.historyIndex++;
+	state.scene = JSON.parse(state.history[state.historyIndex]);
+}
+
+// =============================================================
+// Snapping
+// =============================================================
+
+interface SnapResult {
+	x: number;
+	y: number;
+	guides: Array<{ x1: number; y1: number; x2: number; y2: number }>;
+}
+
+function computeSnap(proposedX: number, proposedY: number, primary: SceneObject, excludeIds: Set<string>, threshold: number): SnapResult {
+	if (!state.scene) return { x: proposedX, y: proposedY, guides: [] };
+
+	const guides: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+	const t = primary.transform;
+
+	const mLeft = proposedX - t.width * t.originX;
+	const mRight = mLeft + t.width;
+	const mTop = proposedY - t.height * t.originY;
+	const mBottom = mTop + t.height;
+	const mCenterX = proposedX;
+	const mCenterY = proposedY;
+
+	let bestX: { delta: number; snapX: number; ref: { min: number; max: number } } | null = null;
+	let bestY: { delta: number; snapY: number; ref: { min: number; max: number } } | null = null;
+
+	const considerX = (mVal: number, oVal: number, refMin: number, refMax: number) => {
+		const delta = oVal - mVal;
+		if (Math.abs(delta) <= threshold) {
+			if (!bestX || Math.abs(delta) < Math.abs(bestX.delta)) {
+				bestX = { delta, snapX: oVal, ref: { min: refMin, max: refMax } };
+			}
+		}
+	};
+
+	const considerY = (mVal: number, oVal: number, refMin: number, refMax: number) => {
+		const delta = oVal - mVal;
+		if (Math.abs(delta) <= threshold) {
+			if (!bestY || Math.abs(delta) < Math.abs(bestY.delta)) {
+				bestY = { delta, snapY: oVal, ref: { min: refMin, max: refMax } };
+			}
+		}
+	};
+
+	if (state.scene.snapToObjects) {
+		const W = state.scene.worldSize.width;
+		const H = state.scene.worldSize.height;
+		considerX(mLeft, 0, mTop, mBottom);
+		considerX(mRight, W, mTop, mBottom);
+		considerX(mCenterX, W / 2, mTop, mBottom);
+		considerY(mTop, 0, mLeft, mRight);
+		considerY(mBottom, H, mLeft, mRight);
+		considerY(mCenterY, H / 2, mLeft, mRight);
+
+		for (const obj of state.scene.objects) {
+			if (excludeIds.has(obj.id)) continue;
+			const ot = obj.transform;
+			const oLeft = ot.x - ot.width * ot.originX;
+			const oRight = oLeft + ot.width;
+			const oTop = ot.y - ot.height * ot.originY;
+			const oBottom = oTop + ot.height;
+			const oCenterX = ot.x;
+			const oCenterY = ot.y;
+
+			considerX(mLeft, oLeft, Math.min(oTop, mTop), Math.max(oBottom, mBottom));
+			considerX(mLeft, oRight, Math.min(oTop, mTop), Math.max(oBottom, mBottom));
+			considerX(mRight, oLeft, Math.min(oTop, mTop), Math.max(oBottom, mBottom));
+			considerX(mRight, oRight, Math.min(oTop, mTop), Math.max(oBottom, mBottom));
+			considerX(mCenterX, oCenterX, Math.min(oTop, mTop), Math.max(oBottom, mBottom));
+
+			considerY(mTop, oTop, Math.min(oLeft, mLeft), Math.max(oRight, mRight));
+			considerY(mTop, oBottom, Math.min(oLeft, mLeft), Math.max(oRight, mRight));
+			considerY(mBottom, oTop, Math.min(oLeft, mLeft), Math.max(oRight, mRight));
+			considerY(mBottom, oBottom, Math.min(oLeft, mLeft), Math.max(oRight, mRight));
+			considerY(mCenterY, oCenterY, Math.min(oLeft, mLeft), Math.max(oRight, mRight));
+		}
+	}
+
+	const finalX = bestX ? proposedX + bestX.delta : proposedX;
+	const finalY = bestY ? proposedY + bestY.delta : proposedY;
+
+	if (bestX) {
+		const b = bestX as { snapX: number; ref: { min: number; max: number } };
+		guides.push({ x1: b.snapX, y1: b.ref.min - 20, x2: b.snapX, y2: b.ref.max + 20 });
+	}
+	if (bestY) {
+		const b = bestY as { snapY: number; ref: { min: number; max: number } };
+		guides.push({ x1: b.ref.min - 20, y1: b.snapY, x2: b.ref.max + 20, y2: b.snapY });
+	}
+
+	return { x: finalX, y: finalY, guides };
+}
+
+// =============================================================
+// Rendering — using ImDrawList with proper anti-aliasing
+// =============================================================
+
+interface ViewportRect {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	originX: number;
+	originY: number;
+}
+
+function drawGrid(draw: any, vp: ViewportRect): void {
+	if (!state.scene || !state.scene.showGrid) return;
+
+	const gs = state.scene.gridSize;
+	const zoom = state.camera.zoom;
+
+	const wMin = screenToWorld(0, 0, vp.originX, vp.originY);
+	const wMax = screenToWorld(vp.w, vp.h, vp.originX, vp.originY);
+
+	const startX = Math.floor(wMin.x / gs) * gs;
+	const startY = Math.floor(wMin.y / gs) * gs;
+	const endX = Math.ceil(wMax.x / gs) * gs;
+	const endY = Math.ceil(wMax.y / gs) * gs;
+
+	let major = gs;
+	while (major * zoom < 40) major *= 2;
+
+	const gridColor = col(0x30ffffff);
+	const majorColor = col(0x50ffffff);
+
+	for (let x = startX; x <= endX; x += gs) {
+		const isMajor = Math.abs(x % major) < 0.001;
+		const sp = worldToScreen(x, 0, vp.originX, vp.originY);
+		if (sp.x < vp.x || sp.x > vp.x + vp.w) continue;
+		draw.AddLine(new ImVec2(sp.x, vp.y), new ImVec2(sp.x, vp.y + vp.h), isMajor ? majorColor : gridColor, 1.0);
+	}
+
+	for (let y = startY; y <= endY; y += gs) {
+		const isMajor = Math.abs(y % major) < 0.001;
+		const sp = worldToScreen(0, y, vp.originX, vp.originY);
+		if (sp.y < vp.y || sp.y > vp.y + vp.h) continue;
+		draw.AddLine(new ImVec2(vp.x, sp.y), new ImVec2(vp.x + vp.w, sp.y), isMajor ? majorColor : gridColor, 1.0);
+	}
+}
+
+function drawWorldBorder(draw: any, vp: ViewportRect): void {
+	if (!state.scene || !state.scene.showWorldBorder) return;
+
+	const tl = worldToScreen(0, 0, vp.originX, vp.originY);
+	const br = worldToScreen(state.scene.worldSize.width, state.scene.worldSize.height, vp.originX, vp.originY);
+
+	draw.AddRect(new ImVec2(tl.x, tl.y), new ImVec2(br.x, br.y), rgba(74, 168, 255), 0, 2.0, 0);
+}
+
+function drawRulers(draw: any, vp: ViewportRect): void {
+	if (!state.scene || !state.scene.showRulers) return;
+
+	const rulerH = 22;
+	const rulerW = 22;
+	const bgTop = col(0xff252525);
+	const bgCorner = col(0xff202020);
+	const borderCol = col(0xff404040);
+	const tickCol = col(0xff707070);
+	const textColor = col(0xffb0b0b0);
+
+	draw.AddRectFilled(new ImVec2(vp.x, vp.y - rulerH), new ImVec2(vp.x + vp.w, vp.y), bgTop);
+	draw.AddLine(new ImVec2(vp.x, vp.y), new ImVec2(vp.x + vp.w, vp.y), borderCol, 1.0);
+
+	draw.AddRectFilled(new ImVec2(vp.x - rulerW, vp.y), new ImVec2(vp.x, vp.y + vp.h), bgTop);
+	draw.AddLine(new ImVec2(vp.x, vp.y), new ImVec2(vp.x, vp.y + vp.h), borderCol, 1.0);
+
+	draw.AddRectFilled(new ImVec2(vp.x - rulerW, vp.y - rulerH), new ImVec2(vp.x, vp.y), bgCorner);
+
+	const zoom = state.camera.zoom;
+	let step = 100;
+	while (step * zoom < 60) step *= 2;
+	while (step * zoom > 200) step /= 2;
+
+	const wMin = screenToWorld(vp.x, 0, vp.originX, vp.originY);
+	const wMax = screenToWorld(vp.x + vp.w, 0, vp.originX, vp.originY);
+	const startX = Math.floor(wMin.x / step) * step;
+
+	for (let wx = startX; wx <= wMax.x; wx += step) {
+		const sp = worldToScreen(wx, 0, vp.originX, vp.originY);
+		if (sp.x < vp.x || sp.x > vp.x + vp.w) continue;
+		draw.AddLine(new ImVec2(sp.x, vp.y - 8), new ImVec2(sp.x, vp.y), tickCol, 1.0);
+		draw.AddText(new ImVec2(sp.x + 3, vp.y - rulerH + 4), textColor, String(wx));
+	}
+
+	const hMin = screenToWorld(0, vp.y, vp.originX, vp.originY);
+	const hMax = screenToWorld(0, vp.y + vp.h, vp.originX, vp.originY);
+	const startY = Math.floor(hMin.y / step) * step;
+
+	for (let wy = startY; wy <= hMax.y; wy += step) {
+		const sp = worldToScreen(0, wy, vp.originX, vp.originY);
+		if (sp.y < vp.y || sp.y > vp.y + vp.h) continue;
+		draw.AddLine(new ImVec2(vp.x - 8, sp.y), new ImVec2(vp.x, sp.y), tickCol, 1.0);
+		draw.AddText(new ImVec2(vp.x - rulerW + 2, sp.y + 3), textColor, String(wy));
+	}
+}
+
+function getObjectCorners(obj: SceneObject, vp: ViewportRect) {
+	const t = obj.transform;
+	const angle = (t.rotation * Math.PI) / 180;
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+
+	const halfW = t.width / 2;
+	const halfH = t.height / 2;
+	const localCorners: Array<[number, number]> = [
+		[-halfW * (t.originX * 2), -halfH * (t.originY * 2)],
+		[halfW * (2 - t.originX * 2), -halfH * (t.originY * 2)],
+		[halfW * (2 - t.originX * 2), halfH * (2 - t.originY * 2)],
+		[-halfW * (t.originX * 2), halfH * (2 - t.originY * 2)],
+	];
+
+	return localCorners.map(([lx, ly]) => {
+		const rx = lx * cos - ly * sin;
+		const ry = lx * sin + ly * cos;
+		return worldToScreen(t.x + rx, t.y + ry, vp.originX, vp.originY);
+	});
+}
+
+function drawObject(draw: any, obj: SceneObject, vp: ViewportRect): void {
+	const t = obj.transform;
+	const zoom = state.camera.zoom;
+	const w = t.width * zoom;
+	const h = t.height * zoom;
+	const screenCenter = worldToScreen(t.x, t.y, vp.originX, vp.originY);
+
+	const corners = getObjectCorners(obj, vp);
+	const objCol = obj.color;
+
+	switch (obj.type) {
+		case "rectangle": {
+			const fill = ((objCol & 0x00ffffff) | 0x40000000) >>> 0;
+			draw.AddQuadFilled(new ImVec2(corners[0].x, corners[0].y), new ImVec2(corners[1].x, corners[1].y), new ImVec2(corners[2].x, corners[2].y), new ImVec2(corners[3].x, corners[3].y), fill);
+			for (let i = 0; i < 4; i++) {
+				const a = corners[i];
+				const b = corners[(i + 1) % 4];
+				draw.AddLine(new ImVec2(a.x, a.y), new ImVec2(b.x, b.y), objCol, 2.0);
+			}
+			break;
+		}
+
+		case "circle": {
+			const r = Math.min(w, h) / 2;
+			draw.AddCircleFilled(new ImVec2(screenCenter.x, screenCenter.y), r, ((objCol & 0x00ffffff) | 0x40000000) >>> 0, 0);
+			draw.AddCircle(new ImVec2(screenCenter.x, screenCenter.y), r, objCol, 0, 2.0);
+			break;
+		}
+
+		case "triangle": {
+			const p1 = corners[0];
+			const p2 = corners[1];
+			const p3 = corners[3];
+			draw.AddTriangle(new ImVec2(p1.x, p1.y), new ImVec2(p2.x, p2.y), new ImVec2(p3.x, p3.y), objCol, 2.0);
+			break;
+		}
+
+		case "diamond": {
+			const halfW = t.width / 2;
+			const halfH = t.height / 2;
+			const top = worldToScreen(t.x, t.y - halfH, vp.originX, vp.originY);
+			const right = worldToScreen(t.x + halfW, t.y, vp.originX, vp.originY);
+			const bottom = worldToScreen(t.x, t.y + halfH, vp.originX, vp.originY);
+			const left = worldToScreen(t.x - halfW, t.y, vp.originX, vp.originY);
+			draw.AddQuad(new ImVec2(top.x, top.y), new ImVec2(right.x, right.y), new ImVec2(bottom.x, bottom.y), new ImVec2(left.x, left.y), objCol, 2.0);
+			break;
+		}
+
+		case "star": {
+			const r = Math.min(w, h) / 2;
+			const innerR = r * 0.45;
+			const points = 5;
+			const cx = screenCenter.x;
+			const cy = screenCenter.y;
+			for (let i = 0; i < points * 2; i++) {
+				const rr = i % 2 === 0 ? r : innerR;
+				const a = -Math.PI / 2 + (i * Math.PI) / points;
+				const x1 = cx + Math.cos(a) * rr;
+				const y1 = cy + Math.sin(a) * rr;
+				const a2 = -Math.PI / 2 + ((i + 1) * Math.PI) / points;
+				const rr2 = (i + 1) % 2 === 0 ? r : innerR;
+				const x2 = cx + Math.cos(a2) * rr2;
+				const y2 = cy + Math.sin(a2) * rr2;
+				draw.AddLine(new ImVec2(x1, y1), new ImVec2(x2, y2), objCol, 2.0);
+			}
+			break;
+		}
+
+		case "text": {
+			draw.AddText(new ImVec2(screenCenter.x - 30, screenCenter.y - 8), objCol, obj.text ?? obj.name);
+			break;
+		}
+	}
+}
+
+function drawSelection(draw: any, obj: SceneObject, vp: ViewportRect, isPrimary: boolean): void {
+	const corners = getObjectCorners(obj, vp);
+	const outlineCol = isPrimary ? rgba(255, 170, 0) : rgba(255, 170, 0, 180);
+
+	for (let i = 0; i < 4; i++) {
+		const a = corners[i];
+		const b = corners[(i + 1) % 4];
+		draw.AddLine(new ImVec2(a.x, a.y), new ImVec2(b.x, b.y), outlineCol, 2.0);
+	}
+
+	if (isPrimary) {
+		const handlePositions: Array<[number, number]> = [
+			[corners[0].x, corners[0].y],
+			[(corners[0].x + corners[1].x) / 2, (corners[0].y + corners[1].y) / 2],
+			[corners[1].x, corners[1].y],
+			[(corners[1].x + corners[2].x) / 2, (corners[1].y + corners[2].y) / 2],
+			[corners[2].x, corners[2].y],
+			[(corners[2].x + corners[3].x) / 2, (corners[2].y + corners[3].y) / 2],
+			[corners[3].x, corners[3].y],
+			[(corners[3].x + corners[0].x) / 2, (corners[3].y + corners[0].y) / 2],
+		];
+
+		const handleCol = rgba(255, 170, 0);
+		const handleSize = 8;
+		for (const [hx, hy] of handlePositions) {
+			draw.AddRectFilled(new ImVec2(hx - handleSize / 2, hy - handleSize / 2), new ImVec2(hx + handleSize / 2, hy + handleSize / 2), handleCol);
+			draw.AddRect(new ImVec2(hx - handleSize / 2, hy - handleSize / 2), new ImVec2(hx + handleSize / 2, hy + handleSize / 2), col(0xff000000), 0, 1.0, 0);
+		}
+
+		const topMidX = (corners[0].x + corners[1].x) / 2;
+		const topMidY = (corners[0].y + corners[1].y) / 2;
+		const edgeDx = corners[1].x - corners[0].x;
+		const edgeDy = corners[1].y - corners[0].y;
+		const edgeLen = Math.hypot(edgeDx, edgeDy) || 1;
+		const perpX = -edgeDy / edgeLen;
+		const perpY = edgeDx / edgeLen;
+		const rotDist = 30;
+		const rotX = topMidX + perpX * rotDist;
+		const rotY = topMidY + perpY * rotDist;
+
+		draw.AddLine(new ImVec2(topMidX, topMidY), new ImVec2(rotX, rotY), rgba(74, 255, 158, 150), 1.0);
+		draw.AddCircleFilled(new ImVec2(rotX, rotY), 7, rgba(74, 255, 158));
+		draw.AddCircle(new ImVec2(rotX, rotY), 7, col(0xff000000), 0, 2.0);
+	}
+}
+
+function drawSnapGuides(draw: any, vp: ViewportRect): void {
+	for (const g of state.snapGuides) {
+		const p1 = worldToScreen(g.x1, g.y1, vp.originX, vp.originY);
+		const p2 = worldToScreen(g.x2, g.y2, vp.originX, vp.originY);
+		draw.AddLine(new ImVec2(p1.x, p1.y), new ImVec2(p2.x, p2.y), rgba(0, 212, 255), 1.5);
+	}
+}
+
+// =============================================================
+// Hit testing
+// =============================================================
+
+function hitTestObject(obj: SceneObject, worldX: number, worldY: number): boolean {
+	const t = obj.transform;
+	const dx = worldX - t.x;
+	const dy = worldY - t.y;
+	const angle = (-t.rotation * Math.PI) / 180;
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	const lx = dx * cos - dy * sin;
+	const ly = dx * sin + dy * cos;
+	const halfW = t.width / 2;
+	const halfH = t.height / 2;
+	return lx >= -halfW && lx <= halfW && ly >= -halfH && ly <= halfH;
+}
+
+function findObjectAt(worldX: number, worldY: number): SceneObject | null {
+	if (!state.scene) return null;
+	for (let i = state.scene.objects.length - 1; i >= 0; i--) {
+		const obj = state.scene.objects[i];
+		if (hitTestObject(obj, worldX, worldY)) return obj;
+	}
+	return null;
+}
+
+// =============================================================
+// Handle detection
+// =============================================================
+
+function getHandlePositions(obj: SceneObject, vp: ViewportRect): Array<{ type: HandleType; x: number; y: number }> {
+	const t = obj.transform;
+	const angle = (t.rotation * Math.PI) / 180;
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	const halfW = t.width / 2;
+	const halfH = t.height / 2;
+
+	const localPoints: Array<[HandleType, number, number]> = [
+		["nw", -halfW, -halfH],
+		["n", 0, -halfH],
+		["ne", halfW, -halfH],
+		["e", halfW, 0],
+		["se", halfW, halfH],
+		["s", 0, halfH],
+		["sw", -halfW, halfH],
+		["w", -halfW, 0],
+	];
+
+	return localPoints.map(([type, lx, ly]) => {
+		const rx = lx * cos - ly * sin;
+		const ry = lx * sin + ly * cos;
+		const sp = worldToScreen(t.x + rx, t.y + ry, vp.originX, vp.originY);
+		return { type, x: sp.x, y: sp.y };
+	});
+}
+
+function findHandleAt(mx: number, my: number, vp: ViewportRect): { obj: SceneObject; handle: HandleType } | null {
+	if (state.selectedIds.length !== 1) return null;
+	const obj = findObject(state.selectedIds[0]);
+	if (!obj) return null;
+	const positions = getHandlePositions(obj, vp);
+	const HIT = 10;
+	for (const p of positions) {
+		if (Math.abs(mx - p.x) <= HIT && Math.abs(my - p.y) <= HIT) {
+			return { obj, handle: p.type };
+		}
+	}
+	return null;
+}
+
+function findRotateHandleAt(mx: number, my: number, vp: ViewportRect): SceneObject | null {
+	if (state.selectedIds.length !== 1) return null;
+	const obj = findObject(state.selectedIds[0]);
+	if (!obj) return null;
+	const t = obj.transform;
+	const angle = (t.rotation * Math.PI) / 180;
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	const halfH = t.height / 2;
+	const lx = 0;
+	const ly = -halfH;
+	const rx = lx * cos - ly * sin;
+	const ry = lx * sin + ly * cos;
+	const sp = worldToScreen(t.x + rx, t.y + ry, vp.originX, vp.originY);
+
+	const edgeDx = cos * t.width;
+	const edgeDy = sin * t.width;
+	const edgeLen = Math.hypot(edgeDx, edgeDy) || 1;
+	const perpX = -edgeDy / edgeLen;
+	const perpY = edgeDx / edgeLen;
+	const rotDist = 30;
+	const rotX = sp.x + perpX * rotDist;
+	const rotY = sp.y + perpY * rotDist;
+
+	const dx = rotX - mx;
+	const dy = rotY - my;
+	if (Math.hypot(dx, dy) <= 14) return obj;
+	return null;
+}
+
+// =============================================================
+// Interaction
+// =============================================================
+
+function beginDrag(worldX: number, worldY: number, primaryId: string): void {
+	const startTransforms = new Map<string, Transform>();
+	for (const id of state.selectedIds) {
+		const obj = findObject(id);
+		if (obj) startTransforms.set(id, { ...obj.transform });
+	}
+	if (startTransforms.size === 0) {
+		const obj = findObject(primaryId);
+		if (obj) startTransforms.set(primaryId, { ...obj.transform });
+	}
+	state.interaction = {
+		mode: "drag",
+		startWorldX: worldX,
+		startWorldY: worldY,
+		startScreenX: 0,
+		startScreenY: 0,
+		startTransforms,
+		primaryId,
+	};
+}
+
+function beginResize(worldX: number, worldY: number, obj: SceneObject, handle: HandleType): void {
+	const startTransforms = new Map<string, Transform>();
+	startTransforms.set(obj.id, { ...obj.transform });
+	state.interaction = {
+		mode: "resize",
+		startWorldX: worldX,
+		startWorldY: worldY,
+		startScreenX: 0,
+		startScreenY: 0,
+		startTransforms,
+		primaryId: obj.id,
+		handle,
+	};
+}
+
+function beginRotate(worldX: number, worldY: number, obj: SceneObject): void {
+	const startAngle = Math.atan2(worldY - obj.transform.y, worldX - obj.transform.x);
+	const startTransforms = new Map<string, Transform>();
+	startTransforms.set(obj.id, { ...obj.transform });
+	state.interaction = {
+		mode: "rotate",
+		startWorldX: worldX,
+		startWorldY: worldY,
+		startScreenX: 0,
+		startScreenY: 0,
+		startTransforms,
+		primaryId: obj.id,
+		rotateCenter: { x: obj.transform.x, y: obj.transform.y },
+		rotateStartAngle: startAngle,
+		rotateStartRotation: obj.transform.rotation,
+	};
+}
+
+function updateDrag(worldX: number, worldY: number): void {
+	if (!state.interaction || state.interaction.mode !== "drag") return;
+	const it = state.interaction;
+	const dx = worldX - it.startWorldX;
+	const dy = worldY - it.startWorldY;
+
+	const primaryStart = it.startTransforms.get(it.primaryId);
+	if (!primaryStart) return;
+
+	let proposedX = primaryStart.x + dx;
+	let proposedY = primaryStart.y + dy;
+
+	if (state.scene?.snapToGrid) {
+		const gs = state.scene.gridSize || 32;
+		proposedX = Math.round(proposedX / gs) * gs;
+		proposedY = Math.round(proposedY / gs) * gs;
+	}
+
+	const exclude = new Set(it.startTransforms.keys());
+	const primary = findObject(it.primaryId);
+	const threshold = 8 / state.camera.zoom;
+
+	if (primary && state.scene?.snapToObjects) {
+		const snap = computeSnap(proposedX, proposedY, { ...primary, transform: { ...primaryStart, x: proposedX, y: proposedY } } as SceneObject, exclude, threshold);
+		proposedX = snap.x;
+		proposedY = snap.y;
+		state.snapGuides = snap.guides;
+	} else {
+		state.snapGuides = [];
+	}
+
+	const snapDX = proposedX - (primaryStart.x + dx);
+	const snapDY = proposedY - (primaryStart.y + dy);
+
+	for (const [id, start] of it.startTransforms) {
+		const obj = findObject(id);
+		if (!obj) continue;
+		obj.transform.x = round(start.x + dx + snapDX);
+		obj.transform.y = round(start.y + dy + snapDY);
+	}
+}
+
+function updateResize(worldX: number, worldY: number, shiftKey: boolean): void {
+	if (!state.interaction || state.interaction.mode !== "resize") return;
+	const it = state.interaction;
+	if (!it.handle) return;
+	const obj = findObject(it.primaryId);
+	const start = it.startTransforms.get(it.primaryId);
+	if (!obj || !start) return;
+
+	const dx = worldX - it.startWorldX;
+	const dy = worldY - it.startWorldY;
+	const handle = it.handle;
+
+	const isLeft = handle === "w" || handle === "nw" || handle === "sw";
+	const isRight = handle === "e" || handle === "ne" || handle === "se";
+	const isTop = handle === "n" || handle === "nw" || handle === "ne";
+	const isBottom = handle === "s" || handle === "sw" || handle === "se";
+
+	let newW = start.width;
+	let newH = start.height;
+	let newX = start.x;
+	let newY = start.y;
+
+	if (isRight) newW = Math.max(4, start.width + dx);
+	if (isLeft) newW = Math.max(4, start.width - dx);
+	if (isBottom) newH = Math.max(4, start.height + dy);
+	if (isTop) newH = Math.max(4, start.height - dy);
+
+	if (isLeft) newX = start.x + (start.width - newW) / 2;
+	if (isRight) newX = start.x + (newW - start.width) / 2;
+	if (isTop) newY = start.y + (start.height - newH) / 2;
+	if (isBottom) newY = start.y + (newH - start.height) / 2;
+
+	if (shiftKey && isLeft === isRight && isTop === isBottom) {
+		const aspect = start.width / start.height;
+		if (newW / newH > aspect) newW = newH * aspect;
+		else newH = newW / aspect;
+	}
+
+	if (state.scene?.snapToGrid) {
+		const gs = state.scene.gridSize || 32;
+		newW = Math.round(newW / gs) * gs;
+		newH = Math.round(newH / gs) * gs;
+		newX = Math.round(newX / gs) * gs;
+		newY = Math.round(newY / gs) * gs;
+	}
+
+	obj.transform.width = round(newW);
+	obj.transform.height = round(newH);
+	obj.transform.x = round(newX);
+	obj.transform.y = round(newY);
+}
+
+function updateRotate(worldX: number, worldY: number, shiftKey: boolean, altKey: boolean): void {
+	if (!state.interaction || state.interaction.mode !== "rotate") return;
+	const it = state.interaction;
+	if (!it.rotateCenter || it.rotateStartAngle === undefined || it.rotateStartRotation === undefined) return;
+	const obj = findObject(it.primaryId);
+	if (!obj) return;
+
+	const currentAngle = Math.atan2(worldY - it.rotateCenter.y, worldX - it.rotateCenter.x);
+	let deltaDeg = ((currentAngle - it.rotateStartAngle) * 180) / Math.PI;
+	if (deltaDeg > 180) deltaDeg -= 360;
+	if (deltaDeg < -180) deltaDeg += 360;
+
+	let newRotation = it.rotateStartRotation + deltaDeg;
+	if (altKey) newRotation = Math.round(newRotation / 90) * 90;
+	else if (shiftKey) newRotation = Math.round(newRotation / 15) * 15;
+
+	newRotation = ((newRotation % 360) + 360) % 360;
+	obj.transform.rotation = round(newRotation * 100) / 100;
+}
+
+function endInteraction(): void {
+	if (!state.interaction) return;
+	if (state.interaction.mode !== "idle" && state.interaction.mode !== "pan") {
+		snapshot();
+	}
+	state.interaction = null;
+	state.snapGuides = [];
+}
+
+// =============================================================
+// Viewport rendering
+// =============================================================
+
+function renderViewport(vp: ViewportRect): void {
+	const draw = ImGui.GetWindowDrawList();
+
+	draw.AddRectFilled(new ImVec2(vp.x, vp.y), new ImVec2(vp.x + vp.w, vp.y + vp.h), col(0xff1a1a1a));
+
+	draw.PushClipRect(new ImVec2(vp.x, vp.y), new ImVec2(vp.x + vp.w, vp.y + vp.h), true);
+
+	drawGrid(draw, vp);
+	drawWorldBorder(draw, vp);
+
+	if (state.scene) {
+		for (const obj of state.scene.objects) {
+			drawObject(draw, obj, vp);
+		}
+		for (const id of state.selectedIds) {
+			const obj = findObject(id);
+			if (obj) drawSelection(draw, obj, vp, id === state.primaryId);
+		}
+	}
+
+	drawSnapGuides(draw, vp);
+
+	draw.PopClipRect();
+
+	drawRulers(draw, vp);
+}
+
+// =============================================================
+// UI Panels
+// =============================================================
+
+function renderToolbar(): void {
+	if (!state.scene) return;
+
+	if (ImGui.Button("Add Rect")) {
+		const obj = createObject("rectangle", state.camera.x, state.camera.y);
+		state.scene.objects.push(obj);
+		state.selectedIds = [obj.id];
+		state.primaryId = obj.id;
+		snapshot();
+	}
+	ImGui.SameLine();
+	if (ImGui.Button("Add Circle")) {
+		const obj = createObject("circle", state.camera.x, state.camera.y);
+		state.scene.objects.push(obj);
+		state.selectedIds = [obj.id];
+		state.primaryId = obj.id;
+		snapshot();
+	}
+	ImGui.SameLine();
+	if (ImGui.Button("Add Star")) {
+		const obj = createObject("star", state.camera.x, state.camera.y);
+		state.scene.objects.push(obj);
+		state.selectedIds = [obj.id];
+		state.primaryId = obj.id;
+		snapshot();
+	}
+	ImGui.SameLine();
+	if (ImGui.Button("Add Text")) {
+		const obj = createObject("text", state.camera.x, state.camera.y);
+		state.scene.objects.push(obj);
+		state.selectedIds = [obj.id];
+		state.primaryId = obj.id;
+		snapshot();
+	}
+
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+
+	if (ImGui.Button("Undo")) undo();
+	ImGui.SameLine();
+	if (ImGui.Button("Redo")) redo();
+	ImGui.SameLine();
+	if (ImGui.Button("Duplicate")) duplicateSelected();
+	ImGui.SameLine();
+	if (ImGui.Button("Delete")) deleteSelected();
+
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+
+	if (ImGui.Button(state.scene.snapToGrid ? "Grid Snap: ON" : "Grid Snap: OFF")) {
+		state.scene.snapToGrid = !state.scene.snapToGrid;
+	}
+	ImGui.SameLine();
+	if (ImGui.Button(state.scene.snapToObjects ? "Obj Snap: ON" : "Obj Snap: OFF")) {
+		state.scene.snapToObjects = !state.scene.snapToObjects;
+	}
+	ImGui.SameLine();
+	if (ImGui.Button(state.scene.showGrid ? "Grid: ON" : "Grid: OFF")) {
+		state.scene.showGrid = !state.scene.showGrid;
+	}
+	ImGui.SameLine();
+	if (ImGui.Button("Reset View")) {
+		state.camera = {
+			x: state.scene.worldSize.width / 2,
+			y: state.scene.worldSize.height / 2,
+			zoom: 0.5,
+		};
+	}
+}
+
+function duplicateSelected(): void {
+	if (!state.scene || state.selectedIds.length === 0) return;
+	const newIds: string[] = [];
+	for (const id of state.selectedIds) {
+		const obj = findObject(id);
+		if (!obj) continue;
+		const copy: SceneObject = JSON.parse(JSON.stringify(obj));
+		copy.id = makeId();
+		copy.name = obj.name + "_copy";
+		copy.transform.x += 20;
+		copy.transform.y += 20;
+		state.scene.objects.push(copy);
+		newIds.push(copy.id);
+	}
+	state.selectedIds = newIds;
+	state.primaryId = newIds[newIds.length - 1] ?? null;
+	snapshot();
+}
+
+function deleteSelected(): void {
+	if (!state.scene || state.selectedIds.length === 0) return;
+	state.scene.objects = state.scene.objects.filter((o) => !state.selectedIds.includes(o.id));
+	state.selectedIds = [];
+	state.primaryId = null;
+	snapshot();
+}
+
+// =============================================================
+// Main render loop
+// =============================================================
+
+function renderLoop(): void {
+	ImGuiImplWeb.BeginRender();
+
+	const vp = ImGui.GetMainViewport();
+	ImGui.SetNextWindowPos(vp.WorkPos);
+	ImGui.SetNextWindowSize(vp.WorkSize);
+
+	const rootFlags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.MenuBar;
+
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0);
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0);
+	ImGui.PushStyleVarImVec2(ImGuiStyleVar.WindowPadding, new ImVec2(0, 0));
+
+	ImGui.Begin("##Root", null, rootFlags);
+	ImGui.PopStyleVar(3);
+
+	if (ImGui.BeginMenuBar()) {
+		if (ImGui.BeginMenu("File")) {
+			if (ImGui.MenuItem("New Scene")) newScene();
+			if (ImGui.MenuItem("Save JSON")) saveJSON();
+			if (ImGui.MenuItem("Load JSON")) loadJSON();
+			ImGui.EndMenu();
+		}
+		if (ImGui.BeginMenu("Edit")) {
+			if (ImGui.MenuItem("Undo", "Ctrl+Z")) undo();
+			if (ImGui.MenuItem("Redo", "Ctrl+Y")) redo();
+			ImGui.Separator();
+			if (ImGui.MenuItem("Duplicate", "Ctrl+D")) duplicateSelected();
+			if (ImGui.MenuItem("Delete", "Del")) deleteSelected();
+			ImGui.EndMenu();
+		}
+		if (ImGui.BeginMenu("Help")) {
+			ImGui.MenuItem("Middle mouse or Space+drag to pan", null, false, false);
+			ImGui.MenuItem("Wheel to zoom", null, false, false);
+			ImGui.MenuItem("Left click to select, drag to move", null, false, false);
+			ImGui.EndMenu();
+		}
+		ImGui.EndMenuBar();
+	}
+
+	const toolbarHeight = 36;
+	ImGui.BeginChild("##toolbar", new ImVec2(0, toolbarHeight), ImGuiChildFlags.None);
+	ImGui.PushStyleVarImVec2(ImGuiStyleVar.FramePadding, new ImVec2(8, 5));
+	renderToolbar();
+	ImGui.PopStyleVar();
+	ImGui.EndChild();
+
+	const statusHeight = 26;
+
+	const avail = ImGui.GetContentRegionAvail();
+	const vpW = avail.x;
+	const vpH = avail.y - statusHeight;
+
+	ImGui.BeginChild("##viewport", new ImVec2(vpW, vpH), ImGuiChildFlags.Borders);
+
+	const vpScreenPos = ImGui.GetCursorScreenPos();
+	const vpSize = ImGui.GetContentRegionAvail();
+
+	const rulerPad = (state.scene?.showRulers ?? true) ? 24 : 0;
+
+	const vpRect: ViewportRect = {
+		x: vpScreenPos.x + rulerPad,
+		y: vpScreenPos.y + rulerPad,
+		w: vpSize.x - rulerPad,
+		h: vpSize.y - rulerPad,
+		originX: vpScreenPos.x + rulerPad,
+		originY: vpScreenPos.y + rulerPad,
+	};
+
+	ImGui.InvisibleButton("##vp_canvas", new ImVec2(vpSize.x, vpSize.y), 0);
+
+	const hovered = ImGui.IsItemHovered();
+	const mouseScreen = ImGui.GetMousePos();
+	const worldMouse = screenToWorld(mouseScreen.x, mouseScreen.y, vpRect.originX, vpRect.originY);
+
+	if (hovered) {
+		const wheel = ImGui.GetIO().MouseWheel;
+		if (wheel !== 0) {
+			const oldZoom = state.camera.zoom;
+			const newZoom = Math.max(0.1, Math.min(8, oldZoom * (1 + wheel * 0.1)));
+			state.camera.x += (worldMouse.x - state.camera.x) * (1 - oldZoom / newZoom);
+			state.camera.y += (worldMouse.y - state.camera.y) * (1 - oldZoom / newZoom);
+			state.camera.zoom = newZoom;
+		}
+	}
+
+	const io = ImGui.GetIO();
+	const spaceDown = ImGui.IsKeyDown(ImGuiKey._Space);
+	const middleDown = ImGui.IsMouseDown(ImGuiMouseButton.Middle);
+	const leftDown = ImGui.IsMouseDown(ImGuiMouseButton.Left);
+	const panRequested = middleDown || (spaceDown && leftDown);
+
+	if (panRequested && (hovered || state.interaction?.mode === "pan")) {
+		if (!state.interaction || state.interaction.mode !== "pan") {
+			state.interaction = {
+				mode: "pan",
+				startWorldX: worldMouse.x,
+				startWorldY: worldMouse.y,
+				startScreenX: mouseScreen.x,
+				startScreenY: mouseScreen.y,
+				startTransforms: new Map(),
+				primaryId: "",
+				panStartX: state.camera.x,
+				panStartY: state.camera.y,
+			};
+		} else {
+			const it = state.interaction;
+			const ddx = (mouseScreen.x - it.startScreenX) / state.camera.zoom;
+			const ddy = (mouseScreen.y - it.startScreenY) / state.camera.zoom;
+			state.camera.x = it.panStartX! - ddx;
+			state.camera.y = it.panStartY! - ddy;
+		}
+	} else if (state.interaction?.mode === "pan" && !panRequested) {
+		state.interaction = null;
+	}
+
+	if (hovered && !panRequested) {
+		const handleHit = findHandleAt(mouseScreen.x, mouseScreen.y, vpRect);
+		const rotateHit = findRotateHandleAt(mouseScreen.x, mouseScreen.y, vpRect);
+		const objHit = findObjectAt(worldMouse.x, worldMouse.y);
+
+		if (handleHit) {
+			const cursors: Record<HandleType, number> = {
+				nw: ImGuiMouseCursor.ResizeNWSE,
+				n: ImGuiMouseCursor.ResizeNS,
+				ne: ImGuiMouseCursor.ResizeNESW,
+				e: ImGuiMouseCursor.ResizeEW,
+				se: ImGuiMouseCursor.ResizeNWSE,
+				s: ImGuiMouseCursor.ResizeNS,
+				sw: ImGuiMouseCursor.ResizeNESW,
+				w: ImGuiMouseCursor.ResizeEW,
+			};
+			ImGui.SetMouseCursor(cursors[handleHit.handle]);
+		} else if (rotateHit || objHit) {
+			ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+		}
+
+		if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) {
+			if (handleHit) {
+				beginResize(worldMouse.x, worldMouse.y, handleHit.obj, handleHit.handle);
+			} else if (rotateHit) {
+				beginRotate(worldMouse.x, worldMouse.y, rotateHit);
+			} else if (objHit) {
+				const isMulti = io.KeyShift || io.KeyCtrl || io.KeySuper;
+				if (isMulti) {
+					const idx = state.selectedIds.indexOf(objHit.id);
+					if (idx >= 0) {
+						state.selectedIds.splice(idx, 1);
+						if (state.primaryId === objHit.id) {
+							state.primaryId = state.selectedIds[state.selectedIds.length - 1] ?? null;
+						}
+					} else {
+						state.selectedIds.push(objHit.id);
+						state.primaryId = objHit.id;
+					}
+				} else {
+					if (!state.selectedIds.includes(objHit.id)) {
+						state.selectedIds = [objHit.id];
+					}
+					state.primaryId = objHit.id;
+				}
+				beginDrag(worldMouse.x, worldMouse.y, objHit.id);
+			} else {
+				state.selectedIds = [];
+				state.primaryId = null;
+			}
+		}
+
+		if (ImGui.IsMouseClicked(ImGuiMouseButton.Right)) {
+			state.contextMenu.open = true;
+			state.contextMenu.x = mouseScreen.x;
+			state.contextMenu.y = mouseScreen.y;
+			state.contextMenu.worldX = worldMouse.x;
+			state.contextMenu.worldY = worldMouse.y;
+		}
+	}
+
+	if (state.interaction) {
+		if (state.interaction.mode === "drag") {
+			updateDrag(worldMouse.x, worldMouse.y);
+		} else if (state.interaction.mode === "resize") {
+			updateResize(worldMouse.x, worldMouse.y, io.KeyShift);
+		} else if (state.interaction.mode === "rotate") {
+			updateRotate(worldMouse.x, worldMouse.y, io.KeyShift, io.KeyAlt);
+		}
+	}
+
+	if (!ImGui.IsMouseDown(ImGuiMouseButton.Left) && state.interaction && state.interaction.mode !== "pan") {
+		endInteraction();
+	}
+
+	renderViewport(vpRect);
+
+	ImGui.EndChild();
+
+	ImGui.BeginChild("##status", new ImVec2(0, statusHeight), ImGuiChildFlags.None);
+	ImGui.Text(`Mouse: ${round(worldMouse.x)}, ${round(worldMouse.y)}`);
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	ImGui.Text(`Zoom: ${(state.camera.zoom * 100).toFixed(0)}%`);
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	ImGui.Text(`Objects: ${state.scene?.objects.length ?? 0}`);
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	if (state.selectedIds.length === 1) {
+		const o = findObject(state.selectedIds[0]);
+		if (o) ImGui.Text(`Selected: ${o.name} (${round(o.transform.width)}x${round(o.transform.height)})`);
+	} else if (state.selectedIds.length > 1) {
+		ImGui.Text(`${state.selectedIds.length} selected`);
+	} else {
+		ImGui.TextDisabled("No selection");
+	}
+	ImGui.EndChild();
+
+	ImGui.End();
+
+	renderContextMenu();
+
+	ImGuiImplWeb.EndRender();
+	requestAnimationFrame(renderLoop);
+}
+
+// =============================================================
+// Context Menu
+// =============================================================
+
+function renderContextMenu(): void {
+	if (!state.contextMenu.open) return;
+
+	ImGui.SetNextWindowPos(new ImVec2(state.contextMenu.x, state.contextMenu.y), ImGuiCond.Always);
+	ImGui.SetNextWindowSize(new ImVec2(200, 0), ImGuiCond.Always);
+
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 4);
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1);
+	ImGui.PushStyleVarImVec2(ImGuiStyleVar.WindowPadding, new ImVec2(4, 4));
+	ImGui.PushStyleColorImVec4(ImGuiCol.WindowBg, new ImVec4(0.15, 0.15, 0.18, 1));
+	ImGui.PushStyleColorImVec4(ImGuiCol.Border, new ImVec4(0.3, 0.3, 0.35, 1));
+
+	const flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoScrollbar;
+
+	let closed = false;
+
+	if (ImGui.Begin("##ctx", null, flags)) {
+		if (ImGui.MenuItem("Add Rectangle Here")) {
+			const obj = createObject("rectangle", state.contextMenu.worldX, state.contextMenu.worldY);
+			state.scene!.objects.push(obj);
+			state.selectedIds = [obj.id];
+			state.primaryId = obj.id;
+			snapshot();
+			closed = true;
+		}
+		if (ImGui.MenuItem("Add Circle Here")) {
+			const obj = createObject("circle", state.contextMenu.worldX, state.contextMenu.worldY);
+			state.scene!.objects.push(obj);
+			state.selectedIds = [obj.id];
+			state.primaryId = obj.id;
+			snapshot();
+			closed = true;
+		}
+		ImGui.Separator();
+		if (ImGui.MenuItem("Duplicate", "Ctrl+D", false, state.selectedIds.length > 0)) {
+			duplicateSelected();
+			closed = true;
+		}
+		if (ImGui.MenuItem("Delete", "Del", false, state.selectedIds.length > 0)) {
+			deleteSelected();
+			closed = true;
+		}
+		ImGui.Separator();
+		if (ImGui.MenuItem("Undo", "Ctrl+Z")) {
+			undo();
+			closed = true;
+		}
+		if (ImGui.MenuItem("Redo", "Ctrl+Y")) {
+			redo();
+			closed = true;
+		}
+		ImGui.Separator();
+		if (ImGui.MenuItem("Reset View")) {
+			state.camera = {
+				x: state.scene!.worldSize.width / 2,
+				y: state.scene!.worldSize.height / 2,
+				zoom: 0.5,
+			};
+			closed = true;
+		}
+	}
+	ImGui.End();
+	ImGui.PopStyleColor(2);
+	ImGui.PopStyleVar(3);
+
+	if (closed) {
+		state.contextMenu.open = false;
+		return;
+	}
+
+	// Close menu when clicking outside the menu
+	if (ImGui.IsMouseClicked(ImGuiMouseButton.Left) || ImGui.IsMouseClicked(ImGuiMouseButton.Right)) {
+		const mx = ImGui.GetMousePos().x;
+		const my = ImGui.GetMousePos().y;
+		// Approximate menu bounds (auto-resize window, so use generous estimates)
+		const menuW = 220;
+		const menuH = 260;
+		if (mx < state.contextMenu.x || mx > state.contextMenu.x + menuW || my < state.contextMenu.y || my > state.contextMenu.y + menuH) {
+			state.contextMenu.open = false;
+		}
+	}
+}
+
+// =============================================================
+// Scene management
+// =============================================================
+
+function newScene(): void {
+	state.scene = {
+		name: "Untitled",
+		worldSize: { width: 1920, height: 1080 },
+		backgroundColor: col(0xff1a1a1a),
+		gridSize: 32,
+		snapToGrid: false,
+		snapToObjects: true,
+		showGrid: true,
+		showWorldBorder: true,
+		showRulers: true,
+		objects: [],
+	};
+	state.camera = { x: 960, y: 540, zoom: 0.6 };
+	state.selectedIds = [];
+	state.primaryId = null;
+	state.history = [];
+	state.historyIndex = -1;
+	snapshot();
+
+	const r1 = createObject("rectangle", 400, 300);
+	const c1 = createObject("circle", 900, 400);
+	const s1 = createObject("star", 1400, 600);
+	state.scene.objects.push(r1, c1, s1);
+}
+
+function saveJSON(): void {
+	if (!state.scene) return;
+	const json = JSON.stringify(state.scene, null, 2);
+	const blob = new Blob([json], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = `${state.scene.name || "scene"}.json`;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+function loadJSON(): void {
+	const input = document.createElement("input");
+	input.type = "file";
+	input.accept = "application/json";
+	input.onchange = async () => {
+		const file = input.files?.[0];
+		if (!file) return;
+		const text = await file.text();
+		try {
+			state.scene = JSON.parse(text);
+			state.selectedIds = [];
+			state.primaryId = null;
+			state.history = [];
+			state.historyIndex = -1;
+			snapshot();
+		} catch (e) {
+			console.error(e);
+		}
+	};
+	input.click();
+}
+
+// =============================================================
+// Keyboard shortcuts
+// =============================================================
+
+function setupKeyboard(): void {
+	window.addEventListener("keydown", (e) => {
+		const tag = (e.target as HTMLElement)?.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+		const mod = e.ctrlKey || e.metaKey;
+		if (mod && e.key === "z" && !e.shiftKey) {
+			e.preventDefault();
+			undo();
+		} else if (mod && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+			e.preventDefault();
+			redo();
+		} else if (mod && e.key === "d") {
+			e.preventDefault();
+			duplicateSelected();
+		} else if (e.key === "Delete" || e.key === "Backspace") {
+			e.preventDefault();
+			deleteSelected();
+		} else if (e.key === "Escape") {
+			state.selectedIds = [];
+			state.primaryId = null;
+			state.interaction = null;
+			state.snapGuides = [];
+			state.contextMenu.open = false;
+		}
+	});
+}
+
+// =============================================================
+// Canvas resolution & DPI
+// =============================================================
+
+function setupCanvasResolution(canvas: HTMLCanvasElement): void {
+	const applyDpr = () => {
+		const dpr = Math.min(window.devicePixelRatio || 1, 2);
+		const w = Math.floor(canvas.clientWidth * dpr);
+		const h = Math.floor(canvas.clientHeight * dpr);
+		if (canvas.width !== w || canvas.height !== h) {
+			canvas.width = w;
+			canvas.height = h;
+		}
+	};
+
+	window.addEventListener("resize", applyDpr);
+	window.addEventListener("orientationchange", applyDpr);
+	applyDpr();
+}
+
+// =============================================================
+// Bootstrap
+// =============================================================
+
+const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+const loadingEl = document.getElementById("loading")!;
+
+async function bootstrap(): Promise<void> {
+	// Ensure canvas element fills the viewport before ImGui reads it
+	canvas.style.width = "100vw";
+	canvas.style.height = "100vh";
+	canvas.style.display = "block";
+
+	await ImGuiImplWeb.Init({
+		canvas,
+		backend: "webgl2",
+		fontLoader: "truetype", // switch to "freetype" for sharper glyphs
+	});
+
+	setupCanvasResolution(canvas);
+
+	// ---- Style: sharper rendering + better contrast ----
+	const style = ImGui.GetStyle();
+	ImGui.StyleColorsDark();
+
+	style.WindowRounding = 0;
+	style.ChildRounding = 4;
+	style.FrameRounding = 3;
+	style.GrabRounding = 3;
+	style.ScrollbarRounding = 3;
+
+	style.WindowBorderSize = 1;
+	style.ChildBorderSize = 1;
+	style.FrameBorderSize = 0;
+
+	style.FramePadding = new ImVec2(8, 5);
+	style.ItemSpacing = new ImVec2(8, 6);
+	style.ItemInnerSpacing = new ImVec2(6, 4);
+
+	// Anti-aliasing for nicer shapes & lines
+	style.AntiAliasedLines = true;
+	style.AntiAliasedLinesUseTex = true;
+	style.AntiAliasedFill = true;
+	style.CurveTessellationTol = 1.25;
+	style.CircleTessellationMaxError = 0.3;
+
+	// Font size base (used to scale with DPI on systems that support it)
+	style.FontSizeBase = 15.0;
+
+	// Higher-quality colors
+	style.Colors[ImGuiCol.WindowBg] = new ImVec4(0.1, 0.1, 0.11, 1.0);
+	style.Colors[ImGuiCol.ChildBg] = new ImVec4(0.11, 0.11, 0.12, 1.0);
+	style.Colors[ImGuiCol.PopupBg] = new ImVec4(0.13, 0.13, 0.15, 1.0);
+	style.Colors[ImGuiCol.Border] = new ImVec4(0.22, 0.22, 0.24, 1.0);
+	style.Colors[ImGuiCol.FrameBg] = new ImVec4(0.17, 0.17, 0.19, 1.0);
+	style.Colors[ImGuiCol.FrameBgHovered] = new ImVec4(0.22, 0.22, 0.25, 1.0);
+	style.Colors[ImGuiCol.FrameBgActive] = new ImVec4(0.26, 0.26, 0.3, 1.0);
+	style.Colors[ImGuiCol.Button] = new ImVec4(0.2, 0.2, 0.23, 1.0);
+	style.Colors[ImGuiCol.ButtonHovered] = new ImVec4(0.28, 0.28, 0.32, 1.0);
+	style.Colors[ImGuiCol.ButtonActive] = new ImVec4(0.35, 0.35, 0.4, 1.0);
+
+	newScene();
+	setupKeyboard();
+
+	loadingEl.classList.add("hidden");
+	requestAnimationFrame(renderLoop);
+}
+
+bootstrap().catch((err) => {
+	console.error(err);
+	loadingEl.textContent = `Error: ${err.message}`;
+});

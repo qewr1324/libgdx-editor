@@ -1,0 +1,2376 @@
+// @ts-nocheck
+/**
+ * Scene Viewport — ImGui + WebGL2
+ * Full editor: Docking, Scene Tree, Inspector, Components, Layers, Marquee,
+ * Sprite/Texture, Atlas, Snapping, Export.
+ */
+
+import { ImGui, ImGuiImplWeb, ImVec2, ImVec4, ImTextureRef, ImGuiWindowFlags, ImGuiChildFlags, ImGuiCol, ImGuiStyleVar, ImGuiMouseButton, ImGuiMouseCursor, ImGuiKey, ImGuiCond, ImGuiTableFlags, ImGuiSelectableFlags, ImGuiTreeNodeFlags, ImGuiInputTextFlags } from "@mori2003/jsimgui";
+
+// =============================================================
+// Types
+// =============================================================
+
+type VisualShape = "rectangle" | "circle" | "triangle" | "diamond" | "pentagon" | "hexagon" | "star";
+
+interface Transform {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	rotation: number;
+	originX: number;
+	originY: number;
+	scaleX: number;
+	scaleY: number;
+}
+
+// ---- Components ----
+interface SpriteComponent {
+	id: string;
+	type: "sprite";
+	texturePath: string; // "" if none
+	tint: number;
+	flipX: boolean;
+	flipY: boolean;
+}
+
+interface ShapeComponent {
+	id: string;
+	type: "shape";
+	shape: VisualShape;
+	color: number;
+	filled: boolean;
+	strokeWidth: number;
+}
+
+interface TextComponent {
+	id: string;
+	type: "text";
+	text: string;
+	color: number;
+	fontSize: number;
+}
+
+interface PhysicsComponent {
+	id: string;
+	type: "physics";
+	bodyType: "dynamic" | "static" | "kinematic";
+	mass: number;
+	gravityScale: number;
+	velocityX: number;
+	velocityY: number;
+	fixedRotation: boolean;
+}
+
+interface ColliderComponent {
+	id: string;
+	type: "collider";
+	shape: "box" | "circle";
+	isTrigger: boolean;
+	friction: number;
+	restitution: number;
+}
+
+interface TagComponent {
+	id: string;
+	type: "tag";
+	tags: string[];
+}
+
+type Component = SpriteComponent | ShapeComponent | TextComponent | PhysicsComponent | ColliderComponent | TagComponent;
+
+interface SceneObject {
+	id: string;
+	name: string;
+	layerId: string;
+	zIndex: number;
+	transform: Transform;
+	components: Component[];
+}
+
+interface Layer {
+	id: string;
+	name: string;
+	visible: boolean;
+	locked: boolean;
+}
+
+interface Scene {
+	name: string;
+	worldSize: { width: number; height: number };
+	backgroundColor: number;
+	gridSize: number;
+	snapToGrid: boolean;
+	snapToObjects: boolean;
+	showGrid: boolean;
+	showWorldBorder: boolean;
+	showRulers: boolean;
+	layers: Layer[];
+	objects: SceneObject[];
+}
+
+// ---- Textures ----
+interface LoadedTexture {
+	path: string;
+	ref: ImTextureRef;
+	width: number;
+	height: number;
+	image: HTMLImageElement;
+}
+
+// ---- Interaction ----
+type InteractionMode = "idle" | "drag" | "resize" | "rotate" | "pan" | "marquee";
+type HandleType = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+interface InteractionData {
+	mode: InteractionMode;
+	startWorldX: number;
+	startWorldY: number;
+	startScreenX: number;
+	startScreenY: number;
+	startTransforms: Map<string, Transform>;
+	primaryId: string;
+	handle?: HandleType;
+	rotateCenter?: { x: number; y: number };
+	rotateStartAngle?: number;
+	rotateStartRotation?: number;
+	panStartX?: number;
+	panStartY?: number;
+	marqueeRect?: { x: number; y: number; w: number; h: number };
+}
+
+// =============================================================
+// Utility
+// =============================================================
+
+function rgba(r: number, g: number, b: number, a = 255): number {
+	return (((a & 0xff) << 24) | ((b & 0xff) << 16) | ((g & 0xff) << 8) | (r & 0xff)) >>> 0;
+}
+
+function col(hex: number): number {
+	return hex >>> 0;
+}
+
+function hexToU32(hex: string): number {
+	const h = hex.replace("#", "");
+	const r = parseInt(h.substring(0, 2), 16);
+	const g = parseInt(h.substring(2, 4), 16);
+	const b = parseInt(h.substring(4, 6), 16);
+	const a = h.length === 8 ? parseInt(h.substring(6, 8), 16) : 255;
+	return rgba(r, g, b, a);
+}
+
+function u32ToHex(u: number): string {
+	const a = (u >>> 24) & 0xff;
+	const b = (u >>> 16) & 0xff;
+	const g = (u >>> 8) & 0xff;
+	const r = u & 0xff;
+	const hex2 = (n: number) => n.toString(16).padStart(2, "0");
+	return a === 255 ? `#${hex2(r)}${hex2(g)}${hex2(b)}` : `#${hex2(r)}${hex2(g)}${hex2(b)}${hex2(a)}`;
+}
+
+function makeId(prefix = "obj"): string {
+	return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function round(n: number): number {
+	return Math.round(n);
+}
+
+function clamp(v: number, min: number, max: number): number {
+	return Math.max(min, Math.min(max, v));
+}
+
+// =============================================================
+// Global state
+// =============================================================
+
+const state = {
+	scene: null as Scene | null,
+	selectedIds: [] as string[],
+	primaryId: null as string | null,
+	interaction: null as InteractionData | null,
+	camera: { x: 0, y: 0, zoom: 1 },
+	history: [] as string[],
+	historyIndex: -1,
+	snapGuides: [] as Array<{ x1: number; y1: number; x2: number; y2: number }>,
+	contextMenu: {
+		open: false,
+		x: 0,
+		y: 0,
+		worldX: 0,
+		worldY: 0,
+	},
+	textures: new Map<string, LoadedTexture>(),
+	activeLayerId: null as string | null,
+	showDemo: false,
+	showConsole: true,
+	consoleLines: [] as string[],
+	marquee: null as { x1: number; y1: number; x2: number; y2: number } | null,
+};
+
+function log(msg: string): void {
+	const t = new Date().toLocaleTimeString();
+	state.consoleLines.push(`[${t}] ${msg}`);
+	if (state.consoleLines.length > 200) state.consoleLines.shift();
+}
+
+// =============================================================
+// Camera <-> World
+// =============================================================
+
+function worldToScreen(wx: number, wy: number, originX: number, originY: number) {
+	return {
+		x: originX + (wx - state.camera.x) * state.camera.zoom,
+		y: originY + (wy - state.camera.y) * state.camera.zoom,
+	};
+}
+
+function screenToWorld(sx: number, sy: number, originX: number, originY: number) {
+	return {
+		x: (sx - originX) / state.camera.zoom + state.camera.x,
+		y: (sy - originY) / state.camera.zoom + state.camera.y,
+	};
+}
+
+// =============================================================
+// Component helpers
+// =============================================================
+
+function getComponent<T extends Component["type"]>(obj: SceneObject, type: T): Extract<Component, { type: T }> | null {
+	return (obj.components.find((c) => c.type === type) as any) ?? null;
+}
+
+function addComponent(obj: SceneObject, comp: Component): void {
+	obj.components.push(comp);
+}
+
+function removeComponent(obj: SceneObject, compId: string): void {
+	obj.components = obj.components.filter((c) => c.id !== compId);
+}
+
+function getObjectBounds(obj: SceneObject): { x1: number; y1: number; x2: number; y2: number } {
+	const t = obj.transform;
+	const hw = t.width * t.originX;
+	const hh = t.height * t.originY;
+	return { x1: t.x - hw, y1: t.y - hh, x2: t.x + t.width - hw, y2: t.y + t.height - hh };
+}
+
+// =============================================================
+// Object creation
+// =============================================================
+
+function createObject(x: number, y: number): SceneObject {
+	const id = makeId();
+	return {
+		id,
+		name: `object_${id.slice(-4)}`,
+		layerId: state.activeLayerId ?? state.scene?.layers[0]?.id ?? "layer_default",
+		zIndex: state.scene?.objects.length ?? 0,
+		transform: {
+			x,
+			y,
+			width: 100,
+			height: 80,
+			rotation: 0,
+			originX: 0.5,
+			originY: 0.5,
+			scaleX: 1,
+			scaleY: 1,
+		},
+		components: [],
+	};
+}
+
+function createShapeObject(shape: VisualShape, x: number, y: number): SceneObject {
+	const obj = createObject(x, y);
+	obj.name = `${shape}_${obj.id.slice(-4)}`;
+	const palette: Record<VisualShape, number> = {
+		rectangle: rgba(74, 158, 255),
+		circle: rgba(74, 255, 158),
+		triangle: rgba(255, 170, 74),
+		diamond: rgba(74, 255, 255),
+		pentagon: rgba(170, 74, 255),
+		hexagon: rgba(255, 255, 74),
+		star: rgba(255, 74, 255),
+	};
+	addComponent(obj, {
+		id: makeId("comp"),
+		type: "shape",
+		shape,
+		color: palette[shape],
+		filled: true,
+		strokeWidth: 2,
+	});
+	return obj;
+}
+
+function createTextObject(x: number, y: number): SceneObject {
+	const obj = createObject(x, y);
+	obj.name = `text_${obj.id.slice(-4)}`;
+	obj.transform.width = 160;
+	obj.transform.height = 40;
+	addComponent(obj, {
+		id: makeId("comp"),
+		type: "text",
+		text: "Hello World",
+		color: rgba(255, 255, 255),
+		fontSize: 18,
+	});
+	return obj;
+}
+
+function createSpriteObject(texturePath: string, x: number, y: number): SceneObject {
+	const obj = createObject(x, y);
+	obj.name = `sprite_${obj.id.slice(-4)}`;
+	const tex = state.textures.get(texturePath);
+	if (tex) {
+		obj.transform.width = tex.width;
+		obj.transform.height = tex.height;
+	} else {
+		obj.transform.width = 128;
+		obj.transform.height = 128;
+	}
+	addComponent(obj, {
+		id: makeId("comp"),
+		type: "sprite",
+		texturePath,
+		tint: rgba(255, 255, 255),
+		flipX: false,
+		flipY: false,
+	});
+	return obj;
+}
+
+function findObject(id: string): SceneObject | null {
+	return state.scene?.objects.find((o) => o.id === id) ?? null;
+}
+
+function findLayer(id: string): Layer | null {
+	return state.scene?.layers.find((l) => l.id === id) ?? null;
+}
+
+// =============================================================
+// History
+// =============================================================
+
+function snapshot(): void {
+	if (!state.scene) return;
+	const json = JSON.stringify(state.scene);
+	if (state.historyIndex >= 0 && state.history[state.historyIndex] === json) return;
+	state.history = state.history.slice(0, state.historyIndex + 1);
+	state.history.push(json);
+	state.historyIndex = state.history.length - 1;
+	if (state.history.length > 100) {
+		state.history.shift();
+		state.historyIndex--;
+	}
+}
+
+function undo(): void {
+	if (state.historyIndex <= 0) return;
+	state.historyIndex--;
+	state.scene = JSON.parse(state.history[state.historyIndex]);
+	log("Undo");
+}
+
+function redo(): void {
+	if (state.historyIndex >= state.history.length - 1) return;
+	state.historyIndex++;
+	state.scene = JSON.parse(state.history[state.historyIndex]);
+	log("Redo");
+}
+
+// =============================================================
+// Snapping
+// =============================================================
+
+function computeSnap(proposedX: number, proposedY: number, primary: SceneObject, excludeIds: Set<string>, threshold: number) {
+	if (!state.scene) return { x: proposedX, y: proposedY, guides: [] };
+
+	const guides: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+	const t = primary.transform;
+
+	const mLeft = proposedX - t.width * t.originX;
+	const mRight = mLeft + t.width;
+	const mTop = proposedY - t.height * t.originY;
+	const mBottom = mTop + t.height;
+	const mCenterX = proposedX;
+	const mCenterY = proposedY;
+
+	let bestX: any = null;
+	let bestY: any = null;
+
+	const considerX = (mVal: number, oVal: number, refMin: number, refMax: number) => {
+		const delta = oVal - mVal;
+		if (Math.abs(delta) <= threshold && (!bestX || Math.abs(delta) < Math.abs(bestX.delta))) {
+			bestX = { delta, snapX: oVal, ref: { min: refMin, max: refMax } };
+		}
+	};
+	const considerY = (mVal: number, oVal: number, refMin: number, refMax: number) => {
+		const delta = oVal - mVal;
+		if (Math.abs(delta) <= threshold && (!bestY || Math.abs(delta) < Math.abs(bestY.delta))) {
+			bestY = { delta, snapY: oVal, ref: { min: refMin, max: refMax } };
+		}
+	};
+
+	if (state.scene.snapToObjects) {
+		const W = state.scene.worldSize.width;
+		const H = state.scene.worldSize.height;
+		considerX(mLeft, 0, mTop, mBottom);
+		considerX(mRight, W, mTop, mBottom);
+		considerX(mCenterX, W / 2, mTop, mBottom);
+		considerY(mTop, 0, mLeft, mRight);
+		considerY(mBottom, H, mLeft, mRight);
+		considerY(mCenterY, H / 2, mLeft, mRight);
+
+		for (const obj of state.scene.objects) {
+			if (excludeIds.has(obj.id)) continue;
+			const b = getObjectBounds(obj);
+			considerX(mLeft, b.x1, Math.min(b.y1, mTop), Math.max(b.y2, mBottom));
+			considerX(mRight, b.x2, Math.min(b.y1, mTop), Math.max(b.y2, mBottom));
+			considerX(mCenterX, (b.x1 + b.x2) / 2, Math.min(b.y1, mTop), Math.max(b.y2, mBottom));
+			considerY(mTop, b.y1, Math.min(b.x1, mLeft), Math.max(b.x2, mRight));
+			considerY(mBottom, b.y2, Math.min(b.x1, mLeft), Math.max(b.x2, mRight));
+			considerY(mCenterY, (b.y1 + b.y2) / 2, Math.min(b.x1, mLeft), Math.max(b.x2, mRight));
+		}
+	}
+
+	const finalX = bestX ? proposedX + bestX.delta : proposedX;
+	const finalY = bestY ? proposedY + bestY.delta : proposedY;
+
+	if (bestX) guides.push({ x1: bestX.snapX, y1: bestX.ref.min - 20, x2: bestX.snapX, y2: bestX.ref.max + 20 });
+	if (bestY) guides.push({ x1: bestY.ref.min - 20, y1: bestY.snapY, x2: bestY.ref.max + 20, y2: bestY.snapY });
+
+	return { x: finalX, y: finalY, guides };
+}
+
+// =============================================================
+// Textures
+// =============================================================
+
+async function loadTextureFromFile(file: File): Promise<void> {
+	const url = URL.createObjectURL(file);
+	const img = new Image();
+	img.src = url;
+	await new Promise<void>((res, rej) => {
+		img.onload = () => res();
+		img.onerror = () => rej(new Error("load failed"));
+	});
+
+	// Register with ImGui/backend
+	const gl = (document.getElementById("canvas") as HTMLCanvasElement).getContext("webgl2") as WebGL2RenderingContext;
+	const tex = gl.createTexture()!;
+	gl.bindTexture(gl.TEXTURE_2D, tex);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+
+	const ref = ImGuiImplWeb.RegisterTexture(tex);
+	const path = file.name;
+	state.textures.set(path, {
+		path,
+		ref,
+		width: img.width,
+		height: img.height,
+		image: img,
+	});
+	log(`Loaded texture: ${path} (${img.width}x${img.height})`);
+}
+
+// =============================================================
+// Rendering — draw list helpers
+// =============================================================
+
+interface ViewportRect {
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	originX: number;
+	originY: number;
+}
+
+function drawGrid(draw: any, vp: ViewportRect): void {
+	if (!state.scene || !state.scene.showGrid) return;
+
+	const gs = state.scene.gridSize;
+	const zoom = state.camera.zoom;
+	const wMin = screenToWorld(0, 0, vp.originX, vp.originY);
+	const wMax = screenToWorld(vp.w, vp.h, vp.originX, vp.originY);
+
+	const startX = Math.floor(wMin.x / gs) * gs;
+	const startY = Math.floor(wMin.y / gs) * gs;
+	const endX = Math.ceil(wMax.x / gs) * gs;
+	const endY = Math.ceil(wMax.y / gs) * gs;
+
+	let major = gs;
+	while (major * zoom < 40) major *= 2;
+
+	const gridColor = col(0x30ffffff);
+	const majorColor = col(0x50ffffff);
+
+	for (let x = startX; x <= endX; x += gs) {
+		const isMajor = Math.abs(x % major) < 0.001;
+		const sp = worldToScreen(x, 0, vp.originX, vp.originY);
+		if (sp.x < vp.x || sp.x > vp.x + vp.w) continue;
+		draw.AddLine(new ImVec2(sp.x, vp.y), new ImVec2(sp.x, vp.y + vp.h), isMajor ? majorColor : gridColor, 1.0);
+	}
+	for (let y = startY; y <= endY; y += gs) {
+		const isMajor = Math.abs(y % major) < 0.001;
+		const sp = worldToScreen(0, y, vp.originX, vp.originY);
+		if (sp.y < vp.y || sp.y > vp.y + vp.h) continue;
+		draw.AddLine(new ImVec2(vp.x, sp.y), new ImVec2(vp.x + vp.w, sp.y), isMajor ? majorColor : gridColor, 1.0);
+	}
+}
+
+function drawWorldBorder(draw: any, vp: ViewportRect): void {
+	if (!state.scene || !state.scene.showWorldBorder) return;
+	const tl = worldToScreen(0, 0, vp.originX, vp.originY);
+	const br = worldToScreen(state.scene.worldSize.width, state.scene.worldSize.height, vp.originX, vp.originY);
+	draw.AddRect(new ImVec2(tl.x, tl.y), new ImVec2(br.x, br.y), rgba(74, 168, 255), 0, 2.0, 0);
+}
+
+function drawRulers(draw: any, vp: ViewportRect): void {
+	if (!state.scene || !state.scene.showRulers) return;
+
+	const rulerH = 22;
+	const rulerW = 22;
+	const bgTop = col(0xff252525);
+	const bgCorner = col(0xff202020);
+	const borderCol = col(0xff404040);
+	const tickCol = col(0xff707070);
+	const textColor = col(0xffb0b0b0);
+
+	draw.AddRectFilled(new ImVec2(vp.x, vp.y - rulerH), new ImVec2(vp.x + vp.w, vp.y), bgTop);
+	draw.AddLine(new ImVec2(vp.x, vp.y), new ImVec2(vp.x + vp.w, vp.y), borderCol, 1.0);
+	draw.AddRectFilled(new ImVec2(vp.x - rulerW, vp.y), new ImVec2(vp.x, vp.y + vp.h), bgTop);
+	draw.AddLine(new ImVec2(vp.x, vp.y), new ImVec2(vp.x, vp.y + vp.h), borderCol, 1.0);
+	draw.AddRectFilled(new ImVec2(vp.x - rulerW, vp.y - rulerH), new ImVec2(vp.x, vp.y), bgCorner);
+
+	const zoom = state.camera.zoom;
+	let step = 100;
+	while (step * zoom < 60) step *= 2;
+	while (step * zoom > 200) step /= 2;
+
+	const wMin = screenToWorld(vp.x, 0, vp.originX, vp.originY);
+	const wMax = screenToWorld(vp.x + vp.w, 0, vp.originX, vp.originY);
+	const startX = Math.floor(wMin.x / step) * step;
+	for (let wx = startX; wx <= wMax.x; wx += step) {
+		const sp = worldToScreen(wx, 0, vp.originX, vp.originY);
+		if (sp.x < vp.x || sp.x > vp.x + vp.w) continue;
+		draw.AddLine(new ImVec2(sp.x, vp.y - 8), new ImVec2(sp.x, vp.y), tickCol, 1.0);
+		draw.AddText(new ImVec2(sp.x + 3, vp.y - rulerH + 4), textColor, String(wx));
+	}
+
+	const hMin = screenToWorld(0, vp.y, vp.originX, vp.originY);
+	const hMax = screenToWorld(0, vp.y + vp.h, vp.originX, vp.originY);
+	const startY = Math.floor(hMin.y / step) * step;
+	for (let wy = startY; wy <= hMax.y; wy += step) {
+		const sp = worldToScreen(0, wy, vp.originX, vp.originY);
+		if (sp.y < vp.y || sp.y > vp.y + vp.h) continue;
+		draw.AddLine(new ImVec2(vp.x - 8, sp.y), new ImVec2(vp.x, sp.y), tickCol, 1.0);
+		draw.AddText(new ImVec2(vp.x - rulerW + 2, sp.y + 3), textColor, String(wy));
+	}
+}
+
+function getObjectCorners(obj: SceneObject, vp: ViewportRect) {
+	const t = obj.transform;
+	const angle = (t.rotation * Math.PI) / 180;
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	const halfW = t.width / 2;
+	const halfH = t.height / 2;
+	const local: Array<[number, number]> = [
+		[-halfW, -halfH],
+		[halfW, -halfH],
+		[halfW, halfH],
+		[-halfW, halfH],
+	];
+	return local.map(([lx, ly]) => {
+		const rx = lx * cos - ly * sin;
+		const ry = lx * sin + ly * cos;
+		return worldToScreen(t.x + rx, t.y + ry, vp.originX, vp.originY);
+	});
+}
+
+function drawShapePrimitive(draw: any, shape: VisualShape, corners: any[], center: any, t: Transform, zoom: number, fillCol: number, strokeCol: number, strokeW: number, filled: boolean): void {
+	const w = t.width * zoom;
+	const h = t.height * zoom;
+
+	switch (shape) {
+		case "rectangle": {
+			if (filled) {
+				draw.AddQuadFilled(new ImVec2(corners[0].x, corners[0].y), new ImVec2(corners[1].x, corners[1].y), new ImVec2(corners[2].x, corners[2].y), new ImVec2(corners[3].x, corners[3].y), fillCol);
+			}
+			for (let i = 0; i < 4; i++) {
+				const a = corners[i];
+				const b = corners[(i + 1) % 4];
+				draw.AddLine(new ImVec2(a.x, a.y), new ImVec2(b.x, b.y), strokeCol, strokeW);
+			}
+			break;
+		}
+		case "circle": {
+			const r = Math.min(w, h) / 2;
+			if (filled) draw.AddCircleFilled(new ImVec2(center.x, center.y), r, fillCol, 0);
+			draw.AddCircle(new ImVec2(center.x, center.y), r, strokeCol, 0, strokeW);
+			break;
+		}
+		case "triangle": {
+			const p1 = corners[0],
+				p2 = corners[1],
+				p3 = corners[3];
+			if (filled) draw.AddTriangleFilled(new ImVec2(p1.x, p1.y), new ImVec2(p2.x, p2.y), new ImVec2(p3.x, p3.y), fillCol);
+			draw.AddTriangle(new ImVec2(p1.x, p1.y), new ImVec2(p2.x, p2.y), new ImVec2(p3.x, p3.y), strokeCol, strokeW);
+			break;
+		}
+		case "diamond": {
+			const halfW = (t.width * zoom) / 2;
+			const halfH = (t.height * zoom) / 2;
+			const cx = center.x,
+				cy = center.y;
+			const pts = [new ImVec2(cx, cy - halfH), new ImVec2(cx + halfW, cy), new ImVec2(cx, cy + halfH), new ImVec2(cx - halfW, cy)];
+			if (filled) draw.AddQuadFilled(pts[0], pts[1], pts[2], pts[3], fillCol);
+			draw.AddQuad(pts[0], pts[1], pts[2], pts[3], strokeCol, strokeW);
+			break;
+		}
+		case "pentagon":
+		case "hexagon": {
+			const sides = shape === "pentagon" ? 5 : 6;
+			const r = Math.min(w, h) / 2;
+			const pts: any[] = [];
+			for (let i = 0; i < sides; i++) {
+				const a = -Math.PI / 2 + (i * 2 * Math.PI) / sides;
+				pts.push(new ImVec2(center.x + Math.cos(a) * r, center.y + Math.sin(a) * r));
+			}
+			if (filled) draw.AddConvexPolyFilled(pts, pts.length, fillCol);
+			for (let i = 0; i < pts.length; i++) {
+				draw.AddLine(pts[i], pts[(i + 1) % pts.length], strokeCol, strokeW);
+			}
+			break;
+		}
+		case "star": {
+			const r = Math.min(w, h) / 2;
+			const innerR = r * 0.45;
+			const points = 5;
+			const cx = center.x,
+				cy = center.y;
+			for (let i = 0; i < points * 2; i++) {
+				const rr = i % 2 === 0 ? r : innerR;
+				const a = -Math.PI / 2 + (i * Math.PI) / points;
+				const x1 = cx + Math.cos(a) * rr;
+				const y1 = cy + Math.sin(a) * rr;
+				const a2 = -Math.PI / 2 + ((i + 1) * Math.PI) / points;
+				const rr2 = (i + 1) % 2 === 0 ? r : innerR;
+				const x2 = cx + Math.cos(a2) * rr2;
+				const y2 = cy + Math.sin(a2) * rr2;
+				draw.AddLine(new ImVec2(x1, y1), new ImVec2(x2, y2), strokeCol, strokeW);
+			}
+			break;
+		}
+	}
+}
+
+function drawObject(draw: any, obj: SceneObject, vp: ViewportRect): void {
+	const t = obj.transform;
+	const zoom = state.camera.zoom;
+	const center = worldToScreen(t.x, t.y, vp.originX, vp.originY);
+	const corners = getObjectCorners(obj, vp);
+
+	for (const comp of obj.components) {
+		if (comp.type === "shape") {
+			const filledCol = comp.filled ? ((comp.color & 0x00ffffff) | 0x60000000) >>> 0 : 0;
+			drawShapePrimitive(draw, comp.shape, corners, center, t, zoom, filledCol, comp.color, comp.strokeWidth, comp.filled);
+		} else if (comp.type === "text") {
+			const txt = comp.text ?? "";
+			const txtW = ImGui.CalcTextSize(txt).x;
+			draw.AddText(new ImVec2(center.x - txtW / 2, center.y - comp.fontSize / 2), comp.color, txt);
+		} else if (comp.type === "sprite") {
+			const tex = state.textures.get(comp.texturePath);
+			if (tex) {
+				const w = t.width * zoom;
+				const h = t.height * zoom;
+				const p1 = new ImVec2(center.x - w / 2, center.y - h / 2);
+				const p2 = new ImVec2(center.x + w / 2, center.y + h / 2);
+				const uv0 = new ImVec2(comp.flipX ? 1 : 0, comp.flipY ? 1 : 0);
+				const uv1 = new ImVec2(comp.flipX ? 0 : 1, comp.flipY ? 0 : 1);
+				draw.AddImage(tex.ref, p1, p2, uv0, uv1, comp.tint);
+			} else {
+				// fallback outline
+				for (let i = 0; i < 4; i++) {
+					const a = corners[i];
+					const b = corners[(i + 1) % 4];
+					draw.AddLine(new ImVec2(a.x, a.y), new ImVec2(b.x, b.y), rgba(255, 100, 200), 2.0);
+				}
+			}
+		}
+	}
+
+	if (obj.components.length === 0) {
+		// empty object → dashed rect
+		for (let i = 0; i < 4; i++) {
+			const a = corners[i];
+			const b = corners[(i + 1) % 4];
+			draw.AddLine(new ImVec2(a.x, a.y), new ImVec2(b.x, b.y), rgba(155, 89, 182), 1.5);
+		}
+		// X mark
+		draw.AddLine(new ImVec2(corners[0].x, corners[0].y), new ImVec2(corners[2].x, corners[2].y), rgba(155, 89, 182, 150), 1.0);
+		draw.AddLine(new ImVec2(corners[1].x, corners[1].y), new ImVec2(corners[3].x, corners[3].y), rgba(155, 89, 182, 150), 1.0);
+	}
+}
+
+function drawSelection(draw: any, obj: SceneObject, vp: ViewportRect, isPrimary: boolean): void {
+	const corners = getObjectCorners(obj, vp);
+	const outlineCol = isPrimary ? rgba(255, 170, 0) : rgba(255, 170, 0, 180);
+
+	for (let i = 0; i < 4; i++) {
+		const a = corners[i];
+		const b = corners[(i + 1) % 4];
+		draw.AddLine(new ImVec2(a.x, a.y), new ImVec2(b.x, b.y), outlineCol, 2.0);
+	}
+
+	if (isPrimary) {
+		const handlePositions: Array<[number, number]> = [
+			[corners[0].x, corners[0].y],
+			[(corners[0].x + corners[1].x) / 2, (corners[0].y + corners[1].y) / 2],
+			[corners[1].x, corners[1].y],
+			[(corners[1].x + corners[2].x) / 2, (corners[1].y + corners[2].y) / 2],
+			[corners[2].x, corners[2].y],
+			[(corners[2].x + corners[3].x) / 2, (corners[2].y + corners[3].y) / 2],
+			[corners[3].x, corners[3].y],
+			[(corners[3].x + corners[0].x) / 2, (corners[3].y + corners[0].y) / 2],
+		];
+		const handleCol = rgba(255, 170, 0);
+		const handleSize = 8;
+		for (const [hx, hy] of handlePositions) {
+			draw.AddRectFilled(new ImVec2(hx - handleSize / 2, hy - handleSize / 2), new ImVec2(hx + handleSize / 2, hy + handleSize / 2), handleCol);
+			draw.AddRect(new ImVec2(hx - handleSize / 2, hy - handleSize / 2), new ImVec2(hx + handleSize / 2, hy + handleSize / 2), col(0xff000000), 0, 1.0, 0);
+		}
+
+		// rotate handle
+		const topMidX = (corners[0].x + corners[1].x) / 2;
+		const topMidY = (corners[0].y + corners[1].y) / 2;
+		const edgeDx = corners[1].x - corners[0].x;
+		const edgeDy = corners[1].y - corners[0].y;
+		const edgeLen = Math.hypot(edgeDx, edgeDy) || 1;
+		const perpX = -edgeDy / edgeLen;
+		const perpY = edgeDx / edgeLen;
+		const rotX = topMidX + perpX * 30;
+		const rotY = topMidY + perpY * 30;
+		draw.AddLine(new ImVec2(topMidX, topMidY), new ImVec2(rotX, rotY), rgba(74, 255, 158, 150), 1.0);
+		draw.AddCircleFilled(new ImVec2(rotX, rotY), 7, rgba(74, 255, 158));
+		draw.AddCircle(new ImVec2(rotX, rotY), 7, col(0xff000000), 0, 2.0);
+	}
+}
+
+function drawSnapGuides(draw: any, vp: ViewportRect): void {
+	for (const g of state.snapGuides) {
+		const p1 = worldToScreen(g.x1, g.y1, vp.originX, vp.originY);
+		const p2 = worldToScreen(g.x2, g.y2, vp.originX, vp.originY);
+		draw.AddLine(new ImVec2(p1.x, p1.y), new ImVec2(p2.x, p2.y), rgba(0, 212, 255), 1.5);
+	}
+}
+
+function drawMarquee(draw: any, vp: ViewportRect): void {
+	if (!state.marquee) return;
+	const p1 = worldToScreen(state.marquee.x1, state.marquee.y1, vp.originX, vp.originY);
+	const p2 = worldToScreen(state.marquee.x2, state.marquee.y2, vp.originX, vp.originY);
+	const x1 = Math.min(p1.x, p2.x);
+	const y1 = Math.min(p1.y, p2.y);
+	const x2 = Math.max(p1.x, p2.x);
+	const y2 = Math.max(p1.y, p2.y);
+	draw.AddRectFilled(new ImVec2(x1, y1), new ImVec2(x2, y2), rgba(74, 168, 255, 60));
+	draw.AddRect(new ImVec2(x1, y1), new ImVec2(x2, y2), rgba(74, 168, 255, 200), 0, 1.0, 0);
+}
+
+// =============================================================
+// Hit testing & handles
+// =============================================================
+
+function hitTestObject(obj: SceneObject, worldX: number, worldY: number): boolean {
+	const t = obj.transform;
+	const dx = worldX - t.x;
+	const dy = worldY - t.y;
+	const angle = (-t.rotation * Math.PI) / 180;
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	const lx = dx * cos - dy * sin;
+	const ly = dx * sin + dy * cos;
+	return lx >= -t.width / 2 && lx <= t.width / 2 && ly >= -t.height / 2 && ly <= t.height / 2;
+}
+
+function findObjectAt(worldX: number, worldY: number): SceneObject | null {
+	if (!state.scene) return null;
+	for (let i = state.scene.objects.length - 1; i >= 0; i--) {
+		const obj = state.scene.objects[i];
+		const layer = findLayer(obj.layerId);
+		if (layer && (!layer.visible || layer.locked)) continue;
+		if (hitTestObject(obj, worldX, worldY)) return obj;
+	}
+	return null;
+}
+
+function getHandlePositions(obj: SceneObject, vp: ViewportRect): Array<{ type: HandleType; x: number; y: number }> {
+	const t = obj.transform;
+	const angle = (t.rotation * Math.PI) / 180;
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	const halfW = t.width / 2;
+	const halfH = t.height / 2;
+	const locals: Array<[HandleType, number, number]> = [
+		["nw", -halfW, -halfH],
+		["n", 0, -halfH],
+		["ne", halfW, -halfH],
+		["e", halfW, 0],
+		["se", halfW, halfH],
+		["s", 0, halfH],
+		["sw", -halfW, halfH],
+		["w", -halfW, 0],
+	];
+	return locals.map(([type, lx, ly]) => {
+		const rx = lx * cos - ly * sin;
+		const ry = lx * sin + ly * cos;
+		const sp = worldToScreen(t.x + rx, t.y + ry, vp.originX, vp.originY);
+		return { type, x: sp.x, y: sp.y };
+	});
+}
+
+function findHandleAt(mx: number, my: number, vp: ViewportRect): { obj: SceneObject; handle: HandleType } | null {
+	if (state.selectedIds.length !== 1) return null;
+	const obj = findObject(state.selectedIds[0]);
+	if (!obj) return null;
+	const positions = getHandlePositions(obj, vp);
+	for (const p of positions) {
+		if (Math.abs(mx - p.x) <= 10 && Math.abs(my - p.y) <= 10) {
+			return { obj, handle: p.type };
+		}
+	}
+	return null;
+}
+
+function findRotateHandleAt(mx: number, my: number, vp: ViewportRect): SceneObject | null {
+	if (state.selectedIds.length !== 1) return null;
+	const obj = findObject(state.selectedIds[0]);
+	if (!obj) return null;
+	const t = obj.transform;
+	const angle = (t.rotation * Math.PI) / 180;
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	const halfH = t.height / 2;
+	const lx = 0,
+		ly = -halfH;
+	const rx = lx * cos - ly * sin;
+	const ry = lx * sin + ly * cos;
+	const sp = worldToScreen(t.x + rx, t.y + ry, vp.originX, vp.originY);
+
+	const edgeDx = cos * t.width;
+	const edgeDy = sin * t.width;
+	const edgeLen = Math.hypot(edgeDx, edgeDy) || 1;
+	const perpX = -edgeDy / edgeLen;
+	const perpY = edgeDx / edgeLen;
+	const rotX = sp.x + perpX * 30;
+	const rotY = sp.y + perpY * 30;
+	if (Math.hypot(rotX - mx, rotY - my) <= 14) return obj;
+	return null;
+}
+
+// =============================================================
+// Interaction
+// =============================================================
+
+function beginDrag(worldX: number, worldY: number, primaryId: string): void {
+	const startTransforms = new Map<string, Transform>();
+	for (const id of state.selectedIds) {
+		const obj = findObject(id);
+		if (obj) startTransforms.set(id, { ...obj.transform });
+	}
+	if (startTransforms.size === 0) {
+		const obj = findObject(primaryId);
+		if (obj) startTransforms.set(primaryId, { ...obj.transform });
+	}
+	state.interaction = {
+		mode: "drag",
+		startWorldX: worldX,
+		startWorldY: worldY,
+		startScreenX: 0,
+		startScreenY: 0,
+		startTransforms,
+		primaryId,
+	};
+}
+
+function beginResize(worldX: number, worldY: number, obj: SceneObject, handle: HandleType): void {
+	const st = new Map<string, Transform>();
+	st.set(obj.id, { ...obj.transform });
+	state.interaction = {
+		mode: "resize",
+		startWorldX: worldX,
+		startWorldY: worldY,
+		startScreenX: 0,
+		startScreenY: 0,
+		startTransforms: st,
+		primaryId: obj.id,
+		handle,
+	};
+}
+
+function beginRotate(worldX: number, worldY: number, obj: SceneObject): void {
+	const startAngle = Math.atan2(worldY - obj.transform.y, worldX - obj.transform.x);
+	const st = new Map<string, Transform>();
+	st.set(obj.id, { ...obj.transform });
+	state.interaction = {
+		mode: "rotate",
+		startWorldX: worldX,
+		startWorldY: worldY,
+		startScreenX: 0,
+		startScreenY: 0,
+		startTransforms: st,
+		primaryId: obj.id,
+		rotateCenter: { x: obj.transform.x, y: obj.transform.y },
+		rotateStartAngle: startAngle,
+		rotateStartRotation: obj.transform.rotation,
+	};
+}
+
+function beginMarquee(worldX: number, worldY: number): void {
+	state.interaction = {
+		mode: "marquee",
+		startWorldX: worldX,
+		startWorldY: worldY,
+		startScreenX: 0,
+		startScreenY: 0,
+		startTransforms: new Map(),
+		primaryId: "",
+	};
+	state.marquee = { x1: worldX, y1: worldY, x2: worldX, y2: worldY };
+}
+
+function updateDrag(worldX: number, worldY: number): void {
+	if (!state.interaction || state.interaction.mode !== "drag") return;
+	const it = state.interaction;
+	const dx = worldX - it.startWorldX;
+	const dy = worldY - it.startWorldY;
+	const primaryStart = it.startTransforms.get(it.primaryId);
+	if (!primaryStart) return;
+
+	let pX = primaryStart.x + dx;
+	let pY = primaryStart.y + dy;
+
+	if (state.scene?.snapToGrid) {
+		const gs = state.scene.gridSize;
+		pX = Math.round(pX / gs) * gs;
+		pY = Math.round(pY / gs) * gs;
+	}
+
+	const exclude = new Set(it.startTransforms.keys());
+	const primary = findObject(it.primaryId);
+	if (primary && state.scene?.snapToObjects) {
+		const snap = computeSnap(pX, pY, { ...primary, transform: { ...primaryStart, x: pX, y: pY } } as SceneObject, exclude, 8 / state.camera.zoom);
+		pX = snap.x;
+		pY = snap.y;
+		state.snapGuides = snap.guides;
+	} else {
+		state.snapGuides = [];
+	}
+
+	const sdx = pX - (primaryStart.x + dx);
+	const sdy = pY - (primaryStart.y + dy);
+
+	for (const [id, start] of it.startTransforms) {
+		const obj = findObject(id);
+		if (!obj) continue;
+		obj.transform.x = round(start.x + dx + sdx);
+		obj.transform.y = round(start.y + dy + sdy);
+	}
+}
+
+function updateResize(worldX: number, worldY: number, shiftKey: boolean): void {
+	if (!state.interaction || state.interaction.mode !== "resize") return;
+	const it = state.interaction;
+	if (!it.handle) return;
+	const obj = findObject(it.primaryId);
+	const start = it.startTransforms.get(it.primaryId);
+	if (!obj || !start) return;
+
+	const dx = worldX - it.startWorldX;
+	const dy = worldY - it.startWorldY;
+	const handle = it.handle;
+	const isLeft = handle === "w" || handle === "nw" || handle === "sw";
+	const isRight = handle === "e" || handle === "ne" || handle === "se";
+	const isTop = handle === "n" || handle === "nw" || handle === "ne";
+	const isBottom = handle === "s" || handle === "sw" || handle === "se";
+
+	let nW = start.width,
+		nH = start.height,
+		nX = start.x,
+		nY = start.y;
+	if (isRight) nW = Math.max(4, start.width + dx);
+	if (isLeft) nW = Math.max(4, start.width - dx);
+	if (isBottom) nH = Math.max(4, start.height + dy);
+	if (isTop) nH = Math.max(4, start.height - dy);
+	if (isLeft) nX = start.x + (start.width - nW) / 2;
+	if (isRight) nX = start.x + (nW - start.width) / 2;
+	if (isTop) nY = start.y + (start.height - nH) / 2;
+	if (isBottom) nY = start.y + (nH - start.height) / 2;
+
+	if (shiftKey && isLeft === isRight && isTop === isBottom) {
+		const aspect = start.width / start.height;
+		if (nW / nH > aspect) nW = nH * aspect;
+		else nH = nW / aspect;
+	}
+	if (state.scene?.snapToGrid) {
+		const gs = state.scene.gridSize;
+		nW = Math.round(nW / gs) * gs;
+		nH = Math.round(nH / gs) * gs;
+		nX = Math.round(nX / gs) * gs;
+		nY = Math.round(nY / gs) * gs;
+	}
+
+	obj.transform.width = round(nW);
+	obj.transform.height = round(nH);
+	obj.transform.x = round(nX);
+	obj.transform.y = round(nY);
+}
+
+function updateRotate(worldX: number, worldY: number, shiftKey: boolean, altKey: boolean): void {
+	if (!state.interaction || state.interaction.mode !== "rotate") return;
+	const it = state.interaction;
+	if (!it.rotateCenter || it.rotateStartAngle === undefined || it.rotateStartRotation === undefined) return;
+	const obj = findObject(it.primaryId);
+	if (!obj) return;
+	const currentAngle = Math.atan2(worldY - it.rotateCenter.y, worldX - it.rotateCenter.x);
+	let dDeg = ((currentAngle - it.rotateStartAngle) * 180) / Math.PI;
+	if (dDeg > 180) dDeg -= 360;
+	if (dDeg < -180) dDeg += 360;
+	let nRot = it.rotateStartRotation + dDeg;
+	if (altKey) nRot = Math.round(nRot / 90) * 90;
+	else if (shiftKey) nRot = Math.round(nRot / 15) * 15;
+	nRot = ((nRot % 360) + 360) % 360;
+	obj.transform.rotation = round(nRot * 100) / 100;
+}
+
+function updateMarquee(worldX: number, worldY: number): void {
+	if (!state.interaction || state.interaction.mode !== "marquee") return;
+	if (!state.marquee) return;
+	state.marquee.x2 = worldX;
+	state.marquee.y2 = worldY;
+
+	// Live preview selection
+	const x1 = Math.min(state.marquee.x1, state.marquee.x2);
+	const y1 = Math.min(state.marquee.y1, state.marquee.y2);
+	const x2 = Math.max(state.marquee.x1, state.marquee.x2);
+	const y2 = Math.max(state.marquee.y1, state.marquee.y2);
+	const hits: string[] = [];
+	if (state.scene) {
+		for (const obj of state.scene.objects) {
+			const layer = findLayer(obj.layerId);
+			if (layer && (!layer.visible || layer.locked)) continue;
+			const b = getObjectBounds(obj);
+			const overlaps = !(b.x2 < x1 || b.x1 > x2 || b.y2 < y1 || b.y1 > y2);
+			if (overlaps) hits.push(obj.id);
+		}
+	}
+	state.selectedIds = hits;
+	state.primaryId = hits[hits.length - 1] ?? null;
+}
+
+function endInteraction(): void {
+	if (!state.interaction) return;
+	if (state.interaction.mode !== "idle" && state.interaction.mode !== "pan" && state.interaction.mode !== "marquee") {
+		snapshot();
+	}
+	if (state.interaction.mode === "marquee") {
+		state.marquee = null;
+	}
+	state.interaction = null;
+	state.snapGuides = [];
+}
+
+// =============================================================
+// Scene rendering
+// =============================================================
+
+function renderViewport(vp: ViewportRect): void {
+	const draw = ImGui.GetWindowDrawList();
+
+	draw.AddRectFilled(new ImVec2(vp.x, vp.y), new ImVec2(vp.x + vp.w, vp.y + vp.h), col(0xff1a1a1a));
+	draw.PushClipRect(new ImVec2(vp.x, vp.y), new ImVec2(vp.x + vp.w, vp.y + vp.h), true);
+
+	drawGrid(draw, vp);
+	drawWorldBorder(draw, vp);
+
+	if (state.scene) {
+		// sort by layer visibility + zIndex
+		const visibleObjects = state.scene.objects
+			.filter((o) => {
+				const layer = findLayer(o.layerId);
+				return !layer || layer.visible;
+			})
+			.sort((a, b) => a.zIndex - b.zIndex);
+
+		for (const obj of visibleObjects) {
+			drawObject(draw, obj, vp);
+		}
+		for (const id of state.selectedIds) {
+			const obj = findObject(id);
+			if (obj) drawSelection(draw, obj, vp, id === state.primaryId);
+		}
+	}
+
+	drawSnapGuides(draw, vp);
+	drawMarquee(draw, vp);
+
+	draw.PopClipRect();
+	drawRulers(draw, vp);
+}
+
+// =============================================================
+// UI: Menu Bar
+// =============================================================
+
+function renderMenuBar(): void {
+	if (!ImGui.BeginMenuBar()) return;
+
+	if (ImGui.BeginMenu("File")) {
+		if (ImGui.MenuItem("New Scene", "Ctrl+N")) newScene();
+		if (ImGui.MenuItem("Open JSON...", "Ctrl+O")) loadJSON();
+		if (ImGui.MenuItem("Save JSON", "Ctrl+S")) saveJSON();
+		ImGui.Separator();
+		if (ImGui.MenuItem("Load Texture...")) pickTexture();
+		ImGui.Separator();
+		if (ImGui.MenuItem("Export PNG")) exportPNG();
+		ImGui.EndMenu();
+	}
+
+	if (ImGui.BeginMenu("Edit")) {
+		if (ImGui.MenuItem("Undo", "Ctrl+Z", false, state.historyIndex > 0)) undo();
+		if (ImGui.MenuItem("Redo", "Ctrl+Y", false, state.historyIndex < state.history.length - 1)) redo();
+		ImGui.Separator();
+		if (ImGui.MenuItem("Duplicate", "Ctrl+D", false, state.selectedIds.length > 0)) duplicateSelected();
+		if (ImGui.MenuItem("Delete", "Del", false, state.selectedIds.length > 0)) deleteSelected();
+		if (ImGui.MenuItem("Select All", "Ctrl+A")) selectAll();
+		ImGui.EndMenu();
+	}
+
+	if (ImGui.BeginMenu("View")) {
+		if (state.scene) {
+			ImGui.MenuItem("Show Grid", null, state.scene.showGrid, true);
+			if (ImGui.IsItemClicked()) state.scene.showGrid = !state.scene.showGrid;
+			ImGui.MenuItem("Show Rulers", null, state.scene.showRulers, true);
+			if (ImGui.IsItemClicked()) state.scene.showRulers = !state.scene.showRulers;
+			ImGui.MenuItem("Show World Border", null, state.scene.showWorldBorder, true);
+			if (ImGui.IsItemClicked()) state.scene.showWorldBorder = !state.scene.showWorldBorder;
+		}
+		ImGui.Separator();
+		if (ImGui.MenuItem("Reset View")) resetView();
+		ImGui.Separator();
+		if (ImGui.MenuItem("Dear ImGui Demo", null, state.showDemo)) state.showDemo = !state.showDemo;
+		if (ImGui.MenuItem("Console", null, state.showConsole)) state.showConsole = !state.showConsole;
+		ImGui.EndMenu();
+	}
+
+	if (ImGui.BeginMenu("Help")) {
+		ImGui.MenuItem("Pan: Middle mouse or Space+drag");
+		ImGui.MenuItem("Zoom: Wheel");
+		ImGui.MenuItem("Select: Left click / Marquee");
+		ImGui.MenuItem("Move/Resize/Rotate: Left drag");
+		ImGui.EndMenu();
+	}
+
+	ImGui.EndMenuBar();
+}
+
+// =============================================================
+// UI: Toolbar
+// =============================================================
+
+function renderToolbar(): void {
+	if (!state.scene) return;
+
+	if (ImGui.Button("+ Rect")) addShapeObject("rectangle");
+	ImGui.SameLine();
+	if (ImGui.Button("+ Circle")) addShapeObject("circle");
+	ImGui.SameLine();
+	if (ImGui.Button("+ Star")) addShapeObject("star");
+	ImGui.SameLine();
+	if (ImGui.Button("+ Text")) addTextObject();
+
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	if (ImGui.Button("Undo")) undo();
+	ImGui.SameLine();
+	if (ImGui.Button("Redo")) redo();
+	ImGui.SameLine();
+	if (ImGui.Button("Dup")) duplicateSelected();
+	ImGui.SameLine();
+	if (ImGui.Button("Del")) deleteSelected();
+
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+
+	// Snap toggles
+	const snapGrid = state.scene.snapToGrid;
+	ImGui.PushStyleColorImVec4(ImGuiCol.Button, snapGrid ? new ImVec4(0.2, 0.5, 0.8, 1) : new ImVec4(0.2, 0.2, 0.23, 1));
+	if (ImGui.Button(snapGrid ? "Grid ON" : "Grid OFF")) state.scene.snapToGrid = !snapGrid;
+	ImGui.PopStyleColor();
+
+	ImGui.SameLine();
+	const snapObj = state.scene.snapToObjects;
+	ImGui.PushStyleColorImVec4(ImGuiCol.Button, snapObj ? new ImVec4(0.2, 0.5, 0.8, 1) : new ImVec4(0.2, 0.2, 0.23, 1));
+	if (ImGui.Button(snapObj ? "ObjSnap ON" : "ObjSnap OFF")) state.scene.snapToObjects = !snapObj;
+	ImGui.PopStyleColor();
+
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	ImGui.SetNextItemWidth(120);
+	let zoom = [state.camera.zoom];
+	if (ImGui.SliderFloat("##zoom", zoom, 0.1, 8, "%.2fx")) {
+		state.camera.zoom = zoom[0];
+	}
+}
+
+function addShapeObject(shape: VisualShape): void {
+	if (!state.scene) return;
+	const obj = createShapeObject(shape, state.camera.x, state.camera.y);
+	state.scene.objects.push(obj);
+	state.selectedIds = [obj.id];
+	state.primaryId = obj.id;
+	snapshot();
+	log(`Added ${shape}`);
+}
+
+function addTextObject(): void {
+	if (!state.scene) return;
+	const obj = createTextObject(state.camera.x, state.camera.y);
+	state.scene.objects.push(obj);
+	state.selectedIds = [obj.id];
+	state.primaryId = obj.id;
+	snapshot();
+	log("Added text");
+}
+
+function pickTexture(): void {
+	const input = document.createElement("input");
+	input.type = "file";
+	input.accept = "image/*";
+	input.onchange = async () => {
+		const file = input.files?.[0];
+		if (!file) return;
+		await loadTextureFromFile(file);
+		// Create sprite at camera
+		if (state.scene) {
+			const obj = createSpriteObject(file.name, state.camera.x, state.camera.y);
+			state.scene.objects.push(obj);
+			state.selectedIds = [obj.id];
+			state.primaryId = obj.id;
+			snapshot();
+		}
+	};
+	input.click();
+}
+
+// =============================================================
+// UI: Scene Tree (left)
+// =============================================================
+
+function renderSceneTree(): void {
+	if (!state.scene) return;
+
+	if (ImGui.Button("+ Add##tree")) {
+		addShapeObject("rectangle");
+	}
+	ImGui.SameLine();
+	if (ImGui.Button("Clear Sel")) {
+		state.selectedIds = [];
+		state.primaryId = null;
+	}
+	ImGui.SameLine();
+	ImGui.TextDisabled(`${state.scene.objects.length} obj`);
+
+	ImGui.Separator();
+
+	ImGui.BeginChild("##tree_scroll", new ImVec2(0, 0), ImGuiChildFlags.None);
+
+	// group by layer
+	for (const layer of state.scene.layers) {
+		const layerObjs = state.scene.objects.filter((o) => o.layerId === layer.id).sort((a, b) => b.zIndex - a.zIndex);
+
+		const flags = ImGuiTreeNodeFlags.SpanAvailWidth | ImGuiTreeNodeFlags.DefaultOpen;
+		const label = `${layer.visible ? "[V]" : "[ ]"} ${layer.name} (${layerObjs.length})`;
+		if (ImGui.TreeNodeEx(`${label}##${layer.id}`, flags)) {
+			for (const obj of layerObjs) {
+				const sel = state.selectedIds.includes(obj.id);
+				const objFlags = ImGuiSelectableFlags.AllowDoubleClick | ImGuiSelectableFlags.SpanAllColumns;
+				const label2 = `${obj.name}  #${obj.zIndex}`;
+
+				if (ImGui.Selectable(`${label2}##${obj.id}`, sel, objFlags)) {
+					state.selectedIds = [obj.id];
+					state.primaryId = obj.id;
+				}
+
+				// drag & drop for reparenting within tree
+				if (ImGui.BeginDragDropSource()) {
+					ImGui.SetDragDropPayload("TREE_OBJ", obj.id, obj.id.length, 0);
+					ImGui.Text(obj.name);
+					ImGui.EndDragDropSource();
+				}
+				if (ImGui.BeginDragDropTarget()) {
+					const payload = ImGui.AcceptDragDropPayload("TREE_OBJ");
+					if (payload && payload.IsDelivery()) {
+						// reorder z or move layer — for simplicity swap zIndex
+						const srcId = payload.Data;
+						const src = findObject(srcId);
+						if (src && src.id !== obj.id) {
+							src.layerId = obj.layerId;
+							src.zIndex = obj.zIndex + 1;
+							log(`Moved ${src.name} to layer ${obj.layerId}`);
+							snapshot();
+						}
+					}
+					ImGui.EndDragDropTarget();
+				}
+
+				// context menu
+				if (ImGui.BeginPopupContextItem(`ctx_obj_${obj.id}`)) {
+					if (ImGui.MenuItem("Rename")) {
+						// handled via inspector
+					}
+					if (ImGui.MenuItem("Duplicate")) {
+						state.selectedIds = [obj.id];
+						duplicateSelected();
+					}
+					if (ImGui.MenuItem("Delete")) {
+						state.selectedIds = [obj.id];
+						deleteSelected();
+					}
+					if (ImGui.MenuItem("Focus")) {
+						state.camera.x = obj.transform.x;
+						state.camera.y = obj.transform.y;
+					}
+					ImGui.EndPopup();
+				}
+			}
+			ImGui.TreePop();
+		}
+	}
+
+	ImGui.EndChild();
+}
+
+// =============================================================
+// UI: Inspector (right top)
+// =============================================================
+
+function renderInspector(): void {
+	if (!state.scene) return;
+
+	if (state.selectedIds.length === 0) {
+		ImGui.TextDisabled("No selection");
+		ImGui.Spacing();
+		ImGui.TextDisabled("Scene:");
+		ImGui.Separator();
+
+		ImGui.SetNextItemWidth(-1);
+		let name = [state.scene.name];
+		if (ImGui.InputText("##scene_name", name, 128)) {
+			state.scene.name = name[0];
+		}
+
+		ImGui.SetNextItemWidth(-1);
+		let w = [state.scene.worldSize.width];
+		if (ImGui.InputFloat("Width", w, 0, 0, "%.0f")) {
+			state.scene.worldSize.width = Math.max(16, w[0]);
+		}
+
+		ImGui.SetNextItemWidth(-1);
+		let h = [state.scene.worldSize.height];
+		if (ImGui.InputFloat("Height", h, 0, 0, "%.0f")) {
+			state.scene.worldSize.height = Math.max(16, h[0]);
+		}
+
+		ImGui.SetNextItemWidth(-1);
+		let gs = [state.scene.gridSize];
+		if (ImGui.InputFloat("Grid Size", gs, 1, 10, "%.0f")) {
+			state.scene.gridSize = Math.max(1, gs[0]);
+		}
+
+		return;
+	}
+
+	if (state.selectedIds.length > 1) {
+		ImGui.Text(`${state.selectedIds.length} objects selected`);
+		ImGui.Spacing();
+		if (ImGui.Button("Delete All")) deleteSelected();
+		return;
+	}
+
+	const obj = findObject(state.selectedIds[0]);
+	if (!obj) return;
+
+	const t = obj.transform;
+
+	// Name
+	ImGui.SetNextItemWidth(-1);
+	let name = [obj.name];
+	if (ImGui.InputText("##name", name, 128)) obj.name = name[0];
+
+	ImGui.TextDisabled(obj.id);
+	ImGui.Separator();
+
+	// Transform
+	if (ImGui.CollapsingHeader("Transform", ImGuiTreeNodeFlags.DefaultOpen)) {
+		ImGui.SetNextItemWidth(80);
+		let x = [t.x];
+		if (ImGui.InputFloat("X", x, 1, 10, "%.1f")) t.x = x[0];
+		ImGui.SameLine();
+		ImGui.SetNextItemWidth(80);
+		let y = [t.y];
+		if (ImGui.InputFloat("Y", y, 1, 10, "%.1f")) t.y = y[0];
+
+		ImGui.SetNextItemWidth(80);
+		let w = [t.width];
+		if (ImGui.InputFloat("W", w, 1, 10, "%.1f")) t.width = Math.max(1, w[0]);
+		ImGui.SameLine();
+		ImGui.SetNextItemWidth(80);
+		let h = [t.height];
+		if (ImGui.InputFloat("H", h, 1, 10, "%.1f")) t.height = Math.max(1, h[0]);
+
+		ImGui.SetNextItemWidth(-1);
+		let rot = [t.rotation];
+		if (ImGui.SliderFloat("Rotation", rot, -180, 180, "%.1f deg")) t.rotation = rot[0];
+
+		ImGui.SetNextItemWidth(80);
+		let ox = [t.originX];
+		if (ImGui.InputFloat("OriginX", ox, 0.05, 0.1, "%.2f")) t.originX = clamp(ox[0], 0, 1);
+		ImGui.SameLine();
+		ImGui.SetNextItemWidth(80);
+		let oy = [t.originY];
+		if (ImGui.InputFloat("OriginY", oy, 0.05, 0.1, "%.2f")) t.originY = clamp(oy[0], 0, 1);
+	}
+
+	// Layer & Z
+	if (ImGui.CollapsingHeader("Layer", ImGuiTreeNodeFlags.DefaultOpen)) {
+		ImGui.SetNextItemWidth(-1);
+		const currentLayer = findLayer(obj.layerId);
+		if (ImGui.BeginCombo("##layer_combo", currentLayer?.name ?? "(none)")) {
+			for (const layer of state.scene.layers) {
+				if (ImGui.Selectable(layer.name, layer.id === obj.layerId)) {
+					obj.layerId = layer.id;
+					snapshot();
+				}
+			}
+			ImGui.EndCombo();
+		}
+
+		ImGui.SetNextItemWidth(80);
+		let z = [obj.zIndex];
+		if (ImGui.InputInt("Z-Index", z, 1, 1)) obj.zIndex = z[0];
+
+		if (ImGui.Button("Front")) {
+			obj.zIndex = Math.max(...state.scene.objects.map((o) => o.zIndex)) + 1;
+			snapshot();
+		}
+		ImGui.SameLine();
+		if (ImGui.Button("Back")) {
+			obj.zIndex = Math.min(...state.scene.objects.map((o) => o.zIndex)) - 1;
+			snapshot();
+		}
+	}
+
+	// Components
+	if (ImGui.CollapsingHeader("Components", ImGuiTreeNodeFlags.DefaultOpen)) {
+		for (let i = 0; i < obj.components.length; i++) {
+			const comp = obj.components[i];
+			ImGui.PushID(`${comp.id}_${i}`);
+			renderComponentInspector(obj, comp);
+			ImGui.PopID();
+		}
+
+		ImGui.Spacing();
+		if (ImGui.Button("+ Add Component", new ImVec2(-1, 0))) {
+			ImGui.OpenPopup("add_comp");
+		}
+		if (ImGui.BeginPopup("add_comp")) {
+			if (ImGui.MenuItem("Sprite")) addComponent(obj, { id: makeId("comp"), type: "sprite", texturePath: "", tint: rgba(255, 255, 255), flipX: false, flipY: false });
+			if (ImGui.MenuItem("Shape")) addComponent(obj, { id: makeId("comp"), type: "shape", shape: "rectangle", color: rgba(74, 158, 255), filled: true, strokeWidth: 2 });
+			if (ImGui.MenuItem("Text")) addComponent(obj, { id: makeId("comp"), type: "text", text: "Label", color: rgba(255, 255, 255), fontSize: 18 });
+			if (ImGui.MenuItem("Physics")) addComponent(obj, { id: makeId("comp"), type: "physics", bodyType: "dynamic", mass: 1, gravityScale: 1, velocityX: 0, velocityY: 0, fixedRotation: false });
+			if (ImGui.MenuItem("Collider")) addComponent(obj, { id: makeId("comp"), type: "collider", shape: "box", isTrigger: false, friction: 0.2, restitution: 0 });
+			if (ImGui.MenuItem("Tag")) addComponent(obj, { id: makeId("comp"), type: "tag", tags: [] });
+			ImGui.EndPopup();
+		}
+	}
+}
+
+function renderComponentInspector(obj: SceneObject, comp: Component): void {
+	const header = `${comp.type.toUpperCase()}`;
+	if (!ImGui.CollapsingHeader(header, ImGuiTreeNodeFlags.DefaultOpen)) return;
+
+	// remove button on the right
+	const avail = ImGui.GetContentRegionAvail();
+	if (comp.type === "sprite") {
+		const c = comp as SpriteComponent;
+		ImGui.Text(`Texture: ${c.texturePath || "(none)"}`);
+		if (ImGui.Button("Choose Texture")) {
+			ImGui.OpenPopup("choose_tex");
+		}
+		if (ImGui.BeginPopup("choose_tex")) {
+			for (const [path] of state.textures) {
+				if (ImGui.MenuItem(path)) {
+					c.texturePath = path;
+					const tex = state.textures.get(path);
+					if (tex) {
+						obj.transform.width = tex.width;
+						obj.transform.height = tex.height;
+					}
+					snapshot();
+				}
+			}
+			if (state.textures.size === 0) ImGui.TextDisabled("No textures loaded");
+			ImGui.EndPopup();
+		}
+		ImGui.Checkbox("Flip X", [c.flipX]);
+		// NOTE: Checkbox takes pointer; jsimgui binding should accept [bool]
+	} else if (comp.type === "shape") {
+		const c = comp as ShapeComponent;
+		const shapes: VisualShape[] = ["rectangle", "circle", "triangle", "diamond", "pentagon", "hexagon", "star"];
+		if (ImGui.BeginCombo("Shape", c.shape)) {
+			for (const s of shapes) {
+				if (ImGui.Selectable(s, s === c.shape)) {
+					c.shape = s;
+					snapshot();
+				}
+			}
+			ImGui.EndCombo();
+		}
+		// Color edit — ImGui wants array of 4 floats; convert
+		const r = (c.color & 0xff) / 255;
+		const g = ((c.color >>> 8) & 0xff) / 255;
+		const b = ((c.color >>> 16) & 0xff) / 255;
+		const a = ((c.color >>> 24) & 0xff) / 255;
+		const rgbaArr: [number, number, number, number] = [r, g, b, a];
+		if (ImGui.ColorEdit4("Color", rgbaArr)) {
+			c.color = rgba(rgbaArr[0] * 255, rgbaArr[1] * 255, rgbaArr[2] * 255, rgbaArr[3] * 255);
+		}
+		const fillArr: [boolean] = [c.filled];
+		if (ImGui.Checkbox("Filled", fillArr)) c.filled = fillArr[0];
+		const swArr: [number] = [c.strokeWidth];
+		if (ImGui.SliderFloat("Stroke Width", swArr, 0.5, 10)) c.strokeWidth = swArr[0];
+	} else if (comp.type === "text") {
+		const c = comp as TextComponent;
+		ImGui.SetNextItemWidth(-1);
+		let txt = [c.text];
+		if (ImGui.InputText("##text", txt, 512)) c.text = txt[0];
+		const fsArr: [number] = [c.fontSize];
+		ImGui.SetNextItemWidth(-1);
+		if (ImGui.SliderFloat("Font Size", fsArr, 6, 72)) c.fontSize = fsArr[0];
+		const r = (c.color & 0xff) / 255;
+		const g = ((c.color >>> 8) & 0xff) / 255;
+		const b = ((c.color >>> 16) & 0xff) / 255;
+		const a = ((c.color >>> 24) & 0xff) / 255;
+		const rgbaArr: [number, number, number, number] = [r, g, b, a];
+		if (ImGui.ColorEdit4("Color", rgbaArr)) {
+			c.color = rgba(rgbaArr[0] * 255, rgbaArr[1] * 255, rgbaArr[2] * 255, rgbaArr[3] * 255);
+		}
+	} else if (comp.type === "physics") {
+		const c = comp as PhysicsComponent;
+		const types = ["dynamic", "static", "kinematic"];
+		if (ImGui.BeginCombo("Body Type", c.bodyType)) {
+			for (const t of types) {
+				if (ImGui.Selectable(t, t === c.bodyType)) {
+					c.bodyType = t as any;
+					snapshot();
+				}
+			}
+			ImGui.EndCombo();
+		}
+		let massArr: [number] = [c.mass];
+		if (ImGui.InputFloat("Mass", massArr)) c.mass = massArr[0];
+		let gsArr: [number] = [c.gravityScale];
+		if (ImGui.InputFloat("Gravity Scale", gsArr)) c.gravityScale = gsArr[0];
+		let vxArr: [number] = [c.velocityX];
+		if (ImGui.InputFloat("Vel X", vxArr)) c.velocityX = vxArr[0];
+		let vyArr: [number] = [c.velocityY];
+		if (ImGui.InputFloat("Vel Y", vyArr)) c.velocityY = vyArr[0];
+	} else if (comp.type === "collider") {
+		const c = comp as ColliderComponent;
+		const shapes = ["box", "circle"];
+		if (ImGui.BeginCombo("Shape", c.shape)) {
+			for (const s of shapes) {
+				if (ImGui.Selectable(s, s === c.shape)) {
+					c.shape = s as any;
+					snapshot();
+				}
+			}
+			ImGui.EndCombo();
+		}
+		let fArr: [number] = [c.friction];
+		if (ImGui.InputFloat("Friction", fArr)) c.friction = fArr[0];
+		let rArr: [number] = [c.restitution];
+		if (ImGui.InputFloat("Restitution", rArr)) c.restitution = rArr[0];
+	} else if (comp.type === "tag") {
+		const c = comp as TagComponent;
+		const tagsStr = c.tags.join(", ");
+		let tags = [tagsStr];
+		if (ImGui.InputText("Tags", tags, 256)) {
+			c.tags = tags[0]
+				.split(",")
+				.map((s) => s.trim())
+				.filter(Boolean);
+		}
+	}
+
+	// remove button
+	if (ImGui.Button("Remove Component")) {
+		removeComponent(obj, comp.id);
+		snapshot();
+	}
+}
+
+// =============================================================
+// UI: Layers panel
+// =============================================================
+
+function renderLayersPanel(): void {
+	if (!state.scene) return;
+
+	if (ImGui.Button("+ Layer", new ImVec2(-1, 0))) {
+		const id = makeId("layer");
+		state.scene.layers.push({
+			id,
+			name: `Layer ${state.scene.layers.length + 1}`,
+			visible: true,
+			locked: false,
+		});
+		state.activeLayerId = id;
+		snapshot();
+	}
+
+	ImGui.Separator();
+
+	for (let i = 0; i < state.scene.layers.length; i++) {
+		const layer = state.scene.layers[i];
+		const isActive = state.activeLayerId === layer.id;
+
+		ImGui.PushID(layer.id);
+
+		// visibility toggle
+		if (ImGui.SmallButton(layer.visible ? "V" : "-")) {
+			layer.visible = !layer.visible;
+		}
+		ImGui.SameLine();
+		// lock toggle
+		if (ImGui.SmallButton(layer.locked ? "L" : " ")) {
+			layer.locked = !layer.locked;
+		}
+		ImGui.SameLine();
+
+		// name (selectable)
+		if (ImGui.Selectable(`${layer.name}##${layer.id}`, isActive, ImGuiSelectableFlags.SpanAllColumns)) {
+			state.activeLayerId = layer.id;
+		}
+
+		// context menu
+		if (ImGui.BeginPopupContextItem(`layer_ctx_${layer.id}`)) {
+			let nameArr = [layer.name];
+			if (ImGui.InputText("Name", nameArr, 128)) layer.name = nameArr[0];
+			if (ImGui.MenuItem("Delete")) {
+				if (state.scene.layers.length > 1) {
+					state.scene.layers.splice(i, 1);
+					// reassign objects
+					for (const o of state.scene.objects) {
+						if (o.layerId === layer.id) o.layerId = state.scene.layers[0].id;
+					}
+					snapshot();
+				}
+			}
+			if (ImGui.MenuItem("Move Up") && i > 0) {
+				[state.scene.layers[i - 1], state.scene.layers[i]] = [state.scene.layers[i], state.scene.layers[i - 1]];
+				snapshot();
+			}
+			if (ImGui.MenuItem("Move Down") && i < state.scene.layers.length - 1) {
+				[state.scene.layers[i + 1], state.scene.layers[i]] = [state.scene.layers[i], state.scene.layers[i + 1]];
+				snapshot();
+			}
+			ImGui.EndPopup();
+		}
+
+		ImGui.PopID();
+	}
+}
+
+// =============================================================
+// UI: Assets panel
+// =============================================================
+
+function renderAssetsPanel(): void {
+	if (ImGui.Button("+ Load Texture", new ImVec2(-1, 0))) pickTexture();
+
+	ImGui.Separator();
+	if (state.textures.size === 0) {
+		ImGui.TextDisabled("No textures loaded");
+		return;
+	}
+
+	for (const [path, tex] of state.textures) {
+		ImGui.PushID(path);
+		if (ImGui.Selectable(`${path}  (${tex.width}x${tex.height})`)) {
+			// add to scene at camera
+			if (state.scene) {
+				const obj = createSpriteObject(path, state.camera.x, state.camera.y);
+				state.scene.objects.push(obj);
+				state.selectedIds = [obj.id];
+				state.primaryId = obj.id;
+				snapshot();
+			}
+		}
+		ImGui.PopID();
+	}
+}
+
+// =============================================================
+// UI: Console panel
+// =============================================================
+
+function renderConsolePanel(): void {
+	ImGui.TextDisabled(`${state.consoleLines.length} messages`);
+	ImGui.SameLine();
+	if (ImGui.SmallButton("Clear")) state.consoleLines.length = 0;
+
+	ImGui.Separator();
+	ImGui.BeginChild("##console_scroll", new ImVec2(0, 0), ImGuiChildFlags.None);
+	for (const line of state.consoleLines) {
+		ImGui.TextUnformatted?.(line) ?? ImGui.Text(line);
+	}
+	ImGui.EndChild();
+}
+
+// =============================================================
+// Actions
+// =============================================================
+
+function newScene(): void {
+	state.scene = {
+		name: "Untitled",
+		worldSize: { width: 1920, height: 1080 },
+		backgroundColor: col(0xff1a1a1a),
+		gridSize: 32,
+		snapToGrid: false,
+		snapToObjects: true,
+		showGrid: true,
+		showWorldBorder: true,
+		showRulers: true,
+		layers: [{ id: "layer_default", name: "Default", visible: true, locked: false }],
+		objects: [],
+	};
+	state.camera = { x: 960, y: 540, zoom: 0.6 };
+	state.selectedIds = [];
+	state.primaryId = null;
+	state.activeLayerId = "layer_default";
+	state.history = [];
+	state.historyIndex = -1;
+	snapshot();
+	log("New scene");
+}
+
+function resetView(): void {
+	if (!state.scene) return;
+	state.camera = {
+		x: state.scene.worldSize.width / 2,
+		y: state.scene.worldSize.height / 2,
+		zoom: 0.6,
+	};
+}
+
+function duplicateSelected(): void {
+	if (!state.scene || state.selectedIds.length === 0) return;
+	const newIds: string[] = [];
+	for (const id of state.selectedIds) {
+		const obj = findObject(id);
+		if (!obj) continue;
+		const copy: SceneObject = JSON.parse(JSON.stringify(obj));
+		copy.id = makeId();
+		copy.name = obj.name + "_copy";
+		copy.transform.x += 20;
+		copy.transform.y += 20;
+		copy.zIndex = state.scene.objects.length;
+		state.scene.objects.push(copy);
+		newIds.push(copy.id);
+	}
+	state.selectedIds = newIds;
+	state.primaryId = newIds[newIds.length - 1] ?? null;
+	snapshot();
+	log(`Duplicated ${newIds.length} object(s)`);
+}
+
+function deleteSelected(): void {
+	if (!state.scene || state.selectedIds.length === 0) return;
+	state.scene.objects = state.scene.objects.filter((o) => !state.selectedIds.includes(o.id));
+	const n = state.selectedIds.length;
+	state.selectedIds = [];
+	state.primaryId = null;
+	snapshot();
+	log(`Deleted ${n} object(s)`);
+}
+
+function selectAll(): void {
+	if (!state.scene) return;
+	state.selectedIds = state.scene.objects.map((o) => o.id);
+	state.primaryId = state.selectedIds[state.selectedIds.length - 1] ?? null;
+}
+
+function saveJSON(): void {
+	if (!state.scene) return;
+	const json = JSON.stringify(state.scene, null, 2);
+	const blob = new Blob([json], { type: "application/json" });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement("a");
+	a.href = url;
+	a.download = `${state.scene.name || "scene"}.json`;
+	a.click();
+	URL.revokeObjectURL(url);
+	log("Saved JSON");
+}
+
+function loadJSON(): void {
+	const input = document.createElement("input");
+	input.type = "file";
+	input.accept = "application/json";
+	input.onchange = async () => {
+		const file = input.files?.[0];
+		if (!file) return;
+		try {
+			state.scene = JSON.parse(await file.text());
+			state.selectedIds = [];
+			state.primaryId = null;
+			state.history = [];
+			state.historyIndex = -1;
+			snapshot();
+			log(`Loaded ${file.name}`);
+		} catch (e) {
+			log(`Load failed: ${e}`);
+		}
+	};
+	input.click();
+}
+
+function exportPNG(): void {
+	const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+	canvas.toBlob((blob) => {
+		if (!blob) return;
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement("a");
+		a.href = url;
+		a.download = `${state.scene?.name ?? "scene"}.png`;
+		a.click();
+		URL.revokeObjectURL(url);
+		log("Exported PNG");
+	});
+}
+
+// =============================================================
+// UI: Context menu (right-click)
+// =============================================================
+
+function renderContextMenu(): void {
+	if (!state.contextMenu.open) return;
+
+	ImGui.SetNextWindowPos(new ImVec2(state.contextMenu.x, state.contextMenu.y), ImGuiCond.Always);
+	ImGui.SetNextWindowSize(new ImVec2(220, 0), ImGuiCond.Always);
+
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 4);
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 1);
+	ImGui.PushStyleVarImVec2(ImGuiStyleVar.WindowPadding, new ImVec2(4, 4));
+	ImGui.PushStyleColorImVec4(ImGuiCol.WindowBg, new ImVec4(0.15, 0.15, 0.18, 1));
+	ImGui.PushStyleColorImVec4(ImGuiCol.Border, new ImVec4(0.3, 0.3, 0.35, 1));
+
+	const flags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoSavedSettings | ImGuiWindowFlags.AlwaysAutoResize | ImGuiWindowFlags.NoScrollbar;
+
+	let closed = false;
+	const wX = state.contextMenu.worldX;
+	const wY = state.contextMenu.worldY;
+
+	if (ImGui.Begin("##ctx", null, flags)) {
+		if (ImGui.MenuItem("Add Rectangle Here")) {
+			const obj = createShapeObject("rectangle", wX, wY);
+			state.scene!.objects.push(obj);
+			state.selectedIds = [obj.id];
+			state.primaryId = obj.id;
+			snapshot();
+			closed = true;
+		}
+		if (ImGui.MenuItem("Add Circle Here")) {
+			const obj = createShapeObject("circle", wX, wY);
+			state.scene!.objects.push(obj);
+			state.selectedIds = [obj.id];
+			state.primaryId = obj.id;
+			snapshot();
+			closed = true;
+		}
+		if (ImGui.MenuItem("Add Text Here")) {
+			const obj = createTextObject(wX, wY);
+			state.scene!.objects.push(obj);
+			state.selectedIds = [obj.id];
+			state.primaryId = obj.id;
+			snapshot();
+			closed = true;
+		}
+		ImGui.Separator();
+		if (ImGui.MenuItem("Duplicate", "Ctrl+D", false, state.selectedIds.length > 0)) {
+			duplicateSelected();
+			closed = true;
+		}
+		if (ImGui.MenuItem("Delete", "Del", false, state.selectedIds.length > 0)) {
+			deleteSelected();
+			closed = true;
+		}
+		ImGui.Separator();
+		if (ImGui.MenuItem("Select All", "Ctrl+A")) {
+			selectAll();
+			closed = true;
+		}
+		ImGui.Separator();
+		if (ImGui.MenuItem("Undo", "Ctrl+Z")) {
+			undo();
+			closed = true;
+		}
+		if (ImGui.MenuItem("Redo", "Ctrl+Y")) {
+			redo();
+			closed = true;
+		}
+		ImGui.Separator();
+		if (ImGui.MenuItem("Reset View")) {
+			resetView();
+			closed = true;
+		}
+	}
+	ImGui.End();
+	ImGui.PopStyleColor(2);
+	ImGui.PopStyleVar(3);
+
+	if (closed) {
+		state.contextMenu.open = false;
+		return;
+	}
+
+	// close on click outside
+	if (ImGui.IsMouseClicked(ImGuiMouseButton.Left) || ImGui.IsMouseClicked(ImGuiMouseButton.Right)) {
+		const m = ImGui.GetMousePos();
+		if (m.x < state.contextMenu.x || m.x > state.contextMenu.x + 240 || m.y < state.contextMenu.y || m.y > state.contextMenu.y + 300) {
+			state.contextMenu.open = false;
+		}
+	}
+}
+
+// =============================================================
+// Main render loop
+// =============================================================
+
+function renderLoop(): void {
+	ImGuiImplWeb.BeginRender();
+
+	const vp = ImGui.GetMainViewport();
+	ImGui.SetNextWindowPos(vp.WorkPos);
+	ImGui.SetNextWindowSize(vp.WorkSize);
+
+	const rootFlags = ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize | ImGuiWindowFlags.NoMove | ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoBringToFrontOnFocus | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.MenuBar;
+
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowRounding, 0);
+	ImGui.PushStyleVar(ImGuiStyleVar.WindowBorderSize, 0);
+	ImGui.PushStyleVarImVec2(ImGuiStyleVar.WindowPadding, new ImVec2(0, 0));
+
+	ImGui.Begin("##Root", null, rootFlags);
+	ImGui.PopStyleVar(3);
+
+	renderMenuBar();
+
+	// --- Toolbar ---
+	ImGui.BeginChild("##toolbar", new ImVec2(0, 36), ImGuiChildFlags.None);
+	renderToolbar();
+	ImGui.EndChild();
+
+	// --- Main area: left panel | viewport | right panel ---
+	const statusH = 26;
+	const avail = ImGui.GetContentRegionAvail();
+	const mainH = avail.y - statusH;
+
+	const leftW = 260;
+	const rightW = 300;
+
+	// LEFT PANEL
+	ImGui.BeginChild("##left", new ImVec2(leftW, mainH), ImGuiChildFlags.Borders);
+	if (ImGui.BeginTabBar("##left_tabs")) {
+		if (ImGui.BeginTabItem("Scene")) {
+			renderSceneTree();
+			ImGui.EndTabItem();
+		}
+		if (ImGui.BeginTabItem("Layers")) {
+			renderLayersPanel();
+			ImGui.EndTabItem();
+		}
+		if (ImGui.BeginTabItem("Assets")) {
+			renderAssetsPanel();
+			ImGui.EndTabItem();
+		}
+		ImGui.EndTabBar();
+	}
+	ImGui.EndChild();
+
+	ImGui.SameLine();
+
+	// CENTER: viewport
+	const centerW = avail.x - leftW - rightW - 16;
+	ImGui.BeginChild("##viewportArea", new ImVec2(centerW, mainH), ImGuiChildFlags.Borders);
+	renderViewportArea();
+	ImGui.EndChild();
+
+	ImGui.SameLine();
+
+	// RIGHT PANEL
+	ImGui.BeginChild("##right", new ImVec2(rightW, mainH), ImGuiChildFlags.Borders);
+	if (ImGui.BeginTabBar("##right_tabs")) {
+		if (ImGui.BeginTabItem("Inspector")) {
+			renderInspector();
+			ImGui.EndTabItem();
+		}
+		if (ImGui.BeginTabItem("Console")) {
+			renderConsolePanel();
+			ImGui.EndTabItem();
+		}
+		ImGui.EndTabBar();
+	}
+	ImGui.EndChild();
+
+	// --- Status bar ---
+	ImGui.BeginChild("##status", new ImVec2(0, statusH), ImGuiChildFlags.None);
+	renderStatusBar();
+	ImGui.EndChild();
+
+	ImGui.End();
+
+	// Floating context menu
+	renderContextMenu();
+
+	if (state.showDemo) ImGui.ShowDemoWindow();
+
+	ImGuiImplWeb.EndRender();
+	requestAnimationFrame(renderLoop);
+}
+
+// =============================================================
+// Viewport area (child content)
+// =============================================================
+
+function renderViewportArea(): void {
+	const vpScreenPos = ImGui.GetCursorScreenPos();
+	const vpSize = ImGui.GetContentRegionAvail();
+
+	const rulerPad = (state.scene?.showRulers ?? true) ? 24 : 0;
+
+	const vpRect: ViewportRect = {
+		x: vpScreenPos.x + rulerPad,
+		y: vpScreenPos.y + rulerPad,
+		w: vpSize.x - rulerPad,
+		h: vpSize.y - rulerPad,
+		originX: vpScreenPos.x + rulerPad,
+		originY: vpScreenPos.y + rulerPad,
+	};
+
+	// Reserve an invisible button covering the whole viewport
+	ImGui.InvisibleButton("##vp_canvas", new ImVec2(vpSize.x, vpSize.y), 0);
+
+	const hovered = ImGui.IsItemHovered();
+	const mouseScreen = ImGui.GetMousePos();
+	const worldMouse = screenToWorld(mouseScreen.x, mouseScreen.y, vpRect.originX, vpRect.originY);
+
+	const io = ImGui.GetIO();
+
+	// --- Zoom ---
+	if (hovered) {
+		const wheel = io.MouseWheel;
+		if (wheel !== 0) {
+			const oldZoom = state.camera.zoom;
+			const newZoom = clamp(oldZoom * (1 + wheel * 0.1), 0.1, 8);
+			state.camera.x += (worldMouse.x - state.camera.x) * (1 - oldZoom / newZoom);
+			state.camera.y += (worldMouse.y - state.camera.y) * (1 - oldZoom / newZoom);
+			state.camera.zoom = newZoom;
+		}
+	}
+
+	// --- Pan ---
+	const spaceDown = ImGui.IsKeyDown(ImGuiKey._Space);
+	const middleDown = ImGui.IsMouseDown(ImGuiMouseButton.Middle);
+	const leftDown = ImGui.IsMouseDown(ImGuiMouseButton.Left);
+	const panRequested = middleDown || (spaceDown && leftDown);
+
+	if (panRequested && (hovered || state.interaction?.mode === "pan")) {
+		if (!state.interaction || state.interaction.mode !== "pan") {
+			state.interaction = {
+				mode: "pan",
+				startWorldX: worldMouse.x,
+				startWorldY: worldMouse.y,
+				startScreenX: mouseScreen.x,
+				startScreenY: mouseScreen.y,
+				startTransforms: new Map(),
+				primaryId: "",
+				panStartX: state.camera.x,
+				panStartY: state.camera.y,
+			};
+		} else {
+			const it = state.interaction;
+			const ddx = (mouseScreen.x - it.startScreenX) / state.camera.zoom;
+			const ddy = (mouseScreen.y - it.startScreenY) / state.camera.zoom;
+			state.camera.x = it.panStartX! - ddx;
+			state.camera.y = it.panStartY! - ddy;
+		}
+	} else if (state.interaction?.mode === "pan" && !panRequested) {
+		state.interaction = null;
+	}
+
+	// --- Selection / Interaction ---
+	if (hovered && !panRequested) {
+		const handleHit = findHandleAt(mouseScreen.x, mouseScreen.y, vpRect);
+		const rotateHit = findRotateHandleAt(mouseScreen.x, mouseScreen.y, vpRect);
+		const objHit = findObjectAt(worldMouse.x, worldMouse.y);
+
+		if (handleHit) {
+			const cursors: Record<HandleType, number> = {
+				nw: ImGuiMouseCursor.ResizeNWSE,
+				n: ImGuiMouseCursor.ResizeNS,
+				ne: ImGuiMouseCursor.ResizeNESW,
+				e: ImGuiMouseCursor.ResizeEW,
+				se: ImGuiMouseCursor.ResizeNWSE,
+				s: ImGuiMouseCursor.ResizeNS,
+				sw: ImGuiMouseCursor.ResizeNESW,
+				w: ImGuiMouseCursor.ResizeEW,
+			};
+			ImGui.SetMouseCursor(cursors[handleHit.handle]);
+		} else if (rotateHit || objHit) {
+			ImGui.SetMouseCursor(ImGuiMouseCursor.Hand);
+		}
+
+		if (ImGui.IsMouseClicked(ImGuiMouseButton.Left)) {
+			if (handleHit) {
+				beginResize(worldMouse.x, worldMouse.y, handleHit.obj, handleHit.handle);
+			} else if (rotateHit) {
+				beginRotate(worldMouse.x, worldMouse.y, rotateHit);
+			} else if (objHit) {
+				const isMulti = io.KeyShift || io.KeyCtrl || io.KeySuper;
+				if (isMulti) {
+					const idx = state.selectedIds.indexOf(objHit.id);
+					if (idx >= 0) {
+						state.selectedIds.splice(idx, 1);
+						if (state.primaryId === objHit.id) state.primaryId = state.selectedIds[state.selectedIds.length - 1] ?? null;
+					} else {
+						state.selectedIds.push(objHit.id);
+						state.primaryId = objHit.id;
+					}
+				} else {
+					if (!state.selectedIds.includes(objHit.id)) state.selectedIds = [objHit.id];
+					state.primaryId = objHit.id;
+				}
+				beginDrag(worldMouse.x, worldMouse.y, objHit.id);
+			} else {
+				// marquee
+				if (!io.KeyShift && !io.KeyCtrl) {
+					state.selectedIds = [];
+					state.primaryId = null;
+				}
+				beginMarquee(worldMouse.x, worldMouse.y);
+			}
+		}
+
+		if (ImGui.IsMouseClicked(ImGuiMouseButton.Right)) {
+			state.contextMenu.open = true;
+			state.contextMenu.x = mouseScreen.x;
+			state.contextMenu.y = mouseScreen.y;
+			state.contextMenu.worldX = worldMouse.x;
+			state.contextMenu.worldY = worldMouse.y;
+		}
+	}
+
+	// --- Update active interaction ---
+	if (state.interaction) {
+		if (state.interaction.mode === "drag") updateDrag(worldMouse.x, worldMouse.y);
+		else if (state.interaction.mode === "resize") updateResize(worldMouse.x, worldMouse.y, io.KeyShift);
+		else if (state.interaction.mode === "rotate") updateRotate(worldMouse.x, worldMouse.y, io.KeyShift, io.KeyAlt);
+		else if (state.interaction.mode === "marquee") updateMarquee(worldMouse.x, worldMouse.y);
+	}
+
+	if (!ImGui.IsMouseDown(ImGuiMouseButton.Left) && state.interaction && state.interaction.mode !== "pan") {
+		endInteraction();
+	}
+
+	renderViewport(vpRect);
+}
+
+// =============================================================
+// Status bar
+// =============================================================
+
+function renderStatusBar(): void {
+	const mouseScreen = ImGui.GetMousePos();
+	ImGui.Text(`Layers: ${state.scene?.layers.length ?? 0}`);
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	ImGui.Text(`Objects: ${state.scene?.objects.length ?? 0}`);
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	ImGui.Text(`Selected: ${state.selectedIds.length}`);
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	ImGui.Text(`Zoom: ${(state.camera.zoom * 100).toFixed(0)}%`);
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	ImGui.Text(`Cam: ${round(state.camera.x)}, ${round(state.camera.y)}`);
+	ImGui.SameLine();
+	ImGui.TextDisabled("|");
+	ImGui.SameLine();
+	ImGui.Text(`Textures: ${state.textures.size}`);
+}
+
+// =============================================================
+// Keyboard shortcuts
+// =============================================================
+
+function setupKeyboard(): void {
+	window.addEventListener("keydown", (e) => {
+		const tag = (e.target as HTMLElement)?.tagName;
+		if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+		const mod = e.ctrlKey || e.metaKey;
+		if (mod && e.key.toLowerCase() === "z" && !e.shiftKey) {
+			e.preventDefault();
+			undo();
+		} else if (mod && (e.key.toLowerCase() === "y" || (e.key.toLowerCase() === "z" && e.shiftKey))) {
+			e.preventDefault();
+			redo();
+		} else if (mod && e.key.toLowerCase() === "d") {
+			e.preventDefault();
+			duplicateSelected();
+		} else if (mod && e.key.toLowerCase() === "a") {
+			e.preventDefault();
+			selectAll();
+		} else if (mod && e.key.toLowerCase() === "s") {
+			e.preventDefault();
+			saveJSON();
+		} else if (mod && e.key.toLowerCase() === "o") {
+			e.preventDefault();
+			loadJSON();
+		} else if (mod && e.key.toLowerCase() === "n") {
+			e.preventDefault();
+			newScene();
+		} else if (e.key === "Delete" || e.key === "Backspace") {
+			e.preventDefault();
+			deleteSelected();
+		} else if (e.key === "Escape") {
+			state.selectedIds = [];
+			state.primaryId = null;
+			state.interaction = null;
+			state.snapGuides = [];
+			state.marquee = null;
+			state.contextMenu.open = false;
+		}
+	});
+}
+
+// =============================================================
+// Canvas resolution
+// =============================================================
+
+function setupCanvasResolution(canvas: HTMLCanvasElement): void {
+	const applyDpr = () => {
+		const dpr = Math.min(window.devicePixelRatio || 1, 2);
+		const w = Math.floor(canvas.clientWidth * dpr);
+		const h = Math.floor(canvas.clientHeight * dpr);
+		if (canvas.width !== w || canvas.height !== h) {
+			canvas.width = w;
+			canvas.height = h;
+		}
+	};
+	window.addEventListener("resize", applyDpr);
+	window.addEventListener("orientationchange", applyDpr);
+	applyDpr();
+}
+
+// =============================================================
+// Bootstrap
+// =============================================================
+
+const canvas = document.getElementById("canvas") as HTMLCanvasElement;
+const loadingEl = document.getElementById("loading")!;
+
+async function bootstrap(): Promise<void> {
+	canvas.style.width = "100vw";
+	canvas.style.height = "100vh";
+	canvas.style.display = "block";
+
+	await ImGuiImplWeb.Init({
+		canvas,
+		backend: "webgl2",
+		fontLoader: "truetype",
+	});
+
+	setupCanvasResolution(canvas);
+
+	const style = ImGui.GetStyle();
+	ImGui.StyleColorsDark();
+
+	style.WindowRounding = 0;
+	style.ChildRounding = 4;
+	style.FrameRounding = 3;
+	style.GrabRounding = 3;
+	style.ScrollbarRounding = 3;
+	style.WindowBorderSize = 1;
+	style.ChildBorderSize = 1;
+	style.FrameBorderSize = 0;
+	style.FramePadding = new ImVec2(8, 5);
+	style.ItemSpacing = new ImVec2(8, 6);
+	style.ItemInnerSpacing = new ImVec2(6, 4);
+
+	style.AntiAliasedLines = true;
+	style.AntiAliasedLinesUseTex = true;
+	style.AntiAliasedFill = true;
+	style.CurveTessellationTol = 1.25;
+	style.CircleTessellationMaxError = 0.3;
+
+	style.FontSizeBase = 15.0;
+
+	style.Colors[ImGuiCol.WindowBg] = new ImVec4(0.1, 0.1, 0.11, 1.0);
+	style.Colors[ImGuiCol.ChildBg] = new ImVec4(0.11, 0.11, 0.12, 1.0);
+	style.Colors[ImGuiCol.PopupBg] = new ImVec4(0.13, 0.13, 0.15, 1.0);
+	style.Colors[ImGuiCol.Border] = new ImVec4(0.22, 0.22, 0.24, 1.0);
+	style.Colors[ImGuiCol.FrameBg] = new ImVec4(0.17, 0.17, 0.19, 1.0);
+	style.Colors[ImGuiCol.FrameBgHovered] = new ImVec4(0.22, 0.22, 0.25, 1.0);
+	style.Colors[ImGuiCol.FrameBgActive] = new ImVec4(0.26, 0.26, 0.3, 1.0);
+	style.Colors[ImGuiCol.Button] = new ImVec4(0.2, 0.2, 0.23, 1.0);
+	style.Colors[ImGuiCol.ButtonHovered] = new ImVec4(0.28, 0.28, 0.32, 1.0);
+	style.Colors[ImGuiCol.ButtonActive] = new ImVec4(0.35, 0.35, 0.4, 1.0);
+	style.Colors[ImGuiCol.Header] = new ImVec4(0.2, 0.2, 0.25, 1.0);
+	style.Colors[ImGuiCol.HeaderHovered] = new ImVec4(0.3, 0.3, 0.38, 1.0);
+	style.Colors[ImGuiCol.HeaderActive] = new ImVec4(0.35, 0.35, 0.45, 1.0);
+	style.Colors[ImGuiCol.Tab] = new ImVec4(0.14, 0.14, 0.16, 1.0);
+	style.Colors[ImGuiCol.TabHovered] = new ImVec4(0.25, 0.25, 0.3, 1.0);
+	style.Colors[ImGuiCol.TabActive] = new ImVec4(0.2, 0.2, 0.25, 1.0);
+
+	newScene();
+	setupKeyboard();
+
+	loadingEl.classList.add("hidden");
+	requestAnimationFrame(renderLoop);
+}
+
+bootstrap().catch((err) => {
+	console.error(err);
+	loadingEl.textContent = `Error: ${err.message}`;
+});

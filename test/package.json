@@ -1,0 +1,21 @@
+{
+	"name": "video-editor",
+	"module": "src/index.ts",
+	"devDependencies": {
+		"@types/bun": "latest",
+		"typescript": "^5.4.0",
+		"vite": "^8.3.1"
+	},
+	"scripts": {
+		"dev:pro": "bun run patch-jsimgui && vite",
+		"patch-jsimgui": "node -e \"const fs=require('fs');const p='node_modules/@mori2003/jsimgui/build';if(fs.existsSync(p+'/loader-extensions-freetype.js')&&!fs.existsSync(p+'/loader-freetype-extensions.js'))fs.copyFileSync(p+'/loader-extensions-freetype.js',p+'/loader-freetype-extensions.js')\"",
+		"-----BASIC-----": "",
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview"
+	},
+	"type": "module",
+	"dependencies": {
+		"@mori2003/jsimgui": "^0.14.0"
+	}
+}
