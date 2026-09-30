@@ -55,37 +55,35 @@ function buildToolbar(): HTMLDivElement {
 	const snapGrid = scene?.snapToGrid ?? false;
 	const snapObjects = config?.snapping?.enabled ?? false;
 	const gizmoMode = config?.gizmo.mode ?? "world";
-	const lastShape = config?.ui.lastShapeType ?? "rectangle";
 
 	toolbar.innerHTML = `
 		<div class="tb-group" data-dropdown="add">
 			<button class="tb-btn tb-dropdown-trigger" data-action="add-menu">
-				<span>➕ Add</span>
+				<span>➕ Add Object</span>
 				<span class="tb-caret">▼</span>
 			</button>
 			<div class="tb-dropdown" data-menu="add">
-				<div class="tb-menu-item" data-action="add-empty-object"><span class="shape-icon">◇</span> Empty Object</div>
-				<div class="tb-menu-sep"></div>
+				<div class="tb-menu-item" data-action="add-empty-object"><span class="shape-icon">◇</span> Empty</div>
 				<div class="tb-menu-item" data-action="add-sprite"><span class="shape-icon">🖼️</span> Sprite</div>
-				<div class="tb-menu-item" data-action="add-texture"><span class="shape-icon">📁</span> Import Texture…</div>
+				<div class="tb-menu-item" data-action="add-text"><span class="shape-icon">🔤</span> Text</div>
 				<div class="tb-menu-sep"></div>
-				<div class="tb-menu-item" data-action="add-shape-current"><span class="shape-icon">⬛</span> Shape (${lastShape})</div>
+				<div class="tb-menu-item tb-menu-submenu" data-action="shapes-submenu">
+					<span class="shape-icon">⬛</span>
+					<span>Shape</span>
+					<span class="tb-caret" style="margin-left:auto;">▶</span>
+				</div>
 			</div>
 		</div>
 
 		<div class="tb-group" data-dropdown="shapes">
-			<button class="tb-btn tb-dropdown-trigger" data-action="shapes-menu">
-				<span>⬛ Shapes</span>
-				<span class="tb-caret">▼</span>
-			</button>
-			<div class="tb-dropdown" data-menu="shapes">
-				<div class="tb-menu-item ${lastShape === "rectangle" ? "checked" : ""}" data-shape="rectangle"><span class="shape-icon">▭</span> Rectangle</div>
-				<div class="tb-menu-item ${lastShape === "circle" ? "checked" : ""}" data-shape="circle"><span class="shape-icon">●</span> Circle</div>
-				<div class="tb-menu-item ${lastShape === "triangle" ? "checked" : ""}" data-shape="triangle"><span class="shape-icon">▲</span> Triangle</div>
-				<div class="tb-menu-item ${lastShape === "diamond" ? "checked" : ""}" data-shape="diamond"><span class="shape-icon">◆</span> Diamond</div>
-				<div class="tb-menu-item ${lastShape === "pentagon" ? "checked" : ""}" data-shape="pentagon"><span class="shape-icon">⬟</span> Pentagon</div>
-				<div class="tb-menu-item ${lastShape === "hexagon" ? "checked" : ""}" data-shape="hexagon"><span class="shape-icon">⬢</span> Hexagon</div>
-				<div class="tb-menu-item ${lastShape === "star" ? "checked" : ""}" data-shape="star"><span class="shape-icon">★</span> Star</div>
+			<div class="tb-dropdown tb-dropdown-submenu" data-menu="shapes">
+				<div class="tb-menu-item" data-shape="rectangle"><span class="shape-icon">▭</span> Rectangle</div>
+				<div class="tb-menu-item" data-shape="circle"><span class="shape-icon">●</span> Circle</div>
+				<div class="tb-menu-item" data-shape="triangle"><span class="shape-icon">▲</span> Triangle</div>
+				<div class="tb-menu-item" data-shape="diamond"><span class="shape-icon">◆</span> Diamond</div>
+				<div class="tb-menu-item" data-shape="pentagon"><span class="shape-icon">⬟</span> Pentagon</div>
+				<div class="tb-menu-item" data-shape="hexagon"><span class="shape-icon">⬢</span> Hexagon</div>
+				<div class="tb-menu-item" data-shape="star"><span class="shape-icon">★</span> Star</div>
 			</div>
 		</div>
 
@@ -153,11 +151,20 @@ function buildToolbar(): HTMLDivElement {
 
 		const action = target.dataset.action;
 
-		if (action === "add-menu" || action === "shapes-menu" || action === "view-menu") {
+		if (action === "add-menu" || action === "view-menu") {
 			e.stopPropagation();
 			const group = target.closest(".tb-group") as HTMLElement;
 			const dropdown = group.querySelector(".tb-dropdown") as HTMLDivElement;
 			toggleDropdown(dropdown);
+			return;
+		}
+
+		if (action === "shapes-submenu") {
+			e.stopPropagation();
+			const submenu = document.querySelector('[data-menu="shapes"]') as HTMLDivElement;
+			if (submenu) {
+				submenu.classList.toggle("open");
+			}
 			return;
 		}
 
@@ -193,18 +200,12 @@ function buildToolbar(): HTMLDivElement {
 				break;
 			case "add-sprite":
 				closeDropdown();
-				addObject("sprite");
+				addSprite();
 				break;
-			case "add-texture":
+			case "add-text":
 				closeDropdown();
-				addTexture();
+				addText();
 				break;
-			case "add-shape-current": {
-				closeDropdown();
-				const cfg = getConfig();
-				addShape(cfg?.ui.lastShapeType ?? "rectangle");
-				break;
-			}
 			case "toggle-grid": {
 				const config = getConfig();
 				const next = !(config?.view.showGrid ?? true);
@@ -252,6 +253,8 @@ function closeDropdown(): void {
 		openDropdown.classList.remove("open");
 		openDropdown = null;
 	}
+	const submenu = document.querySelector('[data-menu="shapes"]');
+	if (submenu) submenu.classList.remove("open");
 }
 
 function rebuildToolbar(): void {
@@ -267,12 +270,31 @@ export function updateToolbarInfo(text: string): void {
 	if (el) el.textContent = text;
 }
 
-function addObject(type: "sprite" | "shape" | "text" | "group"): void {
+function addEmptyObject(): void {
 	if (!viewport) return;
 	const center = viewport.center;
 	vscode.postMessage({
-		type: "requestAddObject",
-		objectType: type,
+		type: "requestAddEmptyObject",
+		x: Math.round(center.x),
+		y: Math.round(center.y),
+	});
+}
+
+function addSprite(): void {
+	if (!viewport) return;
+	const center = viewport.center;
+	vscode.postMessage({
+		type: "requestAddSprite",
+		x: Math.round(center.x),
+		y: Math.round(center.y),
+	});
+}
+
+function addText(): void {
+	if (!viewport) return;
+	const center = viewport.center;
+	vscode.postMessage({
+		type: "requestAddText",
 		x: Math.round(center.x),
 		y: Math.round(center.y),
 	});
@@ -289,29 +311,6 @@ function addShape(shapeType: ShapeType): void {
 	});
 }
 
-function addTexture(): void {
-	if (!viewport) return;
-	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddTexture",
-		x: Math.round(center.x),
-		y: Math.round(center.y),
-	});
-}
-
-/**
- * 🆕 اضافه کردن آبجکت کاملاً خالی (فقط transform)
- */
-function addEmptyObject(): void {
-	if (!viewport) return;
-	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddEmptyObject",
-		x: Math.round(center.x),
-		y: Math.round(center.y),
-	});
-}
-
 function deleteSelection(): void {
 	void import("../state.js").then((state) => {
 		if (state.selectedIds.length > 0) {
@@ -321,9 +320,6 @@ function deleteSelection(): void {
 	});
 }
 
-/**
- * 🧲 Snap to Grid — رفتار قبلی، از scene.snapToGrid
- */
 function toggleSnapGrid(button: HTMLElement): void {
 	if (!scene) return;
 	const next = !scene.snapToGrid;
@@ -336,9 +332,6 @@ function toggleSnapGrid(button: HTMLElement): void {
 	setTimeout(() => updateToolbarInfo(""), 1200);
 }
 
-/**
- * 🧷 Snap to Objects — جدید، از config.snapping.enabled
- */
 function toggleSnapObjects(button: HTMLElement): void {
 	const config = getConfig();
 	const current = config?.snapping?.enabled ?? false;

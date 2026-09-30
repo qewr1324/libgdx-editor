@@ -66,6 +66,8 @@ export type WebviewToExtensionMessage =
 	| { type: "selectObject"; objectId: string | null }
 	| { type: "selectObjects"; objectIds: string[] }
 	| { type: "requestAddObject"; objectType: GameObject["type"]; x: number; y: number; layerId?: string }
+	| { type: "requestAddSprite"; x: number; y: number; layerId?: string }
+	| { type: "requestAddText"; x: number; y: number; layerId?: string }
 	| { type: "requestAddShape"; shapeType: ShapeType; x: number; y: number; layerId?: string }
 	| { type: "requestAddTexture"; x: number; y: number; layerId?: string }
 	| { type: "requestAddEmptyObject"; x: number; y: number; layerId?: string }
@@ -117,6 +119,7 @@ export type InspectorToExtensionMessage =
 	| { type: "inspectorReady" }
 	| { type: "updateObjectField"; objectId: string; field: string; value: unknown; historyLabel?: string }
 	| { type: "updateSceneField"; field: string; value: unknown; historyLabel?: string }
+	| { type: "updateComponent"; objectId: string; componentId: string; updates: Partial<Component> }
 	| { type: "deleteObject"; objectId: string }
 	| { type: "focusObject"; objectId: string }
 	| { type: "setObjectZIndex"; objectId: string; zIndex: number }
@@ -156,6 +159,7 @@ export type ExtensionToComponentsMessage =
 	| { type: "showObject"; object: GameObject }
 	| { type: "showMultiSelection"; count: number; ids: string[] }
 	| { type: "clearSelection" }
+	| { type: "sceneUpdate"; scene: Scene }
 	| { type: "configLoaded"; config: LibGdxEditorConfigMessage }
 	| { type: "configUpdated"; config: LibGdxEditorConfigMessage }
 	| { type: "atlasRegionsLoaded"; texturePath: string; atlasPath: string; regions: Array<{ name: string; x: number; y: number; width: number; height: number; rotate: boolean; index: number }> }

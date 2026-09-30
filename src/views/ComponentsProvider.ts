@@ -10,6 +10,7 @@ import type { SceneHost } from "../editor/scene-types.js";
 import { AtlasImporter } from "../features/texture-atlas/atlas-importer.js";
 import { log } from "../shared/logger.js";
 import { handleAddComponent, handleUpdateComponent, handleRemoveComponent, handleReplaceComponent } from "../editor/message-handler.js";
+import { SceneRegistry } from "../editor/scene-registry.js";
 
 export class ComponentsProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.components";
@@ -19,6 +20,7 @@ export class ComponentsProvider implements vscode.WebviewViewProvider {
 	private selectedIds: string[] = [];
 	private boundHost: SceneHost | null = null;
 	private currentDocumentUri: vscode.Uri | null = null;
+	private disposables: vscode.Disposable[] = [];
 
 	constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -32,6 +34,11 @@ export class ComponentsProvider implements vscode.WebviewViewProvider {
 		} catch (err) {
 			console.error("[ComponentsProvider] broadcastConfigChange failed:", err);
 		}
+	}
+
+	public dispose(): void {
+		for (const d of this.disposables) d.dispose();
+		this.disposables = [];
 	}
 
 	public resolveWebviewView(webviewView: vscode.WebviewView, _context: vscode.WebviewViewResolveContext, _token: vscode.CancellationToken): void {
@@ -132,6 +139,14 @@ export class ComponentsProvider implements vscode.WebviewViewProvider {
 			}
 		});
 
+		this.disposables.push(
+			SceneRegistry.onDidChangeScene((host, scene) => {
+				if (host !== this.boundHost) return;
+				this.currentScene = scene;
+				this.pushSelectionToWebview();
+			}),
+		);
+
 		this.pushSelectionToWebview();
 	}
 
@@ -161,6 +176,10 @@ export class ComponentsProvider implements vscode.WebviewViewProvider {
 
 	private pushSelectionToWebview(): void {
 		if (!this.view) return;
+
+		if (this.currentScene) {
+			this.view.webview.postMessage({ type: "sceneUpdate", scene: this.currentScene } satisfies ExtensionToComponentsMessage);
+		}
 
 		if (this.selectedIds.length === 0 || !this.currentScene) {
 			this.view.webview.postMessage({ type: "clearSelection" } satisfies ExtensionToComponentsMessage);

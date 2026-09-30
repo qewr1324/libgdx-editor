@@ -1,10 +1,29 @@
 // src/webview/components/messages.ts
-import type { GameObject } from "../../types/scene.js";
+import type { GameObject, Scene } from "../../types/scene.js";
 import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 import { vscode } from "./vscode-api.js";
-import { setCurrentObject, setCurrentConfig, setMultiSelection, setAtlasRegions, clearAtlasPending } from "./state.js";
+import { setCurrentObject, setCurrentConfig, setMultiSelection, setAtlasRegions, clearAtlasPending, currentObject } from "./state.js";
 import type { AtlasRegionInfo } from "./types.js";
 import { render } from "./render.js";
+
+function findObjectInScene(scene: Scene, id: string): GameObject | null {
+	for (const layer of scene.layers) {
+		const found = findInObjects(layer.objects, id);
+		if (found) return found;
+	}
+	return null;
+}
+
+function findInObjects(objects: GameObject[], id: string): GameObject | null {
+	for (const obj of objects) {
+		if (obj.id === id) return obj;
+		if (obj.children) {
+			const found = findInObjects(obj.children, id);
+			if (found) return found;
+		}
+	}
+	return null;
+}
 
 export function setupMessages(): void {
 	window.addEventListener("message", (event) => {
@@ -26,6 +45,18 @@ export function setupMessages(): void {
 				setCurrentObject(null);
 				render(true);
 				break;
+
+			case "sceneUpdate": {
+				const scene = msg.scene as Scene;
+				if (currentObject) {
+					const updated = findObjectInScene(scene, currentObject.id);
+					if (updated) {
+						setCurrentObject(updated);
+						render(true);
+					}
+				}
+				break;
+			}
 
 			case "configLoaded":
 			case "configUpdated":

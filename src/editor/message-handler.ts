@@ -76,6 +76,57 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			newObj.zIndex = getNextZIndex(scene);
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, `add ${msg.objectType}`);
+
+			setTimeout(() => {
+				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
+			}, 50);
+			break;
+		}
+		case "requestAddSprite": {
+			const scene = host.getScene();
+			if (!scene) break;
+
+			const uris = await vscode.window.showOpenDialog({
+				canSelectMany: false,
+				filters: { Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] },
+				title: "Select Texture for Sprite",
+			});
+			if (!uris || uris.length === 0) break;
+
+			try {
+				const dims = await AssetManager.getImageDimensions(uris[0]);
+				const relativePath = await AssetManager.importTexture(ctx.document.uri, uris[0]);
+
+				const newObj = createObjectAt("sprite", msg.x, msg.y);
+				newObj.name = `sprite_${newObj.id.slice(-4)}`;
+				newObj.zIndex = getNextZIndex(scene);
+
+				if (newObj.components) {
+					newObj.components = newObj.components.map((c) => {
+						if (c.type === "sprite") {
+							return { ...c, texture: relativePath };
+						}
+						return c;
+					});
+				}
+
+				if (dims) {
+					newObj.transform.width = dims.width;
+					newObj.transform.height = dims.height;
+				}
+
+				const updated = addObjectToScene(scene, newObj);
+				host.getHistory().commit(updated, "add sprite");
+
+				const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, updated);
+				host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+				setTimeout(() => {
+					host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
+				}, 50);
+			} catch (err) {
+				vscode.window.showErrorMessage(`Failed to add sprite: ${err instanceof Error ? err.message : String(err)}`);
+			}
 			break;
 		}
 		case "requestAddShape": {
@@ -87,6 +138,10 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.getHistory().commit(updated, `add ${msg.shapeType}`);
 
 			await config.update({ ui: { lastShapeType: msg.shapeType } });
+
+			setTimeout(() => {
+				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
+			}, 50);
 			break;
 		}
 		case "requestAddEmptyObject": {
@@ -96,6 +151,19 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			newObj.zIndex = getNextZIndex(scene);
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, "add empty object");
+
+			setTimeout(() => {
+				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
+			}, 50);
+			break;
+		}
+		case "requestAddText": {
+			const scene = host.getScene();
+			if (!scene) break;
+			const newObj = createObjectAt("text", msg.x, msg.y);
+			newObj.zIndex = getNextZIndex(scene);
+			const updated = addObjectToScene(scene, newObj);
+			host.getHistory().commit(updated, "add text");
 
 			setTimeout(() => {
 				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
@@ -147,7 +215,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			}
 			ClipboardStore.set(items, current.name);
 			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
-			log.debug(`[message-handler] copy ${items.length} objects`);
+			log.debug(`[message-handler] copy ${items.length} objects from "${current.name}"`);
 			break;
 		}
 		case "cutObjects": {
@@ -172,8 +240,12 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			break;
 		}
 		case "pasteObjects": {
-			const current = host.getScene();
-			if (!current) break;
+			let current = host.getScene();
+			if (!current) {
+				current = parseDocument(ctx.document);
+				host.setScene(current);
+				host.getHistory().reset(current);
+			}
 			if (ClipboardStore.isEmpty()) break;
 
 			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
@@ -193,6 +265,9 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 
 			const newIds = pasted.map((o) => o.id);
 			host.postToWebview({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
+
+			const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, updated);
+			host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
 			log.debug(`[message-handler] pasted ${pasted.length} objects (inPlace=${!!msg.pasteInPlace})`);
 			break;
@@ -316,6 +391,10 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 	}
 }
 
+// ============================================================
+// Component Operations
+// ============================================================
+
 export function handleAddComponent(host: SceneHost, objectId: string, componentType: Component["type"]): void {
 	const scene = host.getScene();
 	if (!scene) return;
@@ -348,6 +427,10 @@ export function handleReplaceComponent(host: SceneHost, objectId: string, compon
 	const updated = addComponentToObjectInScene(scene, objectId, component);
 	host.getHistory().commit(updated, "update component");
 }
+
+// ============================================================
+// Scene Send
+// ============================================================
 
 export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	const host = ctx.host;

@@ -38,6 +38,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			webviewOptions: { retainContextWhenHidden: true },
 		}),
 		{ dispose: () => layersProvider.dispose() },
+		{ dispose: () => components.dispose() },
 		SceneEditorProvider.register(context),
 	);
 
