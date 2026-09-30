@@ -62,8 +62,6 @@ export class AssetManager {
 
 	/**
 	 * کپی یه asset از صحنه‌ی مبدأ به صحنه‌ی مقصد.
-	 * اگه asset در مقصد نبود، کپی می‌کنه و مسیر نسبی جدید برمی‌گردونه.
-	 * اگه بود، همون مسیر قبلی رو برمی‌گردونه.
 	 */
 	public static async copyAssetFromScene(sourceSceneUri: vscode.Uri, targetSceneUri: vscode.Uri, sourceRelativePath: string): Promise<string> {
 		const sourceSceneDir = vscode.Uri.joinPath(sourceSceneUri, "..");
@@ -73,7 +71,6 @@ export class AssetManager {
 		const targetAssetsDirName = AssetManager.getAssetsDirName(targetSceneUri);
 
 		const fileName = path.basename(sourceRelativePath);
-
 		const targetAssetUri = vscode.Uri.joinPath(targetAssetsDir, fileName);
 		const newRelativePath = `${targetAssetsDirName}/${fileName}`;
 
@@ -90,7 +87,6 @@ export class AssetManager {
 			await vscode.workspace.fs.writeFile(targetAssetUri, content);
 			return newRelativePath;
 		} catch {
-			// فایل مبدأ وجود ندارد — همون مسیر قبلی رو برگردون
 			return sourceRelativePath;
 		}
 	}

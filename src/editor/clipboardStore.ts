@@ -10,12 +10,14 @@ export class ClipboardStore {
 	private static items: GameObject[] = [];
 	private static pasteCount = 0;
 	private static sourceSceneName: string | null = null;
+	private static sourceDocumentUri: string | null = null;
 
-	public static set(items: GameObject[], sourceSceneName: string | null): void {
+	public static set(items: GameObject[], sourceSceneName: string | null, sourceDocumentUri: string | null = null): void {
 		ClipboardStore.items = items.map((o) => structuredClone(o) as GameObject);
 		ClipboardStore.pasteCount = 0;
 		ClipboardStore.sourceSceneName = sourceSceneName;
-		log.debug(`[Clipboard] set ${items.length} items from "${sourceSceneName}"`);
+		ClipboardStore.sourceDocumentUri = sourceDocumentUri;
+		log.info(`[Clipboard] SET items=${items.length} sourceScene="${sourceSceneName}" sourceUri="${sourceDocumentUri}"`);
 	}
 
 	public static get(): GameObject[] {
@@ -34,10 +36,10 @@ export class ClipboardStore {
 		return ClipboardStore.sourceSceneName;
 	}
 
-	/**
-	 * یک کپی جدید با offset آماده کن.
-	 * هر بار paste، offset بیشتر می‌شه.
-	 */
+	public static getSourceDocumentUri(): string | null {
+		return ClipboardStore.sourceDocumentUri;
+	}
+
 	public static getNextPaste(offsetX = 20, offsetY = 20): GameObject[] {
 		ClipboardStore.pasteCount++;
 		const totalOffsetX = offsetX * ClipboardStore.pasteCount;
@@ -53,9 +55,6 @@ export class ClipboardStore {
 		});
 	}
 
-	/**
-	 * paste در موقعیت اصلی (بدون offset).
-	 */
 	public static getPasteInPlace(): GameObject[] {
 		return ClipboardStore.items.map((obj) => {
 			const clone = structuredClone(obj) as GameObject;
@@ -73,5 +72,6 @@ export class ClipboardStore {
 		ClipboardStore.items = [];
 		ClipboardStore.pasteCount = 0;
 		ClipboardStore.sourceSceneName = null;
+		ClipboardStore.sourceDocumentUri = null;
 	}
 }

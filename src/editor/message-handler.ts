@@ -1,5 +1,5 @@
 // src/editor/message-handler.ts
-import type * as vscode from "vscode";
+import * as vscode from "vscode";
 import type { ExtensionToWebviewMessage, WebviewToExtensionMessage } from "../protocol/messages.js";
 import { toConfigMessage } from "../protocol/messages.js";
 import type { GameObject, Scene } from "../types/scene.js";
@@ -213,9 +213,10 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 					}
 				}
 			}
-			ClipboardStore.set(items, current.name, ctx.document.uri.toString());
+			const docUri = ctx.document.uri.toString();
+			ClipboardStore.set(items, current.name, docUri);
+			log.info(`[message-handler] COPY ${items.length} objects | docUri=${docUri}`);
 			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
-			log.debug(`[message-handler] copy ${items.length} objects from "${current.name}"`);
 			break;
 		}
 		case "cutObjects": {
@@ -229,7 +230,8 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 					}
 				}
 			}
-			ClipboardStore.set(items, current.name, ctx.document.uri.toString());
+			const docUri = ctx.document.uri.toString();
+			ClipboardStore.set(items, current.name, docUri);
 			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
 
 			let updated = current;
@@ -248,11 +250,14 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			}
 			if (ClipboardStore.isEmpty()) break;
 
-			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
-
 			const sourceUriStr = ClipboardStore.getSourceDocumentUri();
 			const sourceUri = sourceUriStr ? vscode.Uri.parse(sourceUriStr) : null;
-			const isCrossScene = sourceUri !== null && sourceUri.toString() !== ctx.document.uri.toString();
+			const targetUriStr = ctx.document.uri.toString();
+			const isCrossScene = sourceUri !== null && sourceUri.toString() !== targetUriStr;
+
+			log.info(`[message-handler] PASTE | sourceUri=${sourceUriStr} | targetUri=${targetUriStr} | crossScene=${isCrossScene} | items=${ClipboardStore.size()}`);
+
+			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
 
 			const texturePathMap = new Map<string, string>();
 
@@ -266,8 +271,9 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 									try {
 										const newPath = await AssetManager.copyAssetFromScene(sourceUri, ctx.document.uri, texturePath);
 										texturePathMap.set(texturePath, newPath);
-									} catch {
-										// ignore
+										log.info(`[message-handler] copied asset "${texturePath}" → "${newPath}"`);
+									} catch (err) {
+										log.error(`[message-handler] failed to copy asset "${texturePath}":`, err);
 									}
 								}
 							}
@@ -301,7 +307,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, updated);
 			host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-			log.debug(`[message-handler] pasted ${pasted.length} objects (inPlace=${!!msg.pasteInPlace}, crossScene=${isCrossScene})`);
 			break;
 		}
 		case "duplicateObjects":
