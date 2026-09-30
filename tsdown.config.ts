@@ -32,4 +32,12 @@ export default defineConfig([
 		outExtensions: () => ({ js: ".js" }),
 		platform: "browser",
 	},
+	{
+		entry: { components: "src/webview/components/main.ts" },
+		format: "esm",
+		outDir: "dist/webview",
+		noExternal: [/.*/],
+		outExtensions: () => ({ js: ".js" }),
+		platform: "browser",
+	},
 ]);

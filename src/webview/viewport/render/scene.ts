@@ -119,7 +119,7 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	container.rotation = (t.rotation * Math.PI) / 180;
 	container.scale.set(t.scaleX, t.scaleY);
 
-	container.hitArea = new Rectangle(-t.width * t.originX, -t.height * t.originY, t.width, t.height);
+	container.hitArea = new Rectangle(0, 0, t.width, t.height);
 
 	container.eventMode = "static";
 	container.cursor = layerLocked ? "not-allowed" : "pointer";
