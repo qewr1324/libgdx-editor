@@ -7,6 +7,7 @@ import type { LibGdxEditorConfig } from "../config/config-types.js";
 import { ConfigManager } from "../config/config-manager.js";
 import type { SceneHost } from "../editor/scene-types.js";
 import { moveObjectToLayerOp } from "../features/layers/layer-ops.js";
+import { handleRemoveComponent } from "../editor/message-handler.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -103,6 +104,12 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 				case "focusObject":
 					if (this.boundHost) {
 						this.onFocusObject?.(this.boundHost, msg.objectId);
+					}
+					break;
+
+				case "removeComponent":
+					if (this.boundHost) {
+						handleRemoveComponent(this.boundHost, msg.objectId, msg.componentId);
 					}
 					break;
 

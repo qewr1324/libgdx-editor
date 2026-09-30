@@ -214,6 +214,71 @@ export function buildInspectorCss(theme: Theme): string {
 			background: ${theme.scrollThumb};
 			border: ${theme.isClassic ? `2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : `1px solid ${theme.scrollThumbBorder}; border-radius: 5px;`};
 		}
+
+				/* ============ Read-only component fields ============ */
+		.inspector-readonly-field {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			padding: 3px 4px;
+			margin-bottom: 2px;
+			font-size: 11px;
+		}
+
+		.inspector-readonly-label {
+			flex-shrink: 0;
+			min-width: 70px;
+			max-width: 70px;
+			opacity: 0.65;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+		}
+
+		.inspector-readonly-value {
+			flex: 1;
+			min-width: 0;
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			font-family: monospace;
+			font-size: 10px;
+			opacity: 0.9;
+			display: flex;
+			align-items: center;
+			gap: 6px;
+		}
+
+		.inspector-color-swatch {
+			display: inline-block;
+			width: 12px;
+			height: 12px;
+			border: 1px solid ${theme.isClassic ? theme.borderDark : theme.panelBorder};
+			border-radius: 2px;
+			flex-shrink: 0;
+		}
+
+		.inspector-section-remove {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			width: 18px;
+			height: 18px;
+			padding: 0;
+			background: transparent;
+			border: none;
+			color: ${theme.fg};
+			cursor: pointer;
+			opacity: 0.4;
+			border-radius: 2px;
+			flex-shrink: 0;
+		}
+
+		.inspector-section-remove:hover {
+			opacity: 1;
+			background: rgba(255, 74, 74, 0.2);
+			color: #ff4a4a;
+		}
 	`;
 }
 

@@ -119,9 +119,9 @@ export type InspectorToExtensionMessage =
 	| { type: "inspectorReady" }
 	| { type: "updateObjectField"; objectId: string; field: string; value: unknown; historyLabel?: string }
 	| { type: "updateSceneField"; field: string; value: unknown; historyLabel?: string }
-	| { type: "updateComponent"; objectId: string; componentId: string; updates: Partial<Component> }
 	| { type: "deleteObject"; objectId: string }
 	| { type: "focusObject"; objectId: string }
+	| { type: "removeComponent"; objectId: string; componentId: string }
 	| { type: "setObjectZIndex"; objectId: string; zIndex: number }
 	| { type: "bringForward"; objectId: string }
 	| { type: "sendBackward"; objectId: string }

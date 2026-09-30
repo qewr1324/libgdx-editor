@@ -1,6 +1,8 @@
 // src/webview/inspector/render/object-inspector.ts
 import type { GameObject, Scene } from "../../../types/scene.js";
 import { getLayerNameOfObject } from "../../../types/scene.js";
+import type { Component } from "../../../types/components.js";
+import { COMPONENT_LABELS, COMPONENT_ICONS, findComponent } from "../../../types/components.js";
 import { vscode, app } from "../vscode-api.js";
 import { currentObject, currentScene, availableLayers, setCurrentObject } from "../state.js";
 import { ICONS } from "../icons.js";
@@ -38,6 +40,8 @@ export function buildInspectorHtml(obj: GameObject): string {
 			${field("Name", `<input type="text" data-field="name" value="${escapeAttr(obj.name)}" />`)}
 		`,
 	);
+
+	const visualComponentsHtml = buildVisualComponentsSections(obj);
 
 	const currentLayerId = obj.layerId ?? currentScene?.layers.find((l) => getLayerNameOfObject(currentScene!, obj) === l.name)?.id ?? "";
 
@@ -90,11 +94,126 @@ export function buildInspectorHtml(obj: GameObject): string {
 			<div class="inspector-id">${escapeHtml(obj.id)}</div>
 			${identitySection}
 			${transformSection}
+			${visualComponentsHtml}
 			${layerSection}
 			${propertiesSection}
 		</div>
 	`;
 }
+
+// ============================================================
+// Visual Components — read-only display
+// ============================================================
+
+function buildVisualComponentsSections(obj: GameObject): string {
+	const components = obj.components ?? [];
+	const visual = components.filter((c) => isVisualComp(c));
+
+	if (visual.length === 0) return "";
+
+	return visual
+		.map((comp) => {
+			const icon = COMPONENT_ICONS[comp.type];
+			const label = COMPONENT_LABELS[comp.type];
+			const body = buildVisualComponentBody(comp);
+
+			return `
+			<div class="inspector-section" data-section-id="vc-${comp.id}">
+				<div class="inspector-section-header">
+					<span class="inspector-section-chevron">${ICONS.chevron}</span>
+					<span class="inspector-section-label">${icon} ${escapeHtml(label)}</span>
+					<button class="inspector-section-remove" data-remove-component="${comp.id}" title="Remove component">${ICONS.close}</button>
+				</div>
+				<div class="inspector-section-body">
+					${body}
+				</div>
+			</div>
+		`;
+		})
+		.join("");
+}
+
+function isVisualComp(c: Component): boolean {
+	return c.type === "sprite" || c.type === "atlas" || c.type === "animation" || c.type === "shape" || c.type === "text";
+}
+
+function buildVisualComponentBody(comp: Component): string {
+	switch (comp.type) {
+		case "sprite":
+			return `
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Texture</span>
+					<span class="inspector-readonly-value">${escapeHtml(comp.texture || "(none)")}</span>
+				</div>
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Tint</span>
+					<span class="inspector-readonly-value">${escapeHtml(comp.tint ?? "#ffffff")}</span>
+				</div>
+			`;
+
+		case "atlas":
+			return `
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Texture</span>
+					<span class="inspector-readonly-value">${escapeHtml(comp.texture || "(none)")}</span>
+				</div>
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Region</span>
+					<span class="inspector-readonly-value">${escapeHtml(comp.region || "(none)")}</span>
+				</div>
+			`;
+
+		case "animation":
+			return `
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Atlas</span>
+					<span class="inspector-readonly-value">${escapeHtml(comp.atlasPath || "(none)")}</span>
+				</div>
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Frames</span>
+					<span class="inspector-readonly-value">${comp.frames.length} frames</span>
+				</div>
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">FPS</span>
+					<span class="inspector-readonly-value">${comp.fps}</span>
+				</div>
+			`;
+
+		case "shape":
+			return `
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Shape</span>
+					<span class="inspector-readonly-value">${escapeHtml(comp.shape)}</span>
+				</div>
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Color</span>
+					<span class="inspector-readonly-value">
+						<span class="inspector-color-swatch" style="background:${escapeAttr(comp.color)};"></span>
+						${escapeHtml(comp.color)}
+					</span>
+				</div>
+			`;
+
+		case "text":
+			return `
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Text</span>
+					<span class="inspector-readonly-value">${escapeHtml(comp.text)}</span>
+				</div>
+				<div class="inspector-readonly-field">
+					<span class="inspector-readonly-label">Font Size</span>
+					<span class="inspector-readonly-value">${comp.fontSize}</span>
+				</div>
+			`;
+
+		default:
+			return "";
+	}
+}
+
+// ============================================================
+// Update field values
+// ============================================================
 
 export function updateFieldValues(obj: GameObject, scene: Scene | null): void {
 	const t = obj.transform;
@@ -139,6 +258,10 @@ function setFieldValue(field: string, value: unknown, kind: "number" | "string" 
 		el.value = String(value);
 	}
 }
+
+// ============================================================
+// Listeners
+// ============================================================
 
 export function attachObjectListeners(): void {
 	attachSectionListeners();
@@ -242,6 +365,19 @@ export function attachObjectListeners(): void {
 					vscode.postMessage({ type: "sendToBack", objectId: currentObject.id });
 					break;
 			}
+		});
+	}
+
+	const removeComponentBtns = app.querySelectorAll<HTMLButtonElement>("[data-remove-component]");
+	for (const btn of removeComponentBtns) {
+		btn.addEventListener("click", (e) => {
+			e.stopPropagation();
+			if (!currentObject) return;
+			vscode.postMessage({
+				type: "removeComponent",
+				objectId: currentObject.id,
+				componentId: btn.dataset.removeComponent!,
+			});
 		});
 	}
 
