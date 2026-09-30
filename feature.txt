@@ -1,0 +1,125 @@
+🎮 ۱. آبجکت‌های تخصصی بازی
+
+    Spawn Point (نقطه‌ی تولد بازیکن/دشمن)
+
+    Trigger Zone (ناحیه‌ی تریگر — مثلاً ورودی مرحله)
+
+    Camera Zone (ناحیه‌ای که دوربین رو محدود می‌کنه)
+
+    Checkpoint
+
+    Path/Route (مسیر حرکت NPC)
+
+    Tilemap / Tiled Map (پشتیبانی از Tiled)
+
+🖼️ ۲. مدیریت بهتر Texture
+
+    Texture Packer درونی (ترکیب چند texture در یک atlas)
+
+    Region Selector گرافیکی (الان باید اسم region رو تایپ کنی)
+
+    Texture Preview در Inspector
+
+    Sprite Sheet Slicer
+
+🎬 ۳. Animation واقعی در Viewport
+
+    پخش زنده‌ی animation در viewport (الان فقط فریم اول)
+
+    Timeline editor برای animation
+
+    Keyframe editor
+
+    Animation preview
+
+🎨 ۴. گروه‌بندی و Parenting
+
+    Parent/Child واقعی بین آبجکت‌ها (الان children توی type هست ولی UI نداره)
+
+    حرکت دادن گروه با parent
+
+    Nested transforms
+
+📐 ۵. ابزارهای ترسیم
+
+    Line tool (خط)
+
+    Polygon tool (چندضلعی سفارشی)
+
+    Path tool (منحنی Bézier)
+
+    Brush tool (برای tilemap)
+
+🎯 ۶. Prefab / Template
+
+    ذخیره‌ی آبجکت به عنوان Prefab
+
+    نمونه‌سازی از Prefab
+
+    تغییر Prefab → همه‌ی نمونه‌ها آپدیت
+
+🔧 ۷. ابزارهای بهتر Viewport
+
+    Zoom to Fit (F key)
+
+    Zoom to Selection
+
+    Grid Snap Preview
+
+    Coordinate Tooltip بالای هر آبجکت
+
+    Gizmo Modes (translate/rotate/scale toggle)
+
+    Camera preview (نشون دادن محدوده‌ی دوربین بازی)
+
+📊 ۸. Debug Visualization
+
+    نمایش Collider به صورت wireframe در viewport
+
+    نمایش Velocity vector برای physics
+
+    نمایش Trigger zones با رنگ متفاوت
+
+    نمایش Spawn points با آیکون
+
+    نمایش Bounding boxes
+
+🎨 ۹. رنگ و ظاهر
+
+    Layer Color Tint (رنگ‌آمیزی هر لایه برای تشخیص سریع‌تر)
+
+    Outline on Hover
+
+    Focus Animation (وقتی روی آبجکت focus میشه، دورش خط چشمک بزنه)
+
+📁 ۱۰. Asset Browser
+
+    پنل کنار برای drag & drop texture به viewport
+
+    پیش‌نمایش asset ها
+
+    جستجو در asset ها
+
+🌍 ۱۱. World Settings بهتر
+
+    Gravity برای کل صحنه
+
+    Ambient Light (اگه بعداً lighting بخوای)
+
+    Camera Bounds (محدوده‌ی حرکت دوربین)
+
+💾 ۱۲. Import/Export
+
+    Tiled Map (.tmx) import
+
+    Particle Effect editor
+
+    Spine animation support
+
+    Export to HTML5 / Desktop
+
+🧩 ۱۳. Multi-Scene
+
+    Scene transition (از level1 به level2)
+
+    Persistent objects (آبجکت‌هایی که بین صحنه‌ها می‌مونن)
