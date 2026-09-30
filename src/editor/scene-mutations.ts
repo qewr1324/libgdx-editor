@@ -1,15 +1,12 @@
 // src/editor/scene-mutations.ts
 import type { GameObject, Layer, Scene } from "../types/scene.js";
 import type { ShapeType, Component } from "../types/components.js";
-import { createComponentId } from "../types/components.js";
+import { createComponentId, isComponentUnique } from "../types/components.js";
 
 // ============================================================
 // Factory Functions
 // ============================================================
 
-/**
- * ساخت آبجکت جدید با component پیش‌فرض بسته به نوع درخواستی.
- */
 export function createObjectAt(type: GameObject["type"], x: number, y: number): GameObject {
 	const id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 	const components: Component[] = [];
@@ -71,9 +68,6 @@ export function createObjectAt(type: GameObject["type"], x: number, y: number): 
 	};
 }
 
-/**
- * 🆕 ساخت آبجکت کاملاً خالی (فقط transform + name)
- */
 export function createEmptyGameObject(x: number, y: number): GameObject {
 	const id = `obj_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 	return {
@@ -112,7 +106,6 @@ export function createShapeAt(shapeType: ShapeType, x: number, y: number): GameO
 	const id = obj.id;
 	obj.name = `${shapeType}_${id.slice(-4)}`;
 
-	// shape component رو با نوع درست جایگزین کن
 	if (obj.components) {
 		obj.components = obj.components.map((c) => {
 			if (c.type === "shape") {
@@ -221,7 +214,6 @@ export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offse
 				clone.zIndex = getNextZIndex(newScene);
 				clone.layerId = layer.id;
 
-				// 🆕 component ها هم باید id جدید بگیرن
 				if (clone.components) {
 					clone.components = clone.components.map((c) => ({
 						...c,
@@ -417,12 +409,12 @@ function getNextZIndexForLayer(scene: Scene, layerId: string): number {
 }
 
 // ============================================================
-// 🆕 Component Mutations
+// Component Mutations
 // ============================================================
 
 /**
  * یه component به آبجکت اضافه می‌کنه.
- * اگه component از قبل از این نوع بود، جایگزینش می‌کنه (به‌جز text که چندتاش مجازه).
+ * اگه component از این نوع از قبل بود، جایگزینش می‌کنه (چون همه unique هستن).
  */
 export function addComponentToObjectInScene(scene: Scene, objectId: string, component: Component): Scene {
 	const newScene = structuredClone(scene) as Scene;
@@ -431,9 +423,7 @@ export function addComponentToObjectInScene(scene: Scene, objectId: string, comp
 		if (obj) {
 			if (!obj.components) obj.components = [];
 
-			// component های یکتا: sprite, atlas, animation, shape
-			const uniqueTypes: Component["type"][] = ["sprite", "atlas", "animation", "shape"];
-			if (uniqueTypes.includes(component.type)) {
+			if (isComponentUnique(component.type)) {
 				const existingIdx = obj.components.findIndex((c) => c.type === component.type);
 				if (existingIdx !== -1) {
 					obj.components[existingIdx] = component;
@@ -448,9 +438,6 @@ export function addComponentToObjectInScene(scene: Scene, objectId: string, comp
 	return newScene;
 }
 
-/**
- * یه component رو آپدیت می‌کنه.
- */
 export function updateComponentInScene(scene: Scene, objectId: string, componentId: string, updates: Partial<Component>): Scene {
 	const newScene = structuredClone(scene) as Scene;
 	for (const layer of newScene.layers) {
@@ -466,9 +453,6 @@ export function updateComponentInScene(scene: Scene, objectId: string, component
 	return newScene;
 }
 
-/**
- * یه component رو حذف می‌کنه.
- */
 export function removeComponentFromScene(scene: Scene, objectId: string, componentId: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
 	for (const layer of newScene.layers) {

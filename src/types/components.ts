@@ -1,7 +1,7 @@
 // src/types/components.ts
 //
 // سیستم کامپوننت‌ها برای LibGDX Editor
-// هر GameObject می‌تونه چند تا از این component ها رو داشته باشه.
+// هر GameObject می‌تونه از هر نوع component فقط یکی داشته باشه.
 //
 // انواع فعلی:
 //   - sprite     → یه texture ساده
@@ -100,88 +100,138 @@ export function hasComponent(components: Component[] | undefined, type: Componen
 	return components.some((c) => c.type === type);
 }
 
-/**
- * یه component پیش‌فرض از نوع داده‌شده می‌سازه.
- */
+// ============================================================
+// Registry — تعریف انواع کامپوننت‌ها
+// ============================================================
+
+export interface ComponentDefinition {
+	type: ComponentType;
+	label: string;
+	icon: string;
+	/** اگه true، فقط یکی از این نوع می‌تونه روی یه آبجکت باشه */
+	unique: boolean;
+	/** factory برای ساخت sample اولیه */
+	create: () => Component;
+}
+
+export const COMPONENT_DEFINITIONS: Record<ComponentType, ComponentDefinition> = {
+	sprite: {
+		type: "sprite",
+		label: "Sprite",
+		icon: "🖼️",
+		unique: true,
+		create: () => ({
+			id: createComponentId(),
+			type: "sprite",
+			texture: "",
+			tint: "#ffffff",
+		}),
+	},
+	atlas: {
+		type: "atlas",
+		label: "Atlas Region",
+		icon: "🗺️",
+		unique: true,
+		create: () => ({
+			id: createComponentId(),
+			type: "atlas",
+			texture: "",
+			atlasPath: "",
+			region: "",
+			tint: "#ffffff",
+		}),
+	},
+	animation: {
+		type: "animation",
+		label: "Animation",
+		icon: "🎬",
+		unique: true,
+		create: () => ({
+			id: createComponentId(),
+			type: "animation",
+			atlasPath: "",
+			texture: "",
+			frames: [],
+			fps: 8,
+			loop: true,
+			autoplay: true,
+			playMode: "LOOP",
+		}),
+	},
+	shape: {
+		type: "shape",
+		label: "Shape",
+		icon: "⬛",
+		unique: true,
+		create: () => ({
+			id: createComponentId(),
+			type: "shape",
+			shape: "rectangle",
+			color: "#4a9eff",
+			filled: true,
+			strokeWidth: 1,
+		}),
+	},
+	text: {
+		type: "text",
+		label: "Text",
+		icon: "🔤",
+		unique: true,
+		create: () => ({
+			id: createComponentId(),
+			type: "text",
+			text: "Label",
+			color: "#ffffff",
+			fontSize: 16,
+		}),
+	},
+};
+
+/** ترتیب نمایش در UI */
+export const COMPONENT_ORDER: ComponentType[] = ["sprite", "atlas", "animation", "shape", "text"];
+
+/** لیبل‌ها (برای دسترسی سریع) */
+export const COMPONENT_LABELS: Record<ComponentType, string> = {
+	sprite: COMPONENT_DEFINITIONS.sprite.label,
+	atlas: COMPONENT_DEFINITIONS.atlas.label,
+	animation: COMPONENT_DEFINITIONS.animation.label,
+	shape: COMPONENT_DEFINITIONS.shape.label,
+	text: COMPONENT_DEFINITIONS.text.label,
+};
+
+/** آیکون‌ها (برای دسترسی سریع) */
+export const COMPONENT_ICONS: Record<ComponentType, string> = {
+	sprite: COMPONENT_DEFINITIONS.sprite.icon,
+	atlas: COMPONENT_DEFINITIONS.atlas.icon,
+	animation: COMPONENT_DEFINITIONS.animation.icon,
+	shape: COMPONENT_DEFINITIONS.shape.icon,
+	text: COMPONENT_DEFINITIONS.text.icon,
+};
+
+// ============================================================
+// Factory
+// ============================================================
+
 export function createDefaultComponent(type: ComponentType): Component {
-	const id = createComponentId();
+	return COMPONENT_DEFINITIONS[type].create();
+}
 
-	switch (type) {
-		case "sprite":
-			return {
-				id,
-				type: "sprite",
-				texture: "",
-				tint: "#ffffff",
-			};
-
-		case "atlas":
-			return {
-				id,
-				type: "atlas",
-				texture: "",
-				atlasPath: "",
-				region: "",
-				tint: "#ffffff",
-			};
-
-		case "animation":
-			return {
-				id,
-				type: "animation",
-				atlasPath: "",
-				texture: "",
-				frames: [],
-				fps: 8,
-				loop: true,
-				autoplay: true,
-				playMode: "LOOP",
-			};
-
-		case "shape":
-			return {
-				id,
-				type: "shape",
-				shape: "rectangle",
-				color: "#4a9eff",
-				filled: true,
-				strokeWidth: 1,
-			};
-
-		case "text":
-			return {
-				id,
-				type: "text",
-				text: "Label",
-				color: "#ffffff",
-				fontSize: 16,
-			};
-	}
+export function isComponentUnique(type: ComponentType): boolean {
+	return COMPONENT_DEFINITIONS[type].unique;
 }
 
 /**
- * لیبل برای نمایش در UI.
+ * بررسی می‌کنه که آیا این type رو میشه به آبجکت اضافه کرد.
+ * اگه unique باشه و از قبل وجود داشته باشه، false برمی‌گردونه.
  */
-export const COMPONENT_LABELS: Record<ComponentType, string> = {
-	sprite: "Sprite",
-	atlas: "Atlas Region",
-	animation: "Animation",
-	shape: "Shape",
-	text: "Text",
-};
+export function canAddComponent(components: Component[] | undefined, type: ComponentType): boolean {
+	if (!isComponentUnique(type)) return true;
+	return !hasComponent(components, type);
+}
 
 /**
- * آیکون برای نمایش در UI.
+ * لیست component type های قابل اضافه به آبجکت.
  */
-export const COMPONENT_ICONS: Record<ComponentType, string> = {
-	sprite: "🖼️",
-	atlas: "🗺️",
-	animation: "🎬",
-	shape: "⬛",
-	text: "🔤",
-};
-
-/**
- * ترتیب نمایش در dropdown.
- */
-export const COMPONENT_ORDER: ComponentType[] = ["sprite", "atlas", "animation", "shape", "text"];
+export function getAvailableComponentTypes(components: Component[] | undefined): ComponentType[] {
+	return COMPONENT_ORDER.filter((t) => canAddComponent(components, t));
+}

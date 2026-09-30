@@ -1,7 +1,7 @@
 // src/webview/components/render.ts
 import type { GameObject } from "../../types/scene.js";
 import type { Component, ComponentType } from "../../types/components.js";
-import { COMPONENT_LABELS, COMPONENT_ICONS, COMPONENT_ORDER } from "../../types/components.js";
+import { COMPONENT_LABELS, COMPONENT_ICONS, getAvailableComponentTypes } from "../../types/components.js";
 import { app, vscode } from "./vscode-api.js";
 import { currentObject, currentObjectId, setCurrentObjectId, multiSelection, componentMenuOpen, setComponentMenuOpen, getAtlasRegions, collapsedSections } from "./state.js";
 import { ICONS } from "./icons.js";
@@ -50,8 +50,6 @@ export function render(force = false): void {
 // ============================================================
 
 function buildPanelHtml(obj: GameObject): string {
-	const components = obj.components ?? [];
-
 	return `
 		<div class="components-panel">
 			${buildComponentsSection(obj)}
@@ -63,21 +61,28 @@ function buildComponentsSection(obj: { components?: Component[] }): string {
 	const components = obj.components ?? [];
 	const collapsed = collapsedSections.has("components");
 
-	const addMenuHtml = `
+	const availableTypes = getAvailableComponentTypes(components);
+
+	const addMenuHtml =
+		availableTypes.length === 0
+			? `<div class="components-empty-inner">All component types are already attached.</div>`
+			: `
 		<div class="components-add-wrap">
 			<button class="components-add-btn" data-add-toggle>
 				${ICONS.plus}
 				<span>Add Component</span>
 			</button>
 			<div class="components-add-menu ${componentMenuOpen ? "open" : ""}" data-add-menu>
-				${COMPONENT_ORDER.map(
-					(type) => `
+				${availableTypes
+					.map(
+						(type) => `
 					<div class="components-add-item" data-add-type="${type}">
 						<span style="display:inline-block;width:16px;text-align:center;">${COMPONENT_ICONS[type]}</span>
 						<span>${COMPONENT_LABELS[type]}</span>
 					</div>
 				`,
-				).join("")}
+					)
+					.join("")}
 			</div>
 		</div>
 	`;
@@ -309,7 +314,6 @@ function installOutsideClickListenerOnce(): void {
 function attachListeners(): void {
 	installOutsideClickListenerOnce();
 
-	// ---------- Section toggle ----------
 	const sectionHeader = app.querySelector<HTMLDivElement>("[data-section-toggle]");
 	sectionHeader?.addEventListener("click", () => {
 		if (collapsedSections.has("components")) collapsedSections.delete("components");
@@ -317,7 +321,6 @@ function attachListeners(): void {
 		render(true);
 	});
 
-	// ---------- Add menu ----------
 	const addToggle = app.querySelector<HTMLButtonElement>("[data-add-toggle]");
 	const addMenu = app.querySelector<HTMLDivElement>("[data-add-menu]");
 	addToggle?.addEventListener("click", (e) => {
@@ -342,7 +345,6 @@ function attachListeners(): void {
 		});
 	}
 
-	// ---------- Remove buttons ----------
 	const removeButtons = app.querySelectorAll<HTMLButtonElement>("[data-remove]");
 	for (const btn of removeButtons) {
 		btn.addEventListener("click", (e) => {
@@ -356,7 +358,6 @@ function attachListeners(): void {
 		});
 	}
 
-	// ---------- Field changes ----------
 	const inputs = app.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("[data-comp-field]");
 	for (const input of inputs) {
 		const componentId = input.dataset.compId!;
@@ -399,7 +400,6 @@ function attachListeners(): void {
 		}
 	}
 
-	// ---------- Reload buttons ----------
 	const reloadButtons = app.querySelectorAll<HTMLButtonElement>("[data-reload]");
 	for (const btn of reloadButtons) {
 		btn.addEventListener("click", (e) => {
@@ -411,7 +411,6 @@ function attachListeners(): void {
 		});
 	}
 
-	// ---------- Atlas trigger ----------
 	const atlasTriggers = app.querySelectorAll<HTMLInputElement>("[data-atlas-trigger]");
 	for (const input of atlasTriggers) {
 		input.addEventListener("blur", () => {
@@ -432,10 +431,6 @@ function sendUpdate(componentId: string, updates: Record<string, unknown>): void
 		updates,
 	});
 }
-
-// ============================================================
-// Update values only
-// ============================================================
 
 function updateComponentFieldValuesForAll(obj: GameObject): void {
 	if (!obj.components) return;
