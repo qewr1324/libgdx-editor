@@ -123,7 +123,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 
 				setTimeout(() => {
 					host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
-				}, 50);
+				}, 100);
 			} catch (err) {
 				vscode.window.showErrorMessage(`Failed to add sprite: ${err instanceof Error ? err.message : String(err)}`);
 			}
@@ -213,7 +213,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 					}
 				}
 			}
-			ClipboardStore.set(items, current.name);
+			ClipboardStore.set(items, current.name, ctx.document.uri.toString());
 			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
 			log.debug(`[message-handler] copy ${items.length} objects from "${current.name}"`);
 			break;
@@ -229,7 +229,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 					}
 				}
 			}
-			ClipboardStore.set(items, current.name);
+			ClipboardStore.set(items, current.name, ctx.document.uri.toString());
 			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
 
 			let updated = current;
@@ -250,9 +250,41 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 
 			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
 
+			const sourceUriStr = ClipboardStore.getSourceDocumentUri();
+			const sourceUri = sourceUriStr ? vscode.Uri.parse(sourceUriStr) : null;
+			const isCrossScene = sourceUri !== null && sourceUri.toString() !== ctx.document.uri.toString();
+
+			const texturePathMap = new Map<string, string>();
+
+			if (isCrossScene && sourceUri) {
+				for (const obj of pasted) {
+					if (obj.components) {
+						for (const comp of obj.components) {
+							const texturePath = (comp as { texture?: string }).texture;
+							if (texturePath) {
+								if (!texturePathMap.has(texturePath)) {
+									try {
+										const newPath = await AssetManager.copyAssetFromScene(sourceUri, ctx.document.uri, texturePath);
+										texturePathMap.set(texturePath, newPath);
+									} catch {
+										// ignore
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+
 			for (const obj of pasted) {
 				if (obj.components) {
-					obj.components = obj.components.map((c) => ({ ...c, id: createComponentId() }));
+					obj.components = obj.components.map((c) => {
+						const component = { ...c, id: createComponentId() } as Component & { texture?: string };
+						if (component.texture && texturePathMap.has(component.texture)) {
+							component.texture = texturePathMap.get(component.texture);
+						}
+						return component;
+					});
 				}
 			}
 
@@ -269,7 +301,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, updated);
 			host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-			log.debug(`[message-handler] pasted ${pasted.length} objects (inPlace=${!!msg.pasteInPlace})`);
+			log.debug(`[message-handler] pasted ${pasted.length} objects (inPlace=${!!msg.pasteInPlace}, crossScene=${isCrossScene})`);
 			break;
 		}
 		case "duplicateObjects":
