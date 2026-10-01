@@ -28,7 +28,7 @@ let selectedGuideId: string | null = null;
 const GUIDE_WIDTH_NORMAL = 1.5;
 const GUIDE_WIDTH_HOVER = 2.5;
 const GUIDE_WIDTH_SELECTED = 3;
-const GUIDE_HIT_WIDTH = 8; // پیکسل راحت برای کلیک
+const GUIDE_HIT_WIDTH = 8;
 const DEFAULT_COLOR = 0x00b8d4;
 
 // ============================================================
@@ -42,15 +42,12 @@ export function setupGuides(): void {
 	guideLayer.label = "guides";
 	guideLayer.eventMode = "static";
 
-	// بین grid و content — چون باید پشت آبجکت‌ها باشه
 	viewport.addChildAt(guideLayer, 1);
 
-	// global pointer events برای drag
 	window.addEventListener("pointermove", handlePointerMove);
 	window.addEventListener("pointerup", handlePointerUp);
 	window.addEventListener("pointercancel", handlePointerUp);
 
-	// context menu برای حذف
 	app.canvas.addEventListener("contextmenu", handleContextMenu);
 }
 
@@ -63,7 +60,6 @@ export function renderGuides(): void {
 
 	guideLayer.removeChildren();
 
-	// اگه guides مخفی هستن، کاری نکن
 	if (scene.showGuides === false) return;
 
 	const guides = scene.guides ?? [];
@@ -88,7 +84,6 @@ export function renderGuides(): void {
 		}
 
 		const g = new Graphics();
-
 		if (guide.axis === "vertical") {
 			g.moveTo(guide.position, 0);
 			g.lineTo(guide.position, worldH);
@@ -96,10 +91,8 @@ export function renderGuides(): void {
 			g.moveTo(0, guide.position);
 			g.lineTo(worldW, guide.position);
 		}
-
 		g.stroke({ width, color, alpha });
 
-		// hit area — نامرئی ولی کلیک‌پذیر
 		const hit = new Graphics();
 		if (guide.axis === "vertical") {
 			hit.rect(guide.position - GUIDE_HIT_WIDTH / 2, 0, GUIDE_HIT_WIDTH, worldH);
@@ -153,7 +146,6 @@ export function renderGuides(): void {
 		guideLayer.addChild(g);
 		guideLayer.addChild(hit);
 
-		// label کوچیک برای guide انتخاب‌شده
 		if (isSelected || isHovered) {
 			const label = createGuideLabel(guide, color);
 			guideLayer.addChild(label);
@@ -190,7 +182,6 @@ function createGuideLabel(guide: Guide, color: number): Container {
 	container.addChild(bg);
 	container.addChild(textObj);
 
-	// موقعیت label
 	if (guide.axis === "vertical") {
 		container.x = guide.position + 8;
 		container.y = 8;
@@ -214,14 +205,12 @@ function handlePointerMove(e: PointerEvent): void {
 
 	const newPos = dragState.axis === "vertical" ? world.x : world.y;
 
-	// snap به grid اگه فعاله
 	let finalPos = newPos;
 	if (scene?.snapToGrid) {
 		const g = scene.gridSize || 32;
 		finalPos = Math.round(newPos / g) * g;
 	}
 
-	// آپدیت local برای رندر فوری
 	if (scene?.guides) {
 		const guide = scene.guides.find((g) => g.id === dragState!.guideId);
 		if (guide) {
@@ -234,7 +223,6 @@ function handlePointerMove(e: PointerEvent): void {
 function handlePointerUp(): void {
 	if (!dragState) return;
 
-	// پیام به extension
 	if (scene?.guides) {
 		const guide = scene.guides.find((g) => g.id === dragState!.guideId);
 		if (guide) {
@@ -251,7 +239,7 @@ function handlePointerUp(): void {
 }
 
 // ============================================================
-// Context Menu (حذف guide)
+// Context Menu
 // ============================================================
 
 function handleContextMenu(e: MouseEvent): void {
@@ -261,9 +249,8 @@ function handleContextMenu(e: MouseEvent): void {
 
 	const rect = app.canvas.getBoundingClientRect();
 	const world = viewport.toWorld(e.clientX - rect.left, e.clientY - rect.top);
-	const tolerance = 6 / viewport.scale.x; // ۶ پیکسل در screen space
+	const tolerance = 6 / viewport.scale.x;
 
-	// پیدا کردن guide نزدیک به کلیک
 	const clicked = guides.find((g) => {
 		if (g.axis === "vertical") return Math.abs(world.x - g.position) < tolerance;
 		return Math.abs(world.y - g.position) < tolerance;
@@ -274,14 +261,12 @@ function handleContextMenu(e: MouseEvent): void {
 		e.stopPropagation();
 
 		if (clicked.locked) {
-			// اگه قفله، پیشنهاد unlock
 			if (window.confirm(`Unlock this guide?`)) {
 				vscode.postMessage({ type: "toggleGuideLock", guideId: clicked.id });
 			}
 			return;
 		}
 
-		// حذف
 		vscode.postMessage({ type: "removeGuide", guideId: clicked.id });
 		selectedGuideId = null;
 		hoveredGuideId = null;

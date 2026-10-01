@@ -51,6 +51,14 @@ function textureCacheHas(path: string): boolean {
 }
 
 // ============================================================
+// 🆕 Scene Changed Event
+// ============================================================
+
+function notifySceneChanged(): void {
+	window.dispatchEvent(new CustomEvent("scene-changed"));
+}
+
+// ============================================================
 // Config
 // ============================================================
 
@@ -93,6 +101,7 @@ export function setupMessages(): void {
 				scheduleRender(() => {
 					renderScene(msg.scene);
 					renderGuides();
+					notifySceneChanged(); // 🆕
 				});
 				break;
 
