@@ -7,6 +7,7 @@ import { setupRulers } from "./ui/rulers.js";
 import { setupMouseTracker } from "./ui/mouse-tracker.js";
 import { setupDeselect } from "./selection/selection.js";
 import { setupMessages } from "./messages.js";
+import { setupGuides } from "./ui/guides.js";
 import { vscode } from "./types.js";
 import { applyTheme } from "./theme/theme-manager.js";
 import { DEFAULT_THEME } from "./theme/themes.js";
@@ -20,6 +21,7 @@ import { installSnapping } from "./features/snapping/index.js";
 	setupToolbar();
 	setupContextMenu();
 	setupRulers();
+	setupGuides(); // 🆕
 	setupMouseTracker();
 	setupDeselect();
 	setupMessages();

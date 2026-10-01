@@ -9,6 +9,7 @@ import { findObject } from "./utils/geometry.js";
 import { applyTheme } from "./theme/theme-manager.js";
 import { setConfig, getConfig } from "./config-store.js";
 import { registerAtlas } from "./features/texture-atlas/atlas-picker.js";
+import { renderGuides } from "./ui/guides.js";
 import type { AtlasData } from "../../features/texture-atlas/atlas-types.js";
 import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 import type { Scene } from "../../types/scene.js";
@@ -88,10 +89,11 @@ export function setupMessages(): void {
 			case "update":
 				currentSceneFromMessage = msg.scene;
 				applyEffectiveTheme();
-				// 🆕 پاک کردن sub-texture cache
-				// چون ممکنه atlas region/grid عوض شده باشه
 				clearSubTextureCache();
-				scheduleRender(() => renderScene(msg.scene));
+				scheduleRender(() => {
+					renderScene(msg.scene);
+					renderGuides();
+				});
 				break;
 
 			case "texturesLoaded": {
@@ -135,8 +137,6 @@ export function setupMessages(): void {
 				};
 
 				registerAtlas(msg.texturePath, atlasData);
-
-				// چون region ها عوض شدن، sub-texture cache باید پاک بشه
 				clearSubTextureCache();
 
 				scheduleRender(() => {
@@ -146,7 +146,6 @@ export function setupMessages(): void {
 			}
 
 			case "atlasNotFound":
-				// atlas پیدا نشد — texture معمولی رندر می‌شه
 				break;
 
 			case "brokenAssets":
@@ -195,4 +194,3 @@ export function setupMessages(): void {
 
 	vscode.postMessage({ type: "requestConfig" });
 }
-

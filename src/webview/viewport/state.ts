@@ -1,3 +1,4 @@
+// src/webview/viewport/state.ts
 import type { Application, Container, Texture } from "pixi.js";
 import type { Viewport } from "pixi-viewport";
 import type { GameObject, Scene } from "../../types/scene.js";

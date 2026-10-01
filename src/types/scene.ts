@@ -1,5 +1,6 @@
 // src/types/scene.ts
 import type { Component } from "./components.js";
+import type { Guide } from "./guides.js";
 
 // ============================================================
 // Basic Types
@@ -34,7 +35,7 @@ export interface GameObject {
 	name: string;
 
 	// ---------- Legacy fields (برای backward-compat) ----------
-	/** @deprecated از components (sprite/atlas) استفاده کن */
+	/** @deprecated از components (sprite) استفاده کن */
 	texture?: string;
 	/** @deprecated از components.shape.color استفاده کن */
 	color?: string;
@@ -44,7 +45,7 @@ export interface GameObject {
 	transform: Transform;
 	properties: Record<string, unknown>;
 
-	/** 🆕 سیستم کامپوننت‌ها */
+	/** سیستم کامپوننت‌ها */
 	components?: Component[];
 
 	children?: GameObject[];
@@ -81,6 +82,11 @@ export interface Scene {
 	snapToObjects: boolean;
 	camera: Camera;
 	layers: Layer[];
+
+	/** 🆕 Guides */
+	guides?: Guide[];
+	/** 🆕 نمایش/مخفی guides */
+	showGuides?: boolean;
 }
 
 // ============================================================
@@ -108,6 +114,8 @@ export function createEmptyScene(name = "untitled"): Scene {
 				objects: [],
 			},
 		],
+		guides: [],
+		showGuides: true,
 	};
 }
 
@@ -137,14 +145,10 @@ export function createGameObject(type: GameObjectType, x: number, y: number): Ga
 // Utilities
 // ============================================================
 
-/** مرتب‌سازی آبجکت‌های یک لایه بر اساس zIndex (ascending) */
 export function sortObjectsByZIndex(objects: GameObject[]): GameObject[] {
 	return [...objects].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 }
 
-/**
- * لایه‌ی یک آبجکت رو پیدا می‌کنه.
- */
 export function findLayerOfObject(scene: Scene, objectId: string): { layer: Layer; index: number } | null {
 	for (const layer of scene.layers) {
 		const idx = layer.objects.findIndex((o) => o.id === objectId);
@@ -153,9 +157,6 @@ export function findLayerOfObject(scene: Scene, objectId: string): { layer: Laye
 	return null;
 }
 
-/**
- * نام لایه‌ی یک آبجکت رو برمی‌گردونه (برای نمایش).
- */
 export function getLayerNameOfObject(scene: Scene, obj: GameObject): string {
 	if (obj.layerId) {
 		const layer = scene.layers.find((l) => l.id === obj.layerId);
@@ -165,9 +166,6 @@ export function getLayerNameOfObject(scene: Scene, obj: GameObject): string {
 	return found?.layer.name ?? "default";
 }
 
-/**
- * شناسه‌ی لایه رو برمی‌گردونه. اگه id نداشت، از name می‌سازه.
- */
 export function getLayerId(layer: Layer): string {
 	return layer.id ?? `layer_${layer.name.replace(/[^a-z0-9]/gi, "_")}`;
 }

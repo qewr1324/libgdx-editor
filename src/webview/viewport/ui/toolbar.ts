@@ -5,6 +5,7 @@ import { getConfig } from "../config-store.js";
 import { copySelection, cutSelection, pasteClipboard, pasteInPlace, duplicateSelection } from "../commands/clipboard.js";
 import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
 import { zoomToFit, resetView } from "../pixi/viewport-utils.js";
+import { clearAllGuides, toggleGuidesVisibility } from "./guides.js";
 import type { ShapeType } from "../../../config/config-types.js";
 
 let currentToolbar: HTMLDivElement | null = null;
@@ -27,6 +28,9 @@ export function setupToolbar(): void {
 
 	window.addEventListener("theme-changed", () => rebuildToolbar());
 	window.addEventListener("config-changed", () => rebuildToolbar());
+
+	// 🆕 وقتی scene عوض شد، toolbar رو rebuild کن (چون showGuides و guide count عوض می‌شه)
+	window.addEventListener("scene-changed", () => rebuildToolbar());
 
 	document.addEventListener(
 		"click",
@@ -71,6 +75,9 @@ function buildToolbar(): HTMLDivElement {
 	const snapObjects = config?.snapping?.enabled ?? false;
 	const gizmoMode = config?.gizmo.mode ?? "world";
 	const gridSize = scene?.gridSize ?? 32;
+	const showGuides = scene?.showGuides !== false;
+	const guideCount = scene?.guides?.length ?? 0;
+	const hasGuides = guideCount > 0;
 
 	toolbar.innerHTML = `
 		<div class="tb-group" data-dropdown="add">
@@ -148,6 +155,9 @@ function buildToolbar(): HTMLDivElement {
 				<div class="tb-menu-item ${showRulers ? "checked" : ""}" data-view-toggle="showRulers">
 					<span class="tb-check">${showRulers ? "✓" : ""}</span> Show Rulers
 				</div>
+				<div class="tb-menu-item ${showGuides ? "checked" : ""}" data-view-toggle="showGuides">
+					<span class="tb-check">${showGuides ? "✓" : ""}</span> Show Guides
+				</div>
 			</div>
 		</div>
 
@@ -176,6 +186,20 @@ function buildToolbar(): HTMLDivElement {
 			<span>⟲ Reset</span>
 		</button>
 
+		<button class="tb-btn ${showGuides ? "active" : ""}" data-action="toggle-guides" title="Toggle Guides (Ctrl+;)">
+			<span>📐 ${hasGuides ? guideCount : ""}</span>
+		</button>
+
+		${
+			hasGuides
+				? `
+			<button class="tb-btn" data-action="clear-guides" title="Clear All Guides">
+				<span>🧹</span>
+			</button>
+		`
+				: ""
+		}
+
 		<button class="tb-btn" data-action="delete" title="Delete Selected">
 			<span>🗑️</span>
 		</button>
@@ -194,7 +218,6 @@ function buildToolbar(): HTMLDivElement {
 
 		const action = target.dataset.action;
 
-		// ---------- Dropdowns ----------
 		if (action === "add-menu" || action === "view-menu" || action === "gridsize-menu") {
 			e.stopPropagation();
 			const group = target.closest(".tb-group") as HTMLElement;
@@ -212,7 +235,6 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- Grid size ----------
 		if (target.dataset.gridSize) {
 			e.stopPropagation();
 			closeDropdown();
@@ -223,7 +245,6 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- Shape ----------
 		if (target.dataset.shape) {
 			e.stopPropagation();
 			closeDropdown();
@@ -231,7 +252,6 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- View mode ----------
 		if (target.dataset.viewMode) {
 			e.stopPropagation();
 			closeDropdown();
@@ -240,10 +260,17 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- View toggle ----------
 		if (target.dataset.viewToggle) {
 			e.stopPropagation();
-			const key = target.dataset.viewToggle as "showGrid" | "showWorldBorder" | "showRulers";
+			const key = target.dataset.viewToggle as "showGrid" | "showWorldBorder" | "showRulers" | "showGuides";
+
+			if (key === "showGuides") {
+				// 🆕 showGuides توی scene هست، نه config
+				toggleGuidesVisibility();
+				closeDropdown();
+				return;
+			}
+
 			const config = getConfig();
 			const current = config?.view[key] ?? true;
 			updateConfigPartial({ view: { [key]: !current } });
@@ -251,7 +278,6 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
-		// ---------- Actions ----------
 		switch (action) {
 			case "add-empty-object":
 				closeDropdown();
@@ -294,6 +320,14 @@ function buildToolbar(): HTMLDivElement {
 			case "reset-view":
 				resetView();
 				showInfo("Reset View");
+				break;
+			case "toggle-guides":
+				toggleGuidesVisibility();
+				showInfo(showGuides ? "Guides: OFF" : "Guides: ON");
+				break;
+			case "clear-guides":
+				clearAllGuides();
+				showInfo("Guides cleared");
 				break;
 			case "delete":
 				deleteSelection();
@@ -447,10 +481,8 @@ function toggleSnapObjects(button: HTMLElement): void {
 function setGridSize(size: number): void {
 	if (!scene) return;
 
-	// آپدیت local scene
 	setScene({ ...scene, gridSize: size });
 
-	// پیام به extension
 	vscode.postMessage({
 		type: "updateSceneField",
 		field: "gridSize",
@@ -458,10 +490,8 @@ function setGridSize(size: number): void {
 		historyLabel: "grid size",
 	});
 
-	// آپدیت config (برای هماهنگی)
 	updateConfigPartial({ grid: { size } });
 
-	// rebuild toolbar برای نشون دادن مقدار جدید
 	rebuildToolbar();
 
 	showInfo(`Grid: ${size}px`);
@@ -512,6 +542,11 @@ function setupKeyboardShortcuts(): void {
 			e.preventDefault();
 			resetView();
 			showInfo("Reset View");
+		} else if (mod && e.key === ";") {
+			// 🆕 toggle guides visibility
+			e.preventDefault();
+			toggleGuidesVisibility();
+			showInfo("Toggle Guides");
 		} else if (e.key === "Delete") {
 			void import("../state.js").then((state) => {
 				if (state.selectedIds.length > 0) {

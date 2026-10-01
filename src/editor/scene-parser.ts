@@ -4,6 +4,7 @@ import { createEmptyScene, type GameObject, type Scene } from "../types/scene.js
 import { createComponentId, type Component } from "../types/components.js";
 import type { ShapeType } from "../types/components.js";
 import { normalizeAtlasProperties, type AtlasProperties } from "../features/texture-atlas/atlas-properties.js";
+import type { Guide } from "../types/guides.js";
 
 // ============================================================
 // Parse
@@ -33,6 +34,11 @@ export function migrateScene(parsed: Scene): Scene {
 	if (!parsed.camera) parsed.camera = { x: 0, y: 0, zoom: 1 };
 	if (typeof parsed.snapToGrid !== "boolean") parsed.snapToGrid = false;
 	if (typeof parsed.snapToObjects !== "boolean") parsed.snapToObjects = false;
+
+	// 🆕 Guides migration
+	if (!Array.isArray(parsed.guides)) parsed.guides = [];
+	else parsed.guides = parsed.guides.filter(isValidGuide);
+	if (typeof parsed.showGuides !== "boolean") parsed.showGuides = true;
 
 	if (!Array.isArray(parsed.layers) || parsed.layers.length === 0) {
 		parsed.layers = [
@@ -74,21 +80,20 @@ export function migrateScene(parsed: Scene): Scene {
 }
 
 /**
+ * چک می‌کنه آیا یه آبجکت guide معتبره یا نه.
+ */
+function isValidGuide(g: unknown): g is Guide {
+	if (!g || typeof g !== "object") return false;
+	const obj = g as Partial<Guide>;
+	return typeof obj.id === "string" && (obj.axis === "horizontal" || obj.axis === "vertical") && typeof obj.position === "number" && Number.isFinite(obj.position);
+}
+
+/**
  * مهاجرت آبجکت‌های قدیمی به سیستم components.
- *
- * قوانین:
- *   - اگه components داشت، فقط type رو gameobject کن
- *   - sprite قدیمی با texture → SpriteComponent
- *   - shape قدیمی → ShapeComponent
- *   - text قدیمی → TextComponent
- *   - AtlasComponent قدیمی → properties.atlas (جدید)
- *   - properties.atlas قدیمی → normalize می‌شه به فرمت جدید
  */
 function migrateObjectToComponents(obj: GameObject): void {
-	// ---------- گام ۱: مهاجرت AtlasComponent → properties.atlas ----------
 	migrateAtlasComponentToProperties(obj);
 
-	// ---------- گام ۲: اگه components داره، فقط type رو درست کن ----------
 	if (obj.components && obj.components.length > 0) {
 		if (obj.type !== "gameobject" && obj.type !== "group") {
 			obj.type = "gameobject";
@@ -98,9 +103,7 @@ function migrateObjectToComponents(obj: GameObject): void {
 
 	const components: Component[] = [];
 
-	// ---------- sprite ----------
 	if (obj.type === "sprite") {
-		// sprite ساده (اگه properties.atlas داره، دیگه sprite نیست — atlas حساب می‌شه)
 		if (!hasAtlasProperties(obj)) {
 			components.push({
 				id: createComponentId(),
@@ -111,7 +114,6 @@ function migrateObjectToComponents(obj: GameObject): void {
 		}
 	}
 
-	// ---------- shape ----------
 	if (obj.type === "shape") {
 		const shapeType = (obj.properties?.shapeType as ShapeType | undefined) ?? "rectangle";
 		components.push({
@@ -124,7 +126,6 @@ function migrateObjectToComponents(obj: GameObject): void {
 		});
 	}
 
-	// ---------- text ----------
 	if (obj.type === "text") {
 		components.push({
 			id: createComponentId(),
@@ -137,16 +138,11 @@ function migrateObjectToComponents(obj: GameObject): void {
 
 	obj.components = components;
 
-	// type رو به gameobject تغییر بده (به‌جز group)
 	if (obj.type !== "group") {
 		obj.type = "gameobject";
 	}
 }
 
-/**
- * اگه آبجکت یه AtlasComponent قدیمی داره، تبدیلش می‌کنه به properties.atlas.
- * این تابع idempotent هست — بار دوم کاری نمی‌کنه.
- */
 function migrateAtlasComponentToProperties(obj: GameObject): void {
 	if (!obj.components || obj.components.length === 0) return;
 
@@ -162,7 +158,6 @@ function migrateAtlasComponentToProperties(obj: GameObject): void {
 
 	if (!atlasComp) return;
 
-	// properties.atlas رو ست کن (اگه از قبل نیست)
 	if (!obj.properties) obj.properties = {};
 	if (!obj.properties.atlas) {
 		const migrated: Partial<AtlasProperties> = {
@@ -175,18 +170,13 @@ function migrateAtlasComponentToProperties(obj: GameObject): void {
 		obj.properties.atlas = normalizeAtlasProperties(migrated);
 	}
 
-	// AtlasComponent رو حذف کن
 	obj.components = obj.components.filter((c) => (c as { type: string }).type !== "atlas");
 
-	// اگه components خالی شد، undefined کن
 	if (obj.components.length === 0) {
 		obj.components = undefined;
 	}
 }
 
-/**
- * چک می‌کنه آیا آبجکت `properties.atlas` داره.
- */
 function hasAtlasProperties(obj: GameObject): boolean {
 	const raw = obj.properties?.atlas;
 	return raw !== undefined && raw !== null && typeof raw === "object";

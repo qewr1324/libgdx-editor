@@ -1,6 +1,20 @@
+// src/webview/viewport/ui/rulers.ts
 import { viewport, scene, setRulerH, setRulerV, setRulerInfo, rulerH, rulerV } from "../state.js";
 import { getCurrentTheme } from "../theme/theme-manager.js";
 import { getConfig, onConfigChange } from "../config-store.js";
+import { vscode } from "../types.js";
+import type { GuideAxis } from "../../../types/guides.js";
+
+// ============================================================
+// Drag state
+// ============================================================
+
+let dragFromRuler: { axis: GuideAxis; clientStart: number } | null = null;
+let dragPreviewLine: HTMLDivElement | null = null;
+
+// ============================================================
+// Setup
+// ============================================================
 
 export function setupRulers(): void {
 	const rh = document.createElement("canvas");
@@ -11,7 +25,8 @@ export function setupRulers(): void {
 	rh.style.width = "100%";
 	rh.style.height = "20px";
 	rh.style.zIndex = "50";
-	rh.style.pointerEvents = "none";
+	rh.style.pointerEvents = "auto"; // 🆕 برای drag
+	rh.style.cursor = "ns-resize"; // 🆕
 	document.body.appendChild(rh);
 	setRulerH(rh);
 
@@ -23,7 +38,8 @@ export function setupRulers(): void {
 	rv.style.width = "20px";
 	rv.style.height = "100%";
 	rv.style.zIndex = "50";
-	rv.style.pointerEvents = "none";
+	rv.style.pointerEvents = "auto"; // 🆕
+	rv.style.cursor = "ew-resize"; // 🆕
 	document.body.appendChild(rv);
 	setRulerV(rv);
 
@@ -65,7 +81,120 @@ export function setupRulers(): void {
 		applyRulerVisibility();
 		drawRulers();
 	});
+
+	// 🆕 drag-from-ruler
+	setupRulerDrag(rh, "horizontal");
+	setupRulerDrag(rv, "vertical");
 }
+
+// ============================================================
+// Drag from Ruler
+// ============================================================
+
+function setupRulerDrag(ruler: HTMLCanvasElement, axis: GuideAxis): void {
+	ruler.addEventListener("pointerdown", (e) => {
+		if (e.button !== 0) return;
+		e.preventDefault();
+
+		dragFromRuler = {
+			axis,
+			clientStart: axis === "vertical" ? e.clientX : e.clientY,
+		};
+
+		// خط پیش‌نمایش
+		dragPreviewLine = document.createElement("div");
+		dragPreviewLine.id = "guide-preview";
+		dragPreviewLine.style.position = "fixed";
+		dragPreviewLine.style.zIndex = "100";
+		dragPreviewLine.style.pointerEvents = "none";
+		dragPreviewLine.style.background = "#00b8d4";
+		dragPreviewLine.style.boxShadow = "0 0 4px #00b8d4";
+
+		if (axis === "vertical") {
+			dragPreviewLine.style.left = `${e.clientX}px`;
+			dragPreviewLine.style.top = "0";
+			dragPreviewLine.style.width = "1px";
+			dragPreviewLine.style.height = "100vh";
+		} else {
+			dragPreviewLine.style.left = "0";
+			dragPreviewLine.style.top = `${e.clientY}px`;
+			dragPreviewLine.style.width = "100vw";
+			dragPreviewLine.style.height = "1px";
+		}
+
+		document.body.appendChild(dragPreviewLine);
+		ruler.setPointerCapture(e.pointerId);
+	});
+
+	ruler.addEventListener("pointermove", (e) => {
+		if (!dragFromRuler || !dragPreviewLine) return;
+
+		if (dragFromRuler.axis === "vertical") {
+			dragPreviewLine.style.left = `${e.clientX}px`;
+		} else {
+			dragPreviewLine.style.top = `${e.clientY}px`;
+		}
+	});
+
+	const finishDrag = (e: PointerEvent) => {
+		if (!dragFromRuler) return;
+
+		try {
+			ruler.releasePointerCapture(e.pointerId);
+		} catch {
+			// ignore
+		}
+
+		if (dragPreviewLine) {
+			dragPreviewLine.remove();
+			dragPreviewLine = null;
+		}
+
+		// چک کن که واقعاً از ruler کشیده شده (نه کلیک ساده)
+		const currentPos = dragFromRuler.axis === "vertical" ? e.clientX : e.clientY;
+		const distance = Math.abs(currentPos - dragFromRuler.clientStart);
+
+		if (distance < 5) {
+			// کلیک ساده — guide نساز
+			dragFromRuler = null;
+			return;
+		}
+
+		if (!viewport) {
+			dragFromRuler = null;
+			return;
+		}
+
+		// تبدیل screen coordinates به world
+		const rect = (document.querySelector("canvas") as HTMLCanvasElement).getBoundingClientRect();
+		const world = viewport.toWorld(e.clientX - rect.left, e.clientY - rect.top);
+
+		const worldPos = dragFromRuler.axis === "vertical" ? world.x : world.y;
+
+		// snap به grid اگه فعاله
+		let finalPos = worldPos;
+		if (scene?.snapToGrid) {
+			const g = scene.gridSize || 32;
+			finalPos = Math.round(worldPos / g) * g;
+		}
+
+		// پیام به extension
+		vscode.postMessage({
+			type: "addGuide",
+			axis: dragFromRuler.axis,
+			position: Math.round(finalPos),
+		});
+
+		dragFromRuler = null;
+	};
+
+	ruler.addEventListener("pointerup", finishDrag);
+	ruler.addEventListener("pointercancel", finishDrag);
+}
+
+// ============================================================
+// Ruler visibility
+// ============================================================
 
 export function applyRulerVisibility(): void {
 	const show = getConfig()?.view.showRulers !== false;
@@ -77,6 +206,10 @@ export function applyRulerVisibility(): void {
 	if (rv) rv.style.display = show ? "block" : "none";
 	if (info) info.style.display = show ? "block" : "none";
 }
+
+// ============================================================
+// Draw Rulers
+// ============================================================
 
 export function drawRulers(): void {
 	if (getConfig()?.view.showRulers === false) return;

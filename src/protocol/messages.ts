@@ -4,6 +4,7 @@ import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType } from "../co
 import type { AtlasSpriteProperties } from "../features/texture-atlas/atlas-types.js";
 import type { Component, ComponentType } from "../types/components.js";
 import type { AtlasProperties } from "../features/texture-atlas/atlas-properties.js";
+import type { GuideAxis } from "../types/guides.js";
 
 export interface LibGdxEditorConfigMessage {
 	version: string;
@@ -95,10 +96,18 @@ export type WebviewToExtensionMessage =
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
 	| { type: "requestConfig" }
 	| { type: "requestAtlasRegions"; texturePath: string }
+	// 🆕 Component operations
 	| { type: "addComponent"; objectId: string; componentType: ComponentType }
 	| { type: "updateComponent"; objectId: string; componentId: string; updates: Partial<Component> }
 	| { type: "removeComponent"; objectId: string; componentId: string }
-	| { type: "replaceComponent"; objectId: string; component: Component };
+	| { type: "replaceComponent"; objectId: string; component: Component }
+	// 🆕 Guides
+	| { type: "addGuide"; axis: GuideAxis; position: number; color?: string }
+	| { type: "moveGuide"; guideId: string; position: number }
+	| { type: "removeGuide"; guideId: string }
+	| { type: "clearGuides" }
+	| { type: "toggleGuidesVisibility" }
+	| { type: "toggleGuideLock"; guideId: string };
 
 export type ExtensionToWebviewMessage =
 	| { type: "load"; scene: Scene }

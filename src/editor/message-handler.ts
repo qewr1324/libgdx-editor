@@ -28,6 +28,7 @@ import {
 	removeComponentFromScene,
 	updateAtlasPropertiesInScene,
 } from "./scene-mutations.js";
+import { addGuideToScene, moveGuideInScene, removeGuideFromScene, clearGuidesInScene, toggleGuidesVisibilityInScene, toggleGuideLockInScene } from "./guide-mutations.js";
 import { ClipboardStore } from "./clipboardStore.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
 import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/objectOps.js";
@@ -172,7 +173,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			}, 50);
 			break;
 		}
-		// 🆕 Atlas — کاربر از toolbar می‌زنه، فایل picker باز می‌شه
 		case "requestAddAtlas": {
 			const scene = host.getScene();
 			if (!scene) break;
@@ -190,7 +190,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			let sourceUri = uris[0];
 			const sourceExt = sourceUri.fsPath.toLowerCase();
 
-			// اگه خود .atlas انتخاب شد، کنارش .png رو پیدا کن
 			if (sourceExt.endsWith(".atlas")) {
 				const pngPath = sourceUri.fsPath.replace(/\.atlas$/i, ".png");
 				const pngUri = vscode.Uri.file(pngPath);
@@ -278,7 +277,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "updateSceneField":
 			updateSceneFieldOp(host, msg.field, msg.value, msg.historyLabel ?? `update ${msg.field}`);
 			break;
-		// 🆕 Atlas update از inspector
 		case "updateAtlasProperties": {
 			const current = host.getScene();
 			if (!current) break;
@@ -476,6 +474,49 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "replaceComponent":
 			handleReplaceComponent(host, msg.objectId, msg.component);
 			break;
+		// 🆕 Guides
+		case "addGuide": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = addGuideToScene(current, msg.axis, msg.position, msg.color);
+			host.getHistory().commit(updated, "add guide");
+			break;
+		}
+		case "moveGuide": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = moveGuideInScene(current, msg.guideId, msg.position);
+			host.getHistory().commit(updated, "move guide");
+			break;
+		}
+		case "removeGuide": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = removeGuideFromScene(current, msg.guideId);
+			host.getHistory().commit(updated, "remove guide");
+			break;
+		}
+		case "clearGuides": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = clearGuidesInScene(current);
+			host.getHistory().commit(updated, "clear guides");
+			break;
+		}
+		case "toggleGuidesVisibility": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = toggleGuidesVisibilityInScene(current);
+			host.getHistory().commit(updated, "toggle guides");
+			break;
+		}
+		case "toggleGuideLock": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = toggleGuideLockInScene(current, msg.guideId);
+			host.getHistory().commit(updated, "toggle guide lock");
+			break;
+		}
 		case "updateConfigPartial": {
 			await config.update(msg.partial as never);
 
