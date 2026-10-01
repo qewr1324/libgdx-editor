@@ -1,12 +1,18 @@
 // src/generator/javaGenerator.ts
 import type { GameObject, Scene } from "../types/scene.js";
-import type { Component, ShapeType, AnimationComponent } from "../types/components.js";
+import type { Component, ShapeType, AnimationComponent, ShapeComponent, TextComponent } from "../types/components.js";
 import { findComponent } from "../types/components.js";
 import type { GenerateOptions } from "./generator-types.js";
 import { generateAnimatedActorFile } from "./javaAnimatedActor.js";
+import { generateShapeActorsFile } from "./javaShapeActors.js";
+import { generateLabelActorFile } from "./javaLabelActor.js";
 import { getAtlasProperties } from "../features/texture-atlas/atlas-properties.js";
 
 export type { GenerateOptions, GeneratedFile, GenerateResult } from "./generator-types.js";
+
+// ============================================================
+// Entry point
+// ============================================================
 
 export function generateCode(scene: Scene, options: GenerateOptions): string {
 	if (options.language === "java") {
@@ -19,10 +25,22 @@ export function generateCodeWithHelpers(scene: Scene, options: GenerateOptions):
 	const main = generateCode(scene, options);
 	const helpers: Array<{ fileName: string; content: string }> = [];
 
+	// ---------- Animation helper ----------
 	const hasAnimation = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "animation")));
-
 	if (hasAnimation && options.includeAnimatedActorHelper) {
 		helpers.push(generateAnimatedActorFile(options));
+	}
+
+	// ---------- 🆕 Shape helper ----------
+	const hasShape = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "shape")));
+	if (hasShape && options.includeShapeActorsHelper) {
+		helpers.push(generateShapeActorsFile(options));
+	}
+
+	// ---------- 🆕 Text helper ----------
+	const hasText = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "text")));
+	if (hasText && options.includeLabelActorHelper) {
+		helpers.push(generateLabelActorFile(options));
 	}
 
 	return { main, helpers };
@@ -45,8 +63,10 @@ function generateJava(scene: Scene, options: GenerateOptions): string {
 	lines.push(`import com.badlogic.gdx.graphics.Color;`);
 	lines.push(`import com.badlogic.gdx.graphics.Texture;`);
 	lines.push(`import com.badlogic.gdx.graphics.g2d.Animation;`);
+	lines.push(`import com.badlogic.gdx.graphics.g2d.BitmapFont;`);
 	lines.push(`import com.badlogic.gdx.graphics.g2d.TextureAtlas;`);
 	lines.push(`import com.badlogic.gdx.graphics.g2d.TextureRegion;`);
+	lines.push(`import com.badlogic.gdx.graphics.glutils.ShapeRenderer;`);
 	lines.push(`import com.badlogic.gdx.scenes.scene2d.Stage;`);
 	lines.push(`import com.badlogic.gdx.scenes.scene2d.Actor;`);
 	lines.push(`import com.badlogic.gdx.scenes.scene2d.ui.Image;`);
@@ -60,6 +80,10 @@ function generateJava(scene: Scene, options: GenerateOptions): string {
 		lines.push(` * Scene: ${scene.name}`);
 		lines.push(` * World size: ${scene.worldSize.width}x${scene.worldSize.height}`);
 		lines.push(` * Generated: ${new Date().toISOString()}`);
+		lines.push(` *`);
+		lines.push(` * IMPORTANT:`);
+		lines.push(` *   - If scene has shapes, you must set "ShapeActors.sharedRenderer".`);
+		lines.push(` *   - If scene has text, you must provide a BitmapFont.`);
 		lines.push(` */`);
 	}
 
@@ -69,12 +93,25 @@ function generateJava(scene: Scene, options: GenerateOptions): string {
 	lines.push(`\tpublic static final float WORLD_HEIGHT = ${scene.worldSize.height}f;`);
 	lines.push("");
 
+	// چک کنیم آیا shape داریم — اگه بله، یه ShapeRenderer static می‌سازیم
+	const hasShape = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "shape")));
+	if (hasShape) {
+		lines.push(`\t/** Shared ShapeRenderer — initialized by create() */`);
+		lines.push(`\tprivate static ShapeRenderer shapeRenderer;`);
+		lines.push("");
+	}
+
 	if (includeComments) {
 		lines.push(`\t/**`);
 		lines.push(`\t * Populates the given Stage with all objects from the scene.`);
 		lines.push(`\t */`);
 	}
 	lines.push(`\tpublic static void create(Stage stage, AssetManager assets) {`);
+
+	if (hasShape) {
+		lines.push(`\t\tshapeRenderer = new ShapeRenderer();`);
+		lines.push(`\t\tShapeActors.sharedRenderer = shapeRenderer;`);
+	}
 
 	const allObjects: GameObject[] = [];
 	for (const layer of scene.layers) {
@@ -91,6 +128,23 @@ function generateJava(scene: Scene, options: GenerateOptions): string {
 	}
 
 	lines.push(`\t}`);
+	lines.push("");
+
+	if (hasShape) {
+		if (includeComments) {
+			lines.push(`\t/**`);
+			lines.push(`\t * Call this in dispose() to clean up the ShapeRenderer.`);
+			lines.push(`\t */`);
+		}
+		lines.push(`\tpublic static void dispose() {`);
+		lines.push(`\t\tif (shapeRenderer != null) {`);
+		lines.push(`\t\t\tshapeRenderer.dispose();`);
+		lines.push(`\t\t\tshapeRenderer = null;`);
+		lines.push(`\t\t\tShapeActors.sharedRenderer = null;`);
+		lines.push(`\t\t}`);
+		lines.push(`\t}`);
+	}
+
 	lines.push(`}`);
 
 	return lines.join("\n");
@@ -103,6 +157,7 @@ function generateJavaObject(obj: GameObject, includeComments: boolean): string[]
 	const components = obj.components ?? [];
 	const atlasProps = getAtlasProperties(obj);
 
+	// ---------- Atlas ----------
 	if (atlasProps && atlasProps.texture) {
 		if (includeComments) {
 			lines.push(`\t\t// ${obj.name} (atlas, mode=${atlasProps.mode})`);
@@ -125,11 +180,13 @@ function generateJavaObject(obj: GameObject, includeComments: boolean): string[]
 	const shapeComp = findComponent(components, "shape");
 	const textComp = findComponent(components, "text");
 
+	// ---------- Animation ----------
 	if (animationComp) {
 		lines.push(...generateJavaAnimation(animationComp, obj, varName));
 		return lines;
 	}
 
+	// ---------- Sprite ----------
 	if (spriteComp && spriteComp.texture) {
 		lines.push(`\t\tTexture ${varName}Tex = assets.get("${spriteComp.texture}", Texture.class);`);
 		lines.push(`\t\tImage ${varName} = new Image(new TextureRegionDrawable(new TextureRegion(${varName}Tex)));`);
@@ -147,32 +204,15 @@ function generateJavaObject(obj: GameObject, includeComments: boolean): string[]
 		return lines;
 	}
 
+	// ---------- 🆕 Shape (واقعی) ----------
 	if (shapeComp) {
-		const shape = shapeComp.shape;
-		const c = hexToRgbaFloat(shapeComp.color);
-		if (includeComments) {
-			lines.push(`\t\t// TODO: implement a custom Actor for ${shape}`);
-		}
-		lines.push(`\t\t// Shape "${shape}" at (${t.x}, ${t.y}) size ${t.width}x${t.height}`);
-		lines.push(`\t\t// color: rgba(${c.r}f, ${c.g}f, ${c.b}f, ${c.a}f), filled: ${shapeComp.filled}`);
-		if (shapeComp.strokeWidth && shapeComp.strokeWidth > 0) {
-			const sc = shapeComp.strokeColor ? hexToRgbaFloat(shapeComp.strokeColor) : { r: 0, g: 0, b: 0, a: 0.5 };
-			lines.push(`\t\t// stroke: rgba(${sc.r}f, ${sc.g}f, ${sc.b}f, ${sc.a}f), width: ${shapeComp.strokeWidth}`);
-		}
-		lines.push(`\t\t// ${shapeTypeToActorName(shape)} ${varName} = new ${shapeTypeToActorName(shape)}(${t.width}f, ${t.height}f);`);
-		lines.push(`\t\t// ${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f);`);
-		lines.push(`\t\t// stage.addActor(${varName});`);
+		lines.push(...generateJavaShape(shapeComp, obj, varName));
 		return lines;
 	}
 
+	// ---------- 🆕 Text (واقعی) ----------
 	if (textComp) {
-		if (includeComments) {
-			lines.push(`\t\t// TODO: Label ${varName} = new Label("${escapeJavaString(textComp.text)}", skin);`);
-		}
-		lines.push(`\t\t// ${varName}.setFontScale(${textComp.fontSize / 16}f);`);
-		lines.push(`\t\t// ${varName}.setColor(new Color(${hexToRgbaFloat(textComp.color).r}f, ${hexToRgbaFloat(textComp.color).g}f, ${hexToRgbaFloat(textComp.color).b}f, 1f));`);
-		lines.push(`\t\t// ${varName}.setPosition(${t.x}f, ${t.y}f);`);
-		lines.push(`\t\t// stage.addActor(${varName});`);
+		lines.push(...generateJavaText(textComp, obj, varName, includeComments));
 		return lines;
 	}
 
@@ -182,15 +222,72 @@ function generateJavaObject(obj: GameObject, includeComments: boolean): string[]
 	return lines;
 }
 
-/**
- * 🆕 Atlas generation — فقط single و grid
- */
+// ============================================================
+// 🆕 Shape generation
+// ============================================================
+
+function generateJavaShape(shapeComp: ShapeComponent, obj: GameObject, varName: string): string[] {
+	const lines: string[] = [];
+	const t = obj.transform;
+	const c = hexToRgbaFloat(shapeComp.color);
+
+	const actorType = shapeTypeToActorName(shapeComp.shape);
+
+	lines.push(`\t\tShapeActors.${actorType} ${varName} = new ShapeActors.${actorType}(${t.width}f, ${t.height}f);`);
+	lines.push(`\t\t${varName}.setShapeColor(new Color(${c.r}f, ${c.g}f, ${c.b}f, ${c.a}f));`);
+	lines.push(`\t\t${varName}.setFilled(${shapeComp.filled ? "true" : "false"});`);
+	if (shapeComp.strokeWidth && shapeComp.strokeWidth > 0) {
+		lines.push(`\t\t${varName}.setStrokeWidth(${shapeComp.strokeWidth}f);`);
+	}
+	lines.push(`\t\t${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f);`);
+	lines.push(`\t\t${varName}.setOrigin(${t.width * t.originX}f, ${t.height * t.originY}f);`);
+	if (t.rotation !== 0) {
+		lines.push(`\t\t${varName}.setRotation(${t.rotation}f);`);
+	}
+	lines.push(`\t\tstage.addActor(${varName});`);
+
+	return lines;
+}
+
+// ============================================================
+// 🆕 Text generation
+// ============================================================
+
+function generateJavaText(textComp: TextComponent, obj: GameObject, varName: string, includeComments: boolean): string[] {
+	const lines: string[] = [];
+	const t = obj.transform;
+	const c = hexToRgbaFloat(textComp.color);
+
+	if (includeComments) {
+		lines.push(`\t\t// You must provide a BitmapFont. Example:`);
+		lines.push(`\t\t// BitmapFont ${varName}Font = new BitmapFont();`);
+	}
+
+	lines.push(`\t\tBitmapFont ${varName}Font = new BitmapFont();`);
+	if (textComp.fontSize && textComp.fontSize !== 16) {
+		const scale = textComp.fontSize / 16;
+		lines.push(`\t\t${varName}Font.getData().setScale(${scale}f);`);
+	}
+	lines.push(`\t\tLabelActor ${varName} = new LabelActor("${escapeJavaString(textComp.text)}", ${varName}Font);`);
+	lines.push(`\t\t${varName}.setTextColor(new Color(${c.r}f, ${c.g}f, ${c.b}f, ${c.a}f));`);
+	lines.push(`\t\t${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f);`);
+	if (t.rotation !== 0) {
+		lines.push(`\t\t${varName}.setRotation(${t.rotation}f);`);
+	}
+	lines.push(`\t\tstage.addActor(${varName});`);
+
+	return lines;
+}
+
+// ============================================================
+// Atlas generation
+// ============================================================
+
 function generateJavaAtlas(atlasProps: NonNullable<ReturnType<typeof getAtlasProperties>>, obj: GameObject, varName: string): string[] {
 	const lines: string[] = [];
 	const t = obj.transform;
 
 	if (!atlasProps.atlasPath) {
-		// فقط PNG داریم — از Texture استفاده کن
 		lines.push(`\t\tTexture ${varName}Tex = assets.get("${atlasProps.texture}", Texture.class);`);
 		lines.push(`\t\tImage ${varName} = new Image(new TextureRegionDrawable(new TextureRegion(${varName}Tex)));`);
 		lines.push(`\t\t${varName}.setSize(${t.width}f, ${t.height}f);`);
@@ -203,7 +300,6 @@ function generateJavaAtlas(atlasProps: NonNullable<ReturnType<typeof getAtlasPro
 		return lines;
 	}
 
-	// atlas داریم
 	lines.push(`\t\tTextureAtlas ${varName}Atlas = assets.get("${atlasProps.atlasPath}", TextureAtlas.class);`);
 
 	if (atlasProps.mode === "single" && atlasProps.region) {
@@ -235,6 +331,10 @@ function generateJavaAtlas(atlasProps: NonNullable<ReturnType<typeof getAtlasPro
 
 	return lines;
 }
+
+// ============================================================
+// Animation generation
+// ============================================================
 
 function generateJavaAnimation(anim: AnimationComponent, obj: GameObject, varName: string): string[] {
 	const lines: string[] = [];
@@ -307,8 +407,10 @@ function generateKotlin(scene: Scene, options: GenerateOptions): string {
 	lines.push(`import com.badlogic.gdx.graphics.Color`);
 	lines.push(`import com.badlogic.gdx.graphics.Texture`);
 	lines.push(`import com.badlogic.gdx.graphics.g2d.Animation`);
+	lines.push(`import com.badlogic.gdx.graphics.g2d.BitmapFont`);
 	lines.push(`import com.badlogic.gdx.graphics.g2d.TextureAtlas`);
 	lines.push(`import com.badlogic.gdx.graphics.g2d.TextureRegion`);
+	lines.push(`import com.badlogic.gdx.graphics.glutils.ShapeRenderer`);
 	lines.push(`import com.badlogic.gdx.scenes.scene2d.Stage`);
 	lines.push(`import com.badlogic.gdx.scenes.scene2d.ui.Image`);
 	lines.push(`import com.badlogic.gdx.scenes.scene2d.utils.TextureRegionDrawable`);
@@ -328,12 +430,24 @@ function generateKotlin(scene: Scene, options: GenerateOptions): string {
 	lines.push(`    const val WORLD_HEIGHT = ${scene.worldSize.height}f`);
 	lines.push("");
 
+	const hasShape = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "shape")));
+	if (hasShape) {
+		lines.push(`    private var shapeRenderer: ShapeRenderer? = null`);
+		lines.push("");
+	}
+
 	if (includeComments) {
 		lines.push(`    /**`);
 		lines.push(`     * Populates the Stage with all scene objects.`);
 		lines.push(`     */`);
 	}
 	lines.push(`    fun create(stage: Stage, assets: AssetManager) {`);
+
+	if (hasShape) {
+		lines.push(`        val sr = ShapeRenderer()`);
+		lines.push(`        shapeRenderer = sr`);
+		lines.push(`        ShapeActors.sharedRenderer = sr`);
+	}
 
 	const allObjects: GameObject[] = [];
 	for (const layer of scene.layers) {
@@ -348,6 +462,16 @@ function generateKotlin(scene: Scene, options: GenerateOptions): string {
 	}
 
 	lines.push(`    }`);
+	lines.push("");
+
+	if (hasShape) {
+		lines.push(`    fun dispose() {`);
+		lines.push(`        shapeRenderer?.dispose()`);
+		lines.push(`        shapeRenderer = null`);
+		lines.push(`        ShapeActors.sharedRenderer = null`);
+		lines.push(`    }`);
+	}
+
 	lines.push(`}`);
 
 	return lines.join("\n");
@@ -400,22 +524,55 @@ function generateKotlinObject(obj: GameObject, includeComments: boolean): string
 		return lines;
 	}
 
+	// 🆕 Shape
 	if (shapeComp) {
-		lines.push(`        // TODO: create a custom Actor for ${shapeComp.shape}`);
-		lines.push(`        // size: ${t.width}x${t.height}, position: (${t.x}, ${t.y})`);
+		lines.push(...generateKotlinShape(shapeComp, obj, varName));
 		return lines;
 	}
 
+	// 🆕 Text
 	if (textComp) {
-		lines.push(`        // TODO: Label ${varName} = Label("${escapeJavaString(textComp.text)}", skin)`);
+		lines.push(...generateKotlinText(textComp, obj, varName));
+		return lines;
 	}
 
 	return lines;
 }
 
-/**
- * 🆕 Kotlin Atlas — فقط single و grid
- */
+function generateKotlinShape(shapeComp: ShapeComponent, obj: GameObject, varName: string): string[] {
+	const lines: string[] = [];
+	const t = obj.transform;
+	const c = hexToRgbaFloat(shapeComp.color);
+
+	const actorType = shapeTypeToActorName(shapeComp.shape);
+
+	lines.push(`        val ${varName} = ShapeActors.${actorType}(${t.width}f, ${t.height}f)`);
+	lines.push(`        ${varName}.shapeColor.set(${c.r}f, ${c.g}f, ${c.b}f, ${c.a}f)`);
+	lines.push(`        ${varName}.filled = ${shapeComp.filled}`);
+	lines.push(`        ${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f)`);
+	lines.push(`        ${varName}.setOrigin(${t.width * t.originX}f, ${t.height * t.originY}f)`);
+	if (t.rotation !== 0) {
+		lines.push(`        ${varName}.rotation = ${t.rotation}f`);
+	}
+	lines.push(`        stage.addActor(${varName})`);
+
+	return lines;
+}
+
+function generateKotlinText(textComp: TextComponent, obj: GameObject, varName: string): string[] {
+	const lines: string[] = [];
+	const t = obj.transform;
+	const c = hexToRgbaFloat(textComp.color);
+
+	lines.push(`        val ${varName}Font = BitmapFont()`);
+	lines.push(`        val ${varName} = LabelActor("${escapeJavaString(textComp.text)}", ${varName}Font)`);
+	lines.push(`        ${varName}.textColor.set(${c.r}f, ${c.g}f, ${c.b}f, ${c.a}f)`);
+	lines.push(`        ${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f)`);
+	lines.push(`        stage.addActor(${varName})`);
+
+	return lines;
+}
+
 function generateKotlinAtlas(atlasProps: NonNullable<ReturnType<typeof getAtlasProperties>>, obj: GameObject, varName: string): string[] {
 	const lines: string[] = [];
 	const t = obj.transform;

@@ -46,21 +46,36 @@ export async function generateCodeCommand(): Promise<void> {
 		value: "com.example.scenes",
 	});
 
-	// 🆕 چک کن آیا صحنه انیمیشن داره
+	// ---------- چک کردن feature ها ----------
 	const hasAnimation = scene.layers.some((layer) => layer.objects.some((obj) => !!findComponent(obj.components, "animation")));
+	const hasShape = scene.layers.some((layer) => layer.objects.some((obj) => !!findComponent(obj.components, "shape")));
+	const hasText = scene.layers.some((layer) => layer.objects.some((obj) => !!findComponent(obj.components, "text")));
 
-	// 🆕 اگه انیمیشن داشت، بپرس AnimatedActor رو هم بسازه یا نه
+	// ---------- helper options ----------
 	let includeAnimatedActorHelper = false;
-	if (hasAnimation) {
+	let includeShapeActorsHelper = false;
+	let includeLabelActorHelper = false;
+
+	const helpers: string[] = [];
+	if (hasAnimation) helpers.push("AnimatedActor");
+	if (hasShape) helpers.push("ShapeActors");
+	if (hasText) helpers.push("LabelActor");
+
+	if (helpers.length > 0) {
 		const choice = await vscode.window.showQuickPick(
 			[
-				{ label: "Yes", value: true, description: "Also generate AnimatedActor helper class" },
-				{ label: "No", value: false, description: "Only generate the main scene file" },
+				{ label: "Yes, generate all helpers", value: "all" as const, description: `Includes: ${helpers.join(", ")}` },
+				{ label: "No, only the main scene file", value: "none" as const, description: "You'll need to provide helper classes yourself" },
 			],
-			{ title: "Generate Code", placeHolder: "Include AnimatedActor helper?" },
+			{ title: "Generate Code", placeHolder: "Generate helper files?" },
 		);
 		if (!choice) return;
-		includeAnimatedActorHelper = choice.value;
+
+		if (choice.value === "all") {
+			includeAnimatedActorHelper = hasAnimation;
+			includeShapeActorsHelper = hasShape;
+			includeLabelActorHelper = hasText;
+		}
 	}
 
 	const ext = language.value === "java" ? "java" : "kt";
@@ -80,6 +95,8 @@ export async function generateCodeCommand(): Promise<void> {
 		language: language.value,
 		includeComments: true,
 		includeAnimatedActorHelper,
+		includeShapeActorsHelper,
+		includeLabelActorHelper,
 		helperPackageName: packageName?.trim() || undefined,
 	});
 

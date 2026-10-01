@@ -8,7 +8,11 @@ export interface GenerateOptions {
 	includeComments: boolean;
 	/** اگه true، فایل AnimatedActor.java هم تولید بشه */
 	includeAnimatedActorHelper: boolean;
-	/** پکیج برای فایل کمکی AnimatedActor */
+	/** 🆕 اگه true، فایل ShapeActors.java تولید بشه (وقتی shape وجود داره) */
+	includeShapeActorsHelper: boolean;
+	/** 🆕 اگه true، فایل LabelActor.java تولید بشه (وقتی text وجود داره) */
+	includeLabelActorHelper: boolean;
+	/** پکیج برای فایل‌های کمکی */
 	helperPackageName?: string;
 }
 
@@ -28,4 +32,6 @@ export const DEFAULT_GENERATE_OPTIONS: GenerateOptions = {
 	language: "java",
 	includeComments: true,
 	includeAnimatedActorHelper: true,
+	includeShapeActorsHelper: true,
+	includeLabelActorHelper: true,
 };
