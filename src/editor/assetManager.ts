@@ -115,17 +115,27 @@ export class AssetManager {
 		}
 	}
 
-	public static getAllUsedTextures(scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; children?: unknown }> }> }): Set<string> {
+	public static getAllUsedTextures(scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Set<string> {
 		const set = new Set<string>();
-		const visit = (objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; children?: unknown }>) => {
+		const visit = (objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }>) => {
 			for (const obj of objects) {
 				if (obj.texture) set.add(obj.texture);
+
 				if (obj.components) {
 					for (const comp of obj.components) {
 						if (comp.texture) set.add(comp.texture);
 					}
 				}
-				if (Array.isArray(obj.children)) visit(obj.children as Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; children?: unknown }>);
+
+				// 🆕 Atlas texture from properties.atlas.texture
+				const atlasRaw = obj.properties?.atlas as { texture?: string } | undefined;
+				if (atlasRaw?.texture) {
+					set.add(atlasRaw.texture);
+				}
+
+				if (Array.isArray(obj.children)) {
+					visit(obj.children as Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }>);
+				}
 			}
 		};
 		for (const layer of scene.layers) {
@@ -134,7 +144,7 @@ export class AssetManager {
 		return set;
 	}
 
-	public static async findBrokenAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; children?: unknown }> }> }): Promise<string[]> {
+	public static async findBrokenAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Promise<string[]> {
 		const used = AssetManager.getAllUsedTextures(scene);
 		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
 		const broken: string[] = [];
@@ -151,7 +161,7 @@ export class AssetManager {
 		return broken;
 	}
 
-	public static async cleanupUnusedAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; children?: unknown }> }> }): Promise<void> {
+	public static async cleanupUnusedAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Promise<void> {
 		const assetsDir = AssetManager.getAssetsDir(sceneUri);
 		const assetsDirName = AssetManager.getAssetsDirName(sceneUri);
 		const used = AssetManager.getAllUsedTextures(scene);
@@ -173,7 +183,7 @@ export class AssetManager {
 		}
 	}
 
-	public static async loadTexturesAsDataUrls(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; children?: unknown }> }> }): Promise<Record<string, string>> {
+	public static async loadTexturesAsDataUrls(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Promise<Record<string, string>> {
 		const result: Record<string, string> = {};
 		const used = AssetManager.getAllUsedTextures(scene);
 		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
@@ -193,7 +203,7 @@ export class AssetManager {
 		return result;
 	}
 
-	public static async migrateOldAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; children?: unknown }> }> }): Promise<boolean> {
+	public static async migrateOldAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Promise<boolean> {
 		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
 		const oldAssetsDir = vscode.Uri.joinPath(sceneDir, "assets");
 		const newAssetsDir = AssetManager.getAssetsDir(sceneUri);

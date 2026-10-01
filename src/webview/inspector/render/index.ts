@@ -4,10 +4,12 @@ import { currentObject, currentObjectId, currentScene, multiSelection, sceneMode
 import { app } from "../vscode-api.js";
 import { buildSceneSettingsHtml, updateSceneFieldValues, attachSceneListeners } from "./scene-settings.js";
 import { buildInspectorHtml, updateFieldValues, attachObjectListeners } from "./object-inspector.js";
+import { getAtlasProperties } from "../../../features/texture-atlas/atlas-properties.js";
 
 export function render(force = false): void {
 	applyEffectiveTheme();
 
+	// ---------- Scene settings mode ----------
 	if (sceneMode && currentScene) {
 		if (!force && app.querySelector(".inspector-scene")) {
 			updateSceneFieldValues(currentScene);
@@ -25,6 +27,7 @@ export function render(force = false): void {
 		return;
 	}
 
+	// ---------- Multi-selection ----------
 	if (multiSelection) {
 		app.innerHTML = `
 			<div class="inspector-empty">
@@ -37,6 +40,7 @@ export function render(force = false): void {
 		return;
 	}
 
+	// ---------- No selection ----------
 	if (!currentObject) {
 		app.innerHTML = `
 			<div class="inspector-empty">
@@ -49,14 +53,59 @@ export function render(force = false): void {
 		return;
 	}
 
+	// ---------- Same object + panel exists ----------
 	if (!force && currentObjectId === currentObject.id && app.querySelector(".inspector:not(.inspector-scene)")) {
+		// 🆕 چک کن آیا atlas mode عوض شده — اگه بله، رندر کامل
+		if (atlasModeChanged(currentObject)) {
+			setCurrentObjectId(currentObject.id);
+			app.innerHTML = buildInspectorHtml(currentObject);
+			attachObjectListeners();
+			return;
+		}
+
+		// چک کن آیا تعداد visual components عوض شده (اضافه/حذف)
+		if (visualComponentsCountChanged(currentObject)) {
+			setCurrentObjectId(currentObject.id);
+			app.innerHTML = buildInspectorHtml(currentObject);
+			attachObjectListeners();
+			return;
+		}
+
 		updateFieldValues(currentObject, currentScene);
 		return;
 	}
 
+	// ---------- Full render ----------
 	setCurrentObjectId(currentObject.id);
 	app.innerHTML = buildInspectorHtml(currentObject);
 	attachObjectListeners();
+}
+
+// ============================================================
+// Change detection helpers
+// ============================================================
+
+/**
+ * چک می‌کنه آیا atlas.mode عوض شده (single ↔ sequence ↔ grid).
+ * اگه بله، UI باید کامل رندر مجدد بشه چون فیلدها فرق می‌کنن.
+ */
+function atlasModeChanged(obj: { properties?: Record<string, unknown> }): boolean {
+	const props = getAtlasProperties(obj as never);
+	if (!props) return false;
+	const modeSelect = app.querySelector<HTMLSelectElement>('[data-atlas-field="mode"]');
+	if (!modeSelect) return true; // panel قدیمی atlas نداشت → رندر کامل لازمه
+	return modeSelect.value !== props.mode;
+}
+
+/**
+ * چک می‌کنه آیا visual components عوض شدن (اضافه/حذف).
+ * اگه تعداد فرق کنه، section list باید رندر مجدد بشه.
+ */
+function visualComponentsCountChanged(obj: { components?: Array<{ type: string }> }): boolean {
+	const components = obj.components ?? [];
+	const visual = components.filter((c) => c.type === "sprite" || c.type === "animation" || c.type === "shape" || c.type === "text");
+	const domCount = app.querySelectorAll('[data-section-id^="vc-"]').length;
+	return visual.length !== domCount;
 }
 
 export { buildSceneSettingsHtml, buildInspectorHtml };

@@ -8,6 +8,7 @@ import { ConfigManager } from "../config/config-manager.js";
 import type { SceneHost } from "../editor/scene-types.js";
 import { moveObjectToLayerOp } from "../features/layers/layer-ops.js";
 import { handleRemoveComponent } from "../editor/message-handler.js";
+import { updateAtlasPropertiesInScene } from "../editor/scene-mutations.js";
 
 export class InspectorProvider implements vscode.WebviewViewProvider {
 	public static readonly viewType = "libgdx-editor.inspector";
@@ -95,6 +96,17 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					}
 					break;
 
+				// 🆕 Atlas properties update
+				case "updateAtlasProperties": {
+					if (!this.boundHost) break;
+					const scene = this.boundHost.getScene();
+					if (!scene) break;
+
+					const updated = updateAtlasPropertiesInScene(scene, msg.objectId, msg.properties);
+					this.boundHost.getHistory().commit(updated, "update atlas");
+					break;
+				}
+
 				case "deleteObject":
 					if (this.boundHost) {
 						this.onDeleteObject?.(this.boundHost, msg.objectId);
@@ -167,6 +179,44 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 						type: "configLoaded",
 						config: toConfigMessage(config),
 					} satisfies ExtensionToInspectorMessage);
+					break;
+				}
+
+				case "requestAtlasRegions": {
+					if (!this.boundHost) break;
+					const doc = this.boundHost.getDocument();
+					if (!doc) break;
+					try {
+						const { AtlasImporter } = await import("../features/texture-atlas/atlas-importer.js");
+						const atlas = await AtlasImporter.loadAtlasRegions(doc.uri, msg.texturePath);
+						if (atlas) {
+							this.view?.webview.postMessage({
+								type: "atlasRegionsLoaded",
+								texturePath: msg.texturePath,
+								atlasPath: atlas.atlasPath,
+								regions: atlas.regions.map((r) => ({
+									name: r.name,
+									x: r.x,
+									y: r.y,
+									width: r.width,
+									height: r.height,
+									rotate: r.rotate,
+									index: r.index,
+								})),
+							} satisfies ExtensionToInspectorMessage);
+						} else {
+							this.view?.webview.postMessage({
+								type: "atlasNotFound",
+								texturePath: msg.texturePath,
+							} satisfies ExtensionToInspectorMessage);
+						}
+					} catch (err) {
+						console.error("[InspectorProvider] requestAtlasRegions failed:", err);
+						this.view?.webview.postMessage({
+							type: "atlasNotFound",
+							texturePath: msg.texturePath,
+						} satisfies ExtensionToInspectorMessage);
+					}
 					break;
 				}
 			}

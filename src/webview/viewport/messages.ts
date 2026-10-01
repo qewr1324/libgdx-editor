@@ -73,7 +73,6 @@ function handleConfig(config: LibGdxEditorConfigMessage): void {
 		drawSelectionOutlines();
 	}
 
-	// event برای toolbar و snapping
 	window.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
 }
 
@@ -89,6 +88,9 @@ export function setupMessages(): void {
 			case "update":
 				currentSceneFromMessage = msg.scene;
 				applyEffectiveTheme();
+				// 🆕 پاک کردن sub-texture cache
+				// چون ممکنه atlas region/grid عوض شده باشه
+				clearSubTextureCache();
 				scheduleRender(() => renderScene(msg.scene));
 				break;
 
@@ -105,7 +107,6 @@ export function setupMessages(): void {
 					}
 				}
 				if (anyLoaded) {
-					// sub-texture cache هم باید پاک بشه چون texture ها عوض شدن
 					clearSubTextureCache();
 				}
 				scheduleRender(() => {
@@ -114,19 +115,6 @@ export function setupMessages(): void {
 				break;
 			}
 
-			// ============================================================
-			// 🆕 Atlas regions loaded
-			// ============================================================
-			//
-			// وقتی کاربر یه آبجکت با AtlasComponent داره یا یه atlas رو
-			// import می‌کنه، extension پیام atlasRegionsLoaded می‌فرسته.
-			//
-			// ما اینجا:
-			//   ۱. داده رو به فرمت AtlasData تبدیل می‌کنیم
-			//   ۲. با registerAtlas توی cache ذخیره می‌کنیم
-			//   ۳. sub-texture cache رو پاک می‌کنیم
-			//   ۴. صحنه رو دوباره رندر می‌کنیم
-			//
 			case "atlasRegionsLoaded": {
 				const atlasData: AtlasData = {
 					texturePath: msg.texturePath,
@@ -157,11 +145,9 @@ export function setupMessages(): void {
 				break;
 			}
 
-			case "atlasNotFound": {
-				// atlas پیدا نشد — شاید یه texture معمولیه
-				// fallback: texture بدون region کشیده میشه
+			case "atlasNotFound":
+				// atlas پیدا نشد — texture معمولی رندر می‌شه
 				break;
-			}
 
 			case "brokenAssets":
 				setBrokenAssets(msg.paths as string[]);
@@ -209,3 +195,4 @@ export function setupMessages(): void {
 
 	vscode.postMessage({ type: "requestConfig" });
 }
+
