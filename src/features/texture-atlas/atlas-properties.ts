@@ -6,7 +6,7 @@ import type { AtlasData, AtlasRegion } from "./atlas-types.js";
 // Types
 // ============================================================
 
-export type AtlasMode = "single" | "sequence" | "grid";
+export type AtlasMode = "single" | "grid";
 
 export interface AtlasProperties {
 	/** مسیر atlas.png (نسبی به صحنه) */
@@ -22,14 +22,6 @@ export interface AtlasProperties {
 	// ---------- single ----------
 	/** نام region انتخاب‌شده (mode === "single") */
 	region?: string;
-
-	// ---------- sequence ----------
-	/** لیست region ها برای انیمیشن (mode === "sequence") */
-	frames?: string[];
-	/** فریم بر ثانیه (mode === "sequence") */
-	fps?: number;
-	/** لوپ (mode === "sequence") */
-	loop?: boolean;
 
 	// ---------- grid ----------
 	/** تعداد ستون (mode === "grid") */
@@ -54,9 +46,6 @@ export const DEFAULT_ATLAS_PROPERTIES: AtlasProperties = {
 	tint: "#ffffff",
 	mode: "single",
 	region: undefined,
-	frames: [],
-	fps: 8,
-	loop: true,
 	gridCols: 1,
 	gridRows: 1,
 	cellOffsetX: 0,
@@ -70,7 +59,6 @@ export const DEFAULT_ATLAS_PROPERTIES: AtlasProperties = {
 
 /**
  * چک می‌کنه آیا این آبجکت تنظیمات atlas داره یا نه.
- * فقط وجود کلید `atlas` توی `properties` کافیه.
  */
 export function hasAtlas(obj: GameObject | null | undefined): boolean {
 	if (!obj) return false;
@@ -80,7 +68,6 @@ export function hasAtlas(obj: GameObject | null | undefined): boolean {
 
 /**
  * تنظیمات atlas آبجکت رو می‌خونه (با defaults).
- * اگه نداشت، `null` برمی‌گردونه — چون وجودش معنادار نیست.
  */
 export function getAtlasProperties(obj: GameObject | null | undefined): AtlasProperties | null {
 	if (!obj) return null;
@@ -91,7 +78,6 @@ export function getAtlasProperties(obj: GameObject | null | undefined): AtlasPro
 
 /**
  * تنظیمات atlas رو ست می‌کنه.
- * اگه props نال باشه، کلید atlas پاک می‌شه.
  */
 export function setAtlasProperties(obj: GameObject, props: AtlasProperties | null): void {
 	if (!obj.properties) obj.properties = {};
@@ -104,9 +90,21 @@ export function setAtlasProperties(obj: GameObject, props: AtlasProperties | nul
 
 /**
  * تنظیمات رو با default ها merge می‌کنه و تایپ‌ها رو درست می‌کنه.
+ * 🆕 legacy "sequence" mode → "single" با اولین frame به عنوان region
  */
-export function normalizeAtlasProperties(raw: Partial<AtlasProperties>): AtlasProperties {
-	const mode: AtlasMode = raw.mode === "sequence" || raw.mode === "grid" ? raw.mode : "single";
+export function normalizeAtlasProperties(raw: Partial<AtlasProperties> & { mode?: string; frames?: string[]; fps?: number; loop?: boolean }): AtlasProperties {
+	// 🆕 migration: sequence → single
+	let rawMode = raw.mode;
+	let rawRegion = raw.region;
+	if (rawMode === "sequence") {
+		rawMode = "single";
+		// اگه region نبود ولی frames داشت، اولین frame رو به عنوان region بذار
+		if (!rawRegion && Array.isArray(raw.frames) && raw.frames.length > 0) {
+			rawRegion = raw.frames[0];
+		}
+	}
+
+	const mode: AtlasMode = rawMode === "grid" ? "grid" : "single";
 
 	const normalized: AtlasProperties = {
 		texture: typeof raw.texture === "string" ? raw.texture : "",
@@ -116,11 +114,7 @@ export function normalizeAtlasProperties(raw: Partial<AtlasProperties>): AtlasPr
 	};
 
 	if (mode === "single") {
-		normalized.region = typeof raw.region === "string" ? raw.region : undefined;
-	} else if (mode === "sequence") {
-		normalized.frames = Array.isArray(raw.frames) ? raw.frames.filter((f): f is string => typeof f === "string") : [];
-		normalized.fps = typeof raw.fps === "number" && raw.fps > 0 ? raw.fps : 8;
-		normalized.loop = typeof raw.loop === "boolean" ? raw.loop : true;
+		normalized.region = typeof rawRegion === "string" ? rawRegion : undefined;
 	} else if (mode === "grid") {
 		normalized.gridCols = typeof raw.gridCols === "number" && raw.gridCols > 0 ? Math.floor(raw.gridCols) : 1;
 		normalized.gridRows = typeof raw.gridRows === "number" && raw.gridRows > 0 ? Math.floor(raw.gridRows) : 1;
@@ -142,10 +136,6 @@ export interface AtlasValidationResult {
 	warnings: string[];
 }
 
-/**
- * تنظیمات atlas رو نسبت به داده‌ی واقعی atlas بررسی می‌کنه.
- * مثلاً: اگه mode=single ولی region انتخاب نشده، error.
- */
 export function validateAtlasProperties(props: AtlasProperties, atlas: AtlasData | null): AtlasValidationResult {
 	const errors: string[] = [];
 	const warnings: string[] = [];
@@ -160,20 +150,6 @@ export function validateAtlasProperties(props: AtlasProperties, atlas: AtlasData
 				errors.push("Single mode requires a region name.");
 			} else if (atlas && !atlas.regions.some((r) => r.name === props.region)) {
 				warnings.push(`Region "${props.region}" not found in atlas.`);
-			}
-			break;
-		}
-		case "sequence": {
-			if (!props.frames || props.frames.length === 0) {
-				errors.push("Sequence mode requires at least one frame.");
-			} else if (atlas) {
-				const missing = props.frames.filter((f) => !atlas.regions.some((r) => r.name === f));
-				if (missing.length > 0) {
-					warnings.push(`${missing.length} frame(s) not found in atlas.`);
-				}
-			}
-			if (typeof props.fps !== "number" || props.fps <= 0) {
-				errors.push("Sequence FPS must be > 0.");
 			}
 			break;
 		}
@@ -206,10 +182,6 @@ export function validateAtlasProperties(props: AtlasProperties, atlas: AtlasData
 // Helpers
 // ============================================================
 
-/**
- * لیست region هایی که این atlas props بهشون اشاره می‌کنه.
- * برای preview یا محاسبه‌ی frame count.
- */
 export function resolveAtlasRegions(props: AtlasProperties, atlas: AtlasData | null): AtlasRegion[] {
 	if (!atlas) return [];
 
@@ -218,10 +190,6 @@ export function resolveAtlasRegions(props: AtlasProperties, atlas: AtlasData | n
 			if (!props.region) return [];
 			const r = atlas.regions.find((x) => x.name === props.region);
 			return r ? [r] : [];
-		}
-		case "sequence": {
-			if (!props.frames || props.frames.length === 0) return [];
-			return props.frames.map((name) => atlas.regions.find((r) => r.name === name)).filter((r): r is AtlasRegion => !!r);
 		}
 		case "grid": {
 			const cols = props.gridCols ?? 1;
@@ -232,9 +200,6 @@ export function resolveAtlasRegions(props: AtlasProperties, atlas: AtlasData | n
 	}
 }
 
-/**
- * می‌گه این props آیا به یه atlas معتبر وصل هست یا نه (فقط برای UI hint).
- */
 export function isAtlasReady(props: AtlasProperties, atlas: AtlasData | null): boolean {
 	if (!props.texture) return false;
 	const v = validateAtlasProperties(props, atlas);

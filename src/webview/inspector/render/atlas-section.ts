@@ -16,7 +16,6 @@ export interface AtlasInspectorContext {
 	notFound: boolean;
 	textureWidth: number;
 	textureHeight: number;
-	/** data URL texture برای preview */
 	textureDataUrl: string | null;
 }
 
@@ -27,7 +26,6 @@ export interface AtlasInspectorContext {
 export function buildAtlasSection(props: AtlasProperties, obj: GameObject, ctx: AtlasInspectorContext): string {
 	const modeOptions: Array<{ value: AtlasMode; label: string; icon: string }> = [
 		{ value: "single", label: "Single Region", icon: "🖼️" },
-		{ value: "sequence", label: "Sequence (Animation)", icon: "🎬" },
 		{ value: "grid", label: "Grid", icon: "⊞" },
 	];
 
@@ -92,8 +90,6 @@ function buildModeBody(props: AtlasProperties, ctx: AtlasInspectorContext): stri
 	switch (props.mode) {
 		case "single":
 			return buildSingleBody(props, ctx);
-		case "sequence":
-			return buildSequenceBody(props, ctx);
 		case "grid":
 			return buildGridBody(props, ctx);
 	}
@@ -116,43 +112,6 @@ function buildSingleBody(props: AtlasProperties, ctx: AtlasInspectorContext): st
 			</div>
 		</div>
 		${emptyHint}
-	`;
-}
-
-function buildSequenceBody(props: AtlasProperties, ctx: AtlasInspectorContext): string {
-	const frames = props.frames ?? [];
-	const framesText = frames.join("\n");
-	const regionNames = ctx.regions.map((r) => r.name);
-
-	const datalistId = "atlas-region-datalist";
-	const datalist = regionNames.length > 0 ? `<datalist id="${datalistId}">${regionNames.map((n) => `<option value="${escapeAttr(n)}"></option>`).join("")}</datalist>` : "";
-
-	const availableHint =
-		ctx.regions.length > 0
-			? `<div class="inspector-hint">Available: ${regionNames
-					.slice(0, 8)
-					.map((n) => escapeHtml(n))
-					.join(", ")}${regionNames.length > 8 ? ", …" : ""}</div>`
-			: "";
-
-	const pickButtons = ctx.regions.length > 0 ? `<button class="inspector-atlas-btn" data-atlas-action="pick-frames" title="Pick frames from atlas">📋 Pick from Atlas</button>` : "";
-
-	return `
-		${subHeader("Frames")}
-		<div class="inspector-field wide">
-			<label class="inspector-field-label">Frames (one per line)</label>
-			<textarea class="inspector-frames-textarea" data-atlas-field="frames" rows="4" placeholder="player_idle_1&#10;player_idle_2&#10;player_idle_3">${escapeHtml(framesText)}</textarea>
-			${datalist}
-			${availableHint}
-		</div>
-		${pickButtons}
-		${fieldRow(numberField("FPS", "atlas.fps", props.fps ?? 8, { step: 1, min: 1 }), numberField("", "_atlas_spacer", 0, { step: 1 }))}
-		<div class="inspector-field wide">
-			<label class="inspector-checkbox-row">
-				<input type="checkbox" data-atlas-field="loop" ${props.loop ? "checked" : ""} />
-				<span>Loop</span>
-			</label>
-		</div>
 	`;
 }
 
@@ -185,7 +144,7 @@ function buildGridBody(props: AtlasProperties, ctx: AtlasInspectorContext): stri
 }
 
 // ============================================================
-// Preview (🎨 واقعی)
+// Preview
 // ============================================================
 
 function buildPreviewHtml(props: AtlasProperties, ctx: AtlasInspectorContext, frameCount: number): string {
@@ -202,12 +161,10 @@ function buildPreviewHtml(props: AtlasProperties, ctx: AtlasInspectorContext, fr
 		return `<div class="inspector-hint">No frames to preview.</div>`;
 	}
 
-	// حداکثر ۸ تا preview نشون بده
 	const previewRects = rects.slice(0, 8);
 	const moreCount = rects.length - previewRects.length;
 
 	const cells = previewRects.map((r) => buildPreviewCell(r, ctx)).join("");
-
 	const moreHint = moreCount > 0 ? `<div class="atlas-preview-more">+${moreCount} more</div>` : "";
 
 	return `
@@ -225,22 +182,15 @@ function buildPreviewHtml(props: AtlasProperties, ctx: AtlasInspectorContext, fr
 function buildPreviewCell(rect: { name: string; x: number; y: number; width: number; height: number; rotate: boolean }, ctx: AtlasInspectorContext): string {
 	if (!ctx.textureDataUrl) return "";
 
-	// از background-image + background-position استفاده می‌کنیم
-	// چون atlas texture یک تصویر بزرگه و هر region یه sub-rect هست
 	const texW = ctx.textureWidth || 1;
 	const texH = ctx.textureHeight || 1;
-
-	// مهم: y در atlas از پایین محاسبه می‌شه، ولی توی CSS از بالا
-	// پس تبدیل: css_y = texH - (y + height)
 	const cssY = texH - (rect.y + rect.height);
 
-	// اندازه‌ی نمایش: حداکثر 40px
 	const maxCell = 40;
 	const scale = Math.min(maxCell / rect.width, maxCell / rect.height, 1);
 	const displayW = Math.round(rect.width * scale);
 	const displayH = Math.round(rect.height * scale);
 
-	// background-size: image scaled to original dimensions
 	const bgSizeW = texW;
 	const bgSizeH = texH;
 

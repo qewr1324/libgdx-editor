@@ -43,7 +43,6 @@ export function buildInspectorHtml(obj: GameObject): string {
 		`,
 	);
 
-	// 🆕 Atlas section
 	const atlasProps = getAtlasProperties(obj);
 	let atlasSection = "";
 	if (atlasProps) {
@@ -131,7 +130,7 @@ function buildAtlasContext(props: AtlasProperties): AtlasInspectorContext {
 }
 
 // ============================================================
-// Visual Components — read-only display
+// Visual Components
 // ============================================================
 
 function buildVisualComponentsSections(obj: GameObject): string {
@@ -268,19 +267,6 @@ function updateAtlasFieldValues(obj: GameObject): void {
 
 	if (props.mode === "single") {
 		setSelectValue("region", props.region ?? "");
-	}
-
-	if (props.mode === "sequence") {
-		const textarea = app.querySelector<HTMLTextAreaElement>('[data-atlas-field="frames"]');
-		if (textarea && document.activeElement !== textarea) {
-			const newVal = (props.frames ?? []).join("\n");
-			if (textarea.value !== newVal) textarea.value = newVal;
-		}
-		setNumberValue("atlas.fps", props.fps ?? 8);
-		const loopBox = app.querySelector<HTMLInputElement>('[data-atlas-field="loop"]');
-		if (loopBox && document.activeElement !== loopBox) {
-			loopBox.checked = !!props.loop;
-		}
 	}
 
 	if (props.mode === "grid") {
@@ -463,36 +449,20 @@ export function attachObjectListeners(): void {
 }
 
 // ============================================================
-// Atlas listeners
+// Atlas listeners (بدون sequence)
 // ============================================================
 
 function attachAtlasListeners(): void {
 	const modeSelect = app.querySelector<HTMLSelectElement>('[data-atlas-field="mode"]');
 	modeSelect?.addEventListener("change", () => {
 		if (!currentObject) return;
-		sendAtlasUpdate({ mode: modeSelect.value as "single" | "sequence" | "grid" });
+		sendAtlasUpdate({ mode: modeSelect.value as "single" | "grid" });
 	});
 
 	const regionSelect = app.querySelector<HTMLSelectElement>('[data-atlas-field="region"]');
 	regionSelect?.addEventListener("change", () => {
 		if (!currentObject) return;
 		sendAtlasUpdate({ region: regionSelect.value });
-	});
-
-	const framesTextarea = app.querySelector<HTMLTextAreaElement>('[data-atlas-field="frames"]');
-	framesTextarea?.addEventListener("change", () => {
-		if (!currentObject) return;
-		const frames = framesTextarea.value
-			.split(/\r?\n/)
-			.map((s) => s.trim())
-			.filter((s) => s.length > 0);
-		sendAtlasUpdate({ frames });
-	});
-
-	const loopBox = app.querySelector<HTMLInputElement>('[data-atlas-field="loop"]');
-	loopBox?.addEventListener("change", () => {
-		if (!currentObject) return;
-		sendAtlasUpdate({ loop: loopBox.checked });
 	});
 
 	const tintInputs = app.querySelectorAll<HTMLInputElement>('[data-atlas-field="tint"]');
@@ -517,9 +487,6 @@ function attachAtlasListeners(): void {
 
 			const fieldName = input.dataset.field!.slice("atlas.".length);
 			switch (fieldName) {
-				case "fps":
-					sendAtlasUpdate({ fps: value });
-					break;
 				case "gridCols":
 					sendAtlasUpdate({ gridCols: Math.max(1, Math.floor(value)) });
 					break;
@@ -551,23 +518,6 @@ function attachAtlasListeners(): void {
 			properties: null,
 		});
 	});
-
-	const pickBtn = app.querySelector<HTMLButtonElement>('[data-atlas-action="pick-frames"]');
-	pickBtn?.addEventListener("click", () => {
-		if (!currentObject) return;
-		const props = getAtlasProperties(currentObject);
-		if (!props) return;
-		const entry = getAtlasEntry(props.texture);
-		if (!entry || entry.regions.length === 0) return;
-
-		const input = window.prompt("Frames (comma-separated):", entry.regions.map((r) => r.name).join(", "));
-		if (input === null) return;
-		const frames = input
-			.split(",")
-			.map((s) => s.trim())
-			.filter((s) => s.length > 0);
-		sendAtlasUpdate({ frames });
-	});
 }
 
 function sendAtlasUpdate(partial: Partial<AtlasProperties>): void {
@@ -576,13 +526,9 @@ function sendAtlasUpdate(partial: Partial<AtlasProperties>): void {
 	const existing = getAtlasProperties(currentObject) ?? normalizeAtlasProperties({});
 	const merged = normalizeAtlasProperties({ ...existing, ...partial });
 
+	// mode change → مقادیر mode قدیمی رو حذف کن
 	if (partial.mode && partial.mode !== existing.mode) {
 		if (merged.mode !== "single") merged.region = undefined;
-		if (merged.mode !== "sequence") {
-			merged.frames = undefined;
-			merged.fps = undefined;
-			merged.loop = undefined;
-		}
 		if (merged.mode !== "grid") {
 			merged.gridCols = undefined;
 			merged.gridRows = undefined;
@@ -604,7 +550,6 @@ function requestAtlasIfNeeded(): void {
 	const props = getAtlasProperties(currentObject);
 	if (!props || !props.texture) return;
 
-	// درخواست atlas regions (اگه نداریم)
 	if (!hasAtlasCached(props.texture)) {
 		vscode.postMessage({
 			type: "requestAtlasRegions",
