@@ -41,6 +41,7 @@ import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
 import { undoOp, redoOp } from "./scene-ops/historyOps.js";
 import { AtlasImporter } from "../features/texture-atlas/atlas-importer.js";
 import { normalizeAtlasProperties } from "../features/texture-atlas/atlas-properties.js";
+import { scheduleCleanup, cancelCleanup } from "./deferred-cleanup.js";
 import type { SceneHost } from "./scene-types.js";
 import { log } from "../shared/logger.js";
 
@@ -65,6 +66,10 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			// 🆕 از state خود extension استفاده کن، نه از webview
 			const current = host.getScene();
 			if (!current) break;
+
+			// 🆕 کاربر تصمیم گرفت save کنه → cleanup معلق رو کنسل کن
+			cancelCleanup(ctx.document.uri);
+
 			await handleSave({ scene: current }, ctx);
 			break;
 		}
@@ -406,12 +411,18 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			SceneRegistry.emitSceneSettings(host, scene);
 			break;
 		}
-		case "undo":
+		case "undo": {
+			// 🆕 کنسل cleanup معلق — چون کاربر Undo زد
+			cancelCleanup(ctx.document.uri);
 			undoOp(host);
 			break;
-		case "redo":
+		}
+		case "redo": {
+			// 🆕 کنسل cleanup معلق — چون کاربر Redo زد
+			cancelCleanup(ctx.document.uri);
 			redoOp(host);
 			break;
+		}
 		case "updateConfig":
 			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 			break;
@@ -493,6 +504,10 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			if (!current) break;
 			const updated = removeReferenceImageFromScene(current);
 			host.getHistory().commit(updated, "remove reference");
+
+			// 🆕 schedule cleanup با تاخیر ۵ ثانیه
+			// اگه کاربر توی این مدت Undo بزنه، cleanup کنسل می‌شه
+			scheduleCleanup(ctx.document.uri, updated, 5000);
 			break;
 		}
 		case "toggleReferenceHidden": {
