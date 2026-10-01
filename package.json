@@ -3,7 +3,7 @@
 	"type": "module",
 	"displayName": "LibGDX Editor",
 	"description": "❄️ LibGDX Editor - There is a 2D editor for game development in libGDX for 💠 VSCode. ",
-	"version": "0.207.264",
+	"version": "0.222.264",
 	"private": false,
 	"publisher": "GhurbeSABZI",
 	"packageManager": "bun@1.3.14",
@@ -51,6 +51,7 @@
 		"onCommand:libgdx-editor.newScene",
 		"onCommand:libgdx-editor.importTexture",
 		"onCommand:libgdx-editor.importAtlas",
+		"onCommand:libgdx-editor.importReference",
 		"onCommand:libgdx-editor.cleanupAssets"
 	],
 	"main": "./dist/extension.cjs",
@@ -74,6 +75,11 @@
 			{
 				"command": "libgdx-editor.importAtlas",
 				"title": "LibGDX: Import Atlas Sprite",
+				"icon": "$(file-media)"
+			},
+			{
+				"command": "libgdx-editor.importReference",
+				"title": "LibGDX: Import Reference Image",
 				"icon": "$(file-media)"
 			},
 			{
@@ -142,6 +148,10 @@
 					"when": "true"
 				},
 				{
+					"command": "libgdx-editor.importReference",
+					"when": "true"
+				},
+				{
 					"command": "libgdx-editor.cleanupAssets",
 					"when": "true"
 				},
@@ -165,6 +175,11 @@
 					"command": "libgdx-editor.importAtlas",
 					"when": "resourceExtname =~ /\\.(png|atlas)$/i",
 					"group": "navigation@12"
+				},
+				{
+					"command": "libgdx-editor.importReference",
+					"when": "resourceExtname =~ /\\.(png|jpg|jpeg|gif|webp|bmp)$/i",
+					"group": "navigation@13"
 				}
 			]
 		}

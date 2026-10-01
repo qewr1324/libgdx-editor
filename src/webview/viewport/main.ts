@@ -8,6 +8,8 @@ import { setupMouseTracker } from "./ui/mouse-tracker.js";
 import { setupDeselect } from "./selection/selection.js";
 import { setupMessages } from "./messages.js";
 import { setupGuides } from "./ui/guides.js";
+import { setupReferenceLayer } from "./render/reference.js";
+import { setupReferenceInteraction } from "./ui/reference-interaction.js";
 import { vscode } from "./types.js";
 import { applyTheme } from "./theme/theme-manager.js";
 import { DEFAULT_THEME } from "./theme/themes.js";
@@ -18,10 +20,12 @@ import { installSnapping } from "./features/snapping/index.js";
 	installSnapping();
 
 	await initPixi();
+	setupReferenceLayer(); // 🆕 قبل از toolbar و messages
 	setupToolbar();
 	setupContextMenu();
 	setupRulers();
-	setupGuides(); // 🆕
+	setupGuides();
+	setupReferenceInteraction(); // 🆕
 	setupMouseTracker();
 	setupDeselect();
 	setupMessages();

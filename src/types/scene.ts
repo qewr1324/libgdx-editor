@@ -34,7 +34,6 @@ export interface GameObject {
 	type: GameObjectType;
 	name: string;
 
-	// ---------- Legacy fields (برای backward-compat) ----------
 	/** @deprecated از components (sprite) استفاده کن */
 	texture?: string;
 	/** @deprecated از components.shape.color استفاده کن */
@@ -45,10 +44,27 @@ export interface GameObject {
 	transform: Transform;
 	properties: Record<string, unknown>;
 
-	/** سیستم کامپوننت‌ها */
 	components?: Component[];
-
 	children?: GameObject[];
+}
+
+// ============================================================
+// Reference Image
+// ============================================================
+
+export interface ReferenceImage {
+	/** مسیر نسبی تصویر (نسبی به scene) */
+	texture: string;
+	/** موقعیت و اندازه */
+	transform: Transform;
+	/** شفافیت (0-1) */
+	opacity: number;
+	/** مخفی */
+	hidden?: boolean;
+	/** قفل (نه drag، نه select) */
+	locked?: boolean;
+	/** tint (hex) */
+	tint?: string;
 }
 
 // ============================================================
@@ -83,10 +99,10 @@ export interface Scene {
 	camera: Camera;
 	layers: Layer[];
 
-	/** 🆕 Guides */
 	guides?: Guide[];
-	/** 🆕 نمایش/مخفی guides */
 	showGuides?: boolean;
+
+	referenceImage?: ReferenceImage | null;
 }
 
 // ============================================================
@@ -116,6 +132,7 @@ export function createEmptyScene(name = "untitled"): Scene {
 		],
 		guides: [],
 		showGuides: true,
+		referenceImage: null,
 	};
 }
 
@@ -138,6 +155,26 @@ export function createGameObject(type: GameObjectType, x: number, y: number): Ga
 		},
 		properties: {},
 		components: [],
+	};
+}
+
+export function createReferenceImage(texture: string, x: number, y: number, width: number, height: number): ReferenceImage {
+	return {
+		texture,
+		transform: {
+			x,
+			y,
+			width,
+			height,
+			rotation: 0,
+			scaleX: 1,
+			scaleY: 1,
+			originX: 0.5,
+			originY: 0.5,
+		},
+		opacity: 0.5,
+		hidden: false,
+		locked: false,
 	};
 }
 

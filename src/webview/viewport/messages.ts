@@ -3,6 +3,7 @@ import { vscode } from "./types.js";
 import { loadTexture } from "./pixi/textures.js";
 import { renderScene, clearSubTextureCache } from "./render/scene.js";
 import { redrawGrid } from "./render/grid.js";
+import { renderReference } from "./render/reference.js";
 import { interactionMode, scene, selectedIds, setBrokenAssets, viewport, textureCache } from "./state.js";
 import { selectObjects, drawSelectionOutlines } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
@@ -50,10 +51,6 @@ function textureCacheHas(path: string): boolean {
 	return textureCache.has(path);
 }
 
-// ============================================================
-// 🆕 Scene Changed Event
-// ============================================================
-
 function notifySceneChanged(): void {
 	window.dispatchEvent(new CustomEvent("scene-changed"));
 }
@@ -100,8 +97,9 @@ export function setupMessages(): void {
 				clearSubTextureCache();
 				scheduleRender(() => {
 					renderScene(msg.scene);
+					renderReference(msg.scene);
 					renderGuides();
-					notifySceneChanged(); // 🆕
+					notifySceneChanged();
 				});
 				break;
 
@@ -121,7 +119,10 @@ export function setupMessages(): void {
 					clearSubTextureCache();
 				}
 				scheduleRender(() => {
-					if (scene) renderScene(scene);
+					if (scene) {
+						renderScene(scene);
+						renderReference(scene);
+					}
 				});
 				break;
 			}

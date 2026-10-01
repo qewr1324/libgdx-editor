@@ -1,5 +1,5 @@
 // src/webview/viewport/ui/context-menu.ts
-import { app, viewport } from "../state.js";
+import { app, viewport, scene } from "../state.js";
 import { vscode } from "../types.js";
 import { copySelection, pasteClipboard, duplicateSelection } from "../commands/clipboard.js";
 import { HISTORY_MENU_ITEMS, handleHistoryMenuAction } from "../history/history-ui.js";
@@ -22,6 +22,7 @@ function buildContextMenu(): HTMLDivElement {
 		<div class="context-menu-separator"></div>
 		<div class="context-menu-item" data-action="add-empty-here">◇ Add Empty Object Here</div>
 		<div class="context-menu-item" data-action="add-sprite-here">➕ Add Sprite Here</div>
+		<div class="context-menu-item" data-action="add-atlas-here">🗺️ Add Atlas Here</div>
 		<div class="context-menu-item" data-action="add-shape-here">⭕ Add Shape Here</div>
 		<div class="context-menu-item" data-action="add-text-here">🔤 Add Text Here</div>
 		<div class="context-menu-item" data-action="add-texture-here">🖼️ Add Texture Here</div>
@@ -33,6 +34,16 @@ function buildContextMenu(): HTMLDivElement {
 		${HISTORY_MENU_ITEMS}
 		<div class="context-menu-separator"></div>
 		<div class="context-menu-item" data-action="delete">🗑️ Delete (Del)</div>
+		<div class="context-menu-separator"></div>
+		<div class="context-menu-item" data-action="import-reference">📷 Import Reference Image</div>
+		${
+			scene?.referenceImage
+				? `
+		<div class="context-menu-item" data-action="toggle-reference">👁️ Toggle Reference Visibility</div>
+		<div class="context-menu-item" data-action="remove-reference">❌ Remove Reference Image</div>
+		`
+				: ""
+		}
 	`;
 	menu.style.display = "none";
 	document.body.appendChild(menu);
@@ -52,21 +63,20 @@ function buildContextMenu(): HTMLDivElement {
 		contextWorldX = Math.round(world.x);
 		contextWorldY = Math.round(world.y);
 
+		// rebuild menu چون ممکنه reference اضافه/حذف شده باشه
+		rebuildContextMenu();
+
 		menu.style.left = `${e.clientX}px`;
 		menu.style.top = `${e.clientY}px`;
 		menu.style.display = "block";
 	});
 
 	document.addEventListener("click", (e) => {
-		if (!menu.contains(e.target as Node)) {
-			menu.style.display = "none";
-		}
+		if (!menu.contains(e.target as Node)) menu.style.display = "none";
 	});
 
 	document.addEventListener("keydown", (e) => {
-		if (e.key === "Escape") {
-			menu.style.display = "none";
-		}
+		if (e.key === "Escape") menu.style.display = "none";
 	});
 
 	menu.addEventListener("click", (e) => {
@@ -84,9 +94,11 @@ function buildContextMenu(): HTMLDivElement {
 }
 
 function rebuildContextMenu(): void {
-	if (currentMenu && currentMenu.parentNode) {
-		currentMenu.parentNode.removeChild(currentMenu);
+	const oldMenu = currentMenu;
+	if (oldMenu && oldMenu.parentNode) {
+		oldMenu.parentNode.removeChild(oldMenu);
 	}
+	currentMenu = null;
 	buildContextMenu();
 }
 
@@ -100,6 +112,9 @@ function handleMenuAction(action: string, worldX: number, worldY: number): void 
 			break;
 		case "add-sprite-here":
 			vscode.postMessage({ type: "requestAddObject", objectType: "sprite", x: worldX, y: worldY });
+			break;
+		case "add-atlas-here":
+			vscode.postMessage({ type: "requestAddAtlas", x: worldX, y: worldY });
 			break;
 		case "add-shape-here":
 			vscode.postMessage({ type: "requestAddObject", objectType: "shape", x: worldX, y: worldY });
@@ -126,6 +141,17 @@ function handleMenuAction(action: string, worldX: number, worldY: number): void 
 					void import("../selection/selection.js").then((m) => m.selectObjects([]));
 				}
 			});
+			break;
+		case "import-reference":
+			void import("../types.js").then((m) => {
+				m.vscode.postMessage({ type: "openReferenceImport" as never });
+			});
+			break;
+		case "toggle-reference":
+			vscode.postMessage({ type: "toggleReferenceHidden" });
+			break;
+		case "remove-reference":
+			vscode.postMessage({ type: "removeReferenceImage" });
 			break;
 	}
 }

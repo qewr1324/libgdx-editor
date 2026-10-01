@@ -1,5 +1,5 @@
 // src/protocol/messages.ts
-import type { GameObject, Layer, Scene } from "../types/scene.js";
+import type { GameObject, Layer, Scene, ReferenceImage } from "../types/scene.js";
 import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType } from "../config/config-types.js";
 import type { AtlasSpriteProperties } from "../features/texture-atlas/atlas-types.js";
 import type { Component, ComponentType } from "../types/components.js";
@@ -96,18 +96,22 @@ export type WebviewToExtensionMessage =
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
 	| { type: "requestConfig" }
 	| { type: "requestAtlasRegions"; texturePath: string }
-	// 🆕 Component operations
 	| { type: "addComponent"; objectId: string; componentType: ComponentType }
 	| { type: "updateComponent"; objectId: string; componentId: string; updates: Partial<Component> }
 	| { type: "removeComponent"; objectId: string; componentId: string }
 	| { type: "replaceComponent"; objectId: string; component: Component }
-	// 🆕 Guides
 	| { type: "addGuide"; axis: GuideAxis; position: number; color?: string }
 	| { type: "moveGuide"; guideId: string; position: number }
 	| { type: "removeGuide"; guideId: string }
 	| { type: "clearGuides" }
 	| { type: "toggleGuidesVisibility" }
-	| { type: "toggleGuideLock"; guideId: string };
+	| { type: "toggleGuideLock"; guideId: string }
+	// 🆕 Reference
+	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> }
+	| { type: "updateReferenceTransform"; transform: Partial<ReferenceImage["transform"]> }
+	| { type: "removeReferenceImage" }
+	| { type: "toggleReferenceHidden" }
+	| { type: "toggleReferenceLock" };
 
 export type ExtensionToWebviewMessage =
 	| { type: "load"; scene: Scene }
@@ -147,7 +151,9 @@ export type InspectorToExtensionMessage =
 	| { type: "updateConfig"; key: string; value: unknown }
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
 	| { type: "requestConfig" }
-	| { type: "requestAtlasRegions"; texturePath: string };
+	| { type: "requestAtlasRegions"; texturePath: string }
+	// 🆕 Reference
+	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> };
 
 export type ExtensionToInspectorMessage =
 	| { type: "showObject"; object: GameObject }

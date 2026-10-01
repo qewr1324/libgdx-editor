@@ -1,5 +1,6 @@
 // src/editor/scene-mutations.ts
-import type { GameObject, Layer, Scene } from "../types/scene.js";
+import type { GameObject, Layer, Scene, ReferenceImage } from "../types/scene.js";
+import { createReferenceImage } from "../types/scene.js";
 import type { ShapeType, Component } from "../types/components.js";
 import { createComponentId, isComponentUnique } from "../types/components.js";
 import type { AtlasProperties } from "../features/texture-atlas/atlas-properties.js";
@@ -17,33 +18,14 @@ export function createObjectAt(type: GameObject["type"], x: number, y: number): 
 	let defaultColor = "#4a9eff";
 
 	if (type === "sprite") {
-		components.push({
-			id: createComponentId(),
-			type: "sprite",
-			texture: "",
-			tint: "#ffffff",
-		});
+		components.push({ id: createComponentId(), type: "sprite", texture: "", tint: "#ffffff" });
 		defaultName = "sprite";
-		defaultColor = "#4a9eff";
 	} else if (type === "shape") {
-		components.push({
-			id: createComponentId(),
-			type: "shape",
-			shape: "rectangle",
-			color: "#ff4a4a",
-			filled: true,
-			strokeWidth: 1,
-		});
+		components.push({ id: createComponentId(), type: "shape", shape: "rectangle", color: "#ff4a4a", filled: true, strokeWidth: 1 });
 		defaultName = "shape";
 		defaultColor = "#ff4a4a";
 	} else if (type === "text") {
-		components.push({
-			id: createComponentId(),
-			type: "text",
-			text: "Label",
-			color: "#ffffff",
-			fontSize: 16,
-		});
+		components.push({ id: createComponentId(), type: "text", text: "Label", color: "#ffffff", fontSize: 16 });
 		defaultName = "text";
 		defaultColor = "#ffffff";
 	}
@@ -54,17 +36,7 @@ export function createObjectAt(type: GameObject["type"], x: number, y: number): 
 		name: `${defaultName}_${id.slice(-4)}`,
 		color: defaultColor,
 		zIndex: 0,
-		transform: {
-			x,
-			y,
-			width: 64,
-			height: 64,
-			rotation: 0,
-			scaleX: 1,
-			scaleY: 1,
-			originX: 0.5,
-			originY: 0.5,
-		},
+		transform: { x, y, width: 64, height: 64, rotation: 0, scaleX: 1, scaleY: 1, originX: 0.5, originY: 0.5 },
 		properties: {},
 		components,
 	};
@@ -77,17 +49,7 @@ export function createEmptyGameObject(x: number, y: number): GameObject {
 		type: "gameobject",
 		name: `object_${id.slice(-4)}`,
 		zIndex: 0,
-		transform: {
-			x,
-			y,
-			width: 64,
-			height: 64,
-			rotation: 0,
-			scaleX: 1,
-			scaleY: 1,
-			originX: 0.5,
-			originY: 0.5,
-		},
+		transform: { x, y, width: 64, height: 64, rotation: 0, scaleX: 1, scaleY: 1, originX: 0.5, originY: 0.5 },
 		properties: {},
 		components: [],
 	};
@@ -107,16 +69,9 @@ export function createShapeAt(shapeType: ShapeType, x: number, y: number): GameO
 	const obj = createObjectAt("shape", x, y);
 	const id = obj.id;
 	obj.name = `${shapeType}_${id.slice(-4)}`;
-
 	if (obj.components) {
-		obj.components = obj.components.map((c) => {
-			if (c.type === "shape") {
-				return { ...c, shape: shapeType, color: shapeColors[shapeType] ?? "#ff4a4a" };
-			}
-			return c;
-		});
+		obj.components = obj.components.map((c) => (c.type === "shape" ? { ...c, shape: shapeType, color: shapeColors[shapeType] ?? "#ff4a4a" } : c));
 	}
-
 	return obj;
 }
 
@@ -126,29 +81,14 @@ export function createShapeAt(shapeType: ShapeType, x: number, y: number): GameO
 
 export function addObjectToScene(scene: Scene, obj: GameObject, targetLayerId?: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
-
 	if (newScene.layers.length === 0) {
-		newScene.layers.push({
-			id: "layer_default",
-			name: "default",
-			zIndex: 0,
-			visible: true,
-			locked: false,
-			objects: [],
-		});
+		newScene.layers.push({ id: "layer_default", name: "default", zIndex: 0, visible: true, locked: false, objects: [] });
 	}
-
 	let targetLayer: Layer | undefined;
-	if (targetLayerId) {
-		targetLayer = newScene.layers.find((l) => l.id === targetLayerId);
-	}
-	if (!targetLayer) {
-		targetLayer = newScene.layers[0];
-	}
-
+	if (targetLayerId) targetLayer = newScene.layers.find((l) => l.id === targetLayerId);
+	if (!targetLayer) targetLayer = newScene.layers[0];
 	obj.layerId = targetLayer.id;
 	targetLayer.objects.push(obj);
-
 	return newScene;
 }
 
@@ -168,13 +108,10 @@ export function updateObjectsInScene(scene: Scene, objects: GameObject[]): Scene
 	const newScene = structuredClone(scene) as Scene;
 	const map = new Map<string, GameObject>();
 	for (const o of objects) map.set(o.id, o);
-
 	for (const layer of newScene.layers) {
 		for (let i = 0; i < layer.objects.length; i++) {
 			const replacement = map.get(layer.objects[i].id);
-			if (replacement) {
-				layer.objects[i] = replacement;
-			}
+			if (replacement) layer.objects[i] = replacement;
 		}
 	}
 	return newScene;
@@ -182,9 +119,7 @@ export function updateObjectsInScene(scene: Scene, objects: GameObject[]): Scene
 
 export function deleteObjectFromScene(scene: Scene, id: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
-	for (const layer of newScene.layers) {
-		layer.objects = layer.objects.filter((o) => o.id !== id);
-	}
+	for (const layer of newScene.layers) layer.objects = layer.objects.filter((o) => o.id !== id);
 	return newScene;
 }
 
@@ -201,29 +136,65 @@ export function updateSceneFieldInScene(scene: Scene, field: string, value: unkn
 }
 
 // ============================================================
-// 🆕 Atlas Properties
+// Reference Image Mutations
 // ============================================================
 
-/**
- * تنظیمات atlas آبجکت رو آپدیت می‌کنه.
- * اگه `properties` نال باشه، کلید `atlas` پاک می‌شه.
- */
+export function addReferenceImageToScene(scene: Scene, texture: string, x: number, y: number, width: number, height: number): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	newScene.referenceImage = createReferenceImage(texture, x, y, width, height);
+	return newScene;
+}
+
+export function updateReferenceImageInScene(scene: Scene, updates: Partial<ReferenceImage>): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	if (!newScene.referenceImage) return newScene;
+	newScene.referenceImage = { ...newScene.referenceImage, ...updates };
+	return newScene;
+}
+
+export function updateReferenceImageTransformInScene(scene: Scene, transform: Partial<ReferenceImage["transform"]>): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	if (!newScene.referenceImage) return newScene;
+	newScene.referenceImage.transform = { ...newScene.referenceImage.transform, ...transform };
+	return newScene;
+}
+
+export function removeReferenceImageFromScene(scene: Scene): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	newScene.referenceImage = null;
+	return newScene;
+}
+
+export function toggleReferenceImageHiddenInScene(scene: Scene): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	if (!newScene.referenceImage) return newScene;
+	newScene.referenceImage.hidden = !newScene.referenceImage.hidden;
+	return newScene;
+}
+
+export function toggleReferenceImageLockInScene(scene: Scene): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	if (!newScene.referenceImage) return newScene;
+	newScene.referenceImage.locked = !newScene.referenceImage.locked;
+	return newScene;
+}
+
+// ============================================================
+// Atlas Properties
+// ============================================================
+
 export function updateAtlasPropertiesInScene(scene: Scene, objectId: string, properties: Partial<AtlasProperties> | null): Scene {
 	const newScene = structuredClone(scene) as Scene;
 	for (const layer of newScene.layers) {
 		const obj = layer.objects.find((o) => o.id === objectId);
 		if (!obj) continue;
-
 		if (!obj.properties) obj.properties = {};
-
 		if (properties === null) {
 			delete obj.properties.atlas;
 			return newScene;
 		}
-
 		const existing = (obj.properties.atlas as Partial<AtlasProperties> | undefined) ?? {};
-		const merged = normalizeAtlasProperties({ ...existing, ...properties });
-		obj.properties.atlas = merged;
+		obj.properties.atlas = normalizeAtlasProperties({ ...existing, ...properties });
 		return newScene;
 	}
 	return newScene;
@@ -236,7 +207,6 @@ export function updateAtlasPropertiesInScene(scene: Scene, objectId: string, pro
 export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offsetX: number, offsetY: number): { scene: Scene; newIds: string[] } {
 	const newScene = structuredClone(scene) as Scene;
 	const newIds: string[] = [];
-
 	for (const layer of newScene.layers) {
 		const objectsToClone: GameObject[] = [];
 		for (const obj of layer.objects) {
@@ -248,26 +218,14 @@ export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offse
 				clone.transform.y += offsetY;
 				clone.zIndex = getNextZIndex(newScene);
 				clone.layerId = layer.id;
-
-				if (clone.components) {
-					clone.components = clone.components.map((c) => ({
-						...c,
-						id: createComponentId(),
-					}));
-				}
-
-				objectsToPush(clone, objectsToClone);
+				if (clone.components) clone.components = clone.components.map((c) => ({ ...c, id: createComponentId() }));
+				objectsToClone.push(clone);
 				newIds.push(clone.id);
 			}
 		}
 		layer.objects.push(...objectsToClone);
 	}
-
 	return { scene: newScene, newIds };
-}
-
-function objectsToPush(clone: GameObject, arr: GameObject[]): void {
-	arr.push(clone);
 }
 
 // ============================================================
@@ -299,7 +257,6 @@ export function setObjectZIndexInScene(scene: Scene, objectId: string, zIndex: n
 
 export function bringForwardInScene(scene: Scene, objectId: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
-
 	const allZ: number[] = [];
 	for (const layer of newScene.layers) {
 		for (const obj of layer.objects) {
@@ -307,16 +264,13 @@ export function bringForwardInScene(scene: Scene, objectId: string): Scene {
 		}
 	}
 	if (allZ.length === 0) return scene;
-
 	allZ.sort((a, b) => a - b);
 	const maxOther = allZ[allZ.length - 1];
-
 	for (const layer of newScene.layers) {
 		const obj = layer.objects.find((o) => o.id === objectId);
 		if (obj) {
 			const currentZ = obj.zIndex ?? 0;
 			if (currentZ > maxOther) return scene;
-
 			const above = allZ.find((z) => z > currentZ);
 			obj.zIndex = above !== undefined ? above + 0.5 : maxOther + 1;
 			return newScene;
@@ -327,7 +281,6 @@ export function bringForwardInScene(scene: Scene, objectId: string): Scene {
 
 export function sendBackwardInScene(scene: Scene, objectId: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
-
 	const allZ: number[] = [];
 	for (const layer of newScene.layers) {
 		for (const obj of layer.objects) {
@@ -335,16 +288,13 @@ export function sendBackwardInScene(scene: Scene, objectId: string): Scene {
 		}
 	}
 	if (allZ.length === 0) return scene;
-
 	allZ.sort((a, b) => a - b);
 	const minOther = allZ[0];
-
 	for (const layer of newScene.layers) {
 		const obj = layer.objects.find((o) => o.id === objectId);
 		if (obj) {
 			const currentZ = obj.zIndex ?? 0;
 			if (currentZ < minOther) return scene;
-
 			const below = [...allZ].reverse().find((z) => z < currentZ);
 			obj.zIndex = below !== undefined ? below - 0.5 : minOther - 1;
 			return newScene;
@@ -355,7 +305,6 @@ export function sendBackwardInScene(scene: Scene, objectId: string): Scene {
 
 export function bringToFrontInScene(scene: Scene, objectId: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
-
 	let max = -1;
 	for (const layer of newScene.layers) {
 		for (const obj of layer.objects) {
@@ -365,7 +314,6 @@ export function bringToFrontInScene(scene: Scene, objectId: string): Scene {
 			}
 		}
 	}
-
 	for (const layer of newScene.layers) {
 		const obj = layer.objects.find((o) => o.id === objectId);
 		if (obj) {
@@ -378,7 +326,6 @@ export function bringToFrontInScene(scene: Scene, objectId: string): Scene {
 
 export function sendToBackInScene(scene: Scene, objectId: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
-
 	let min = 0;
 	for (const layer of newScene.layers) {
 		for (const obj of layer.objects) {
@@ -388,7 +335,6 @@ export function sendToBackInScene(scene: Scene, objectId: string): Scene {
 			}
 		}
 	}
-
 	for (const layer of newScene.layers) {
 		const obj = layer.objects.find((o) => o.id === objectId);
 		if (obj) {
@@ -405,11 +351,9 @@ export function sendToBackInScene(scene: Scene, objectId: string): Scene {
 
 export function moveObjectToLayerInScene(scene: Scene, objectId: string, targetLayerId: string): Scene {
 	const newScene = structuredClone(scene) as Scene;
-
 	let obj: GameObject | null = null;
 	let sourceLayer: Layer | null = null;
 	let sourceIdx = -1;
-
 	for (const layer of newScene.layers) {
 		const idx = layer.objects.findIndex((o) => o.id === objectId);
 		if (idx !== -1) {
@@ -419,20 +363,13 @@ export function moveObjectToLayerInScene(scene: Scene, objectId: string, targetL
 			break;
 		}
 	}
-
 	if (!obj || !sourceLayer || sourceIdx === -1) return scene;
-
 	const targetLayer = newScene.layers.find((l) => l.id === targetLayerId);
-	if (!targetLayer) return scene;
-
-	if (sourceLayer.id === targetLayer.id) return scene;
-
+	if (!targetLayer || sourceLayer.id === targetLayer.id) return scene;
 	sourceLayer.objects.splice(sourceIdx, 1);
-
 	obj.layerId = targetLayer.id;
 	obj.zIndex = getNextZIndexForLayer(newScene, targetLayer.id);
 	targetLayer.objects.push(obj);
-
 	return newScene;
 }
 
@@ -457,7 +394,6 @@ export function addComponentToObjectInScene(scene: Scene, objectId: string, comp
 		const obj = layer.objects.find((o) => o.id === objectId);
 		if (obj) {
 			if (!obj.components) obj.components = [];
-
 			if (isComponentUnique(component.type)) {
 				const existingIdx = obj.components.findIndex((c) => c.type === component.type);
 				if (existingIdx !== -1) {
@@ -465,7 +401,6 @@ export function addComponentToObjectInScene(scene: Scene, objectId: string, comp
 					return newScene;
 				}
 			}
-
 			obj.components.push(component);
 			return newScene;
 		}

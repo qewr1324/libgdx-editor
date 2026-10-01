@@ -27,6 +27,11 @@ import {
 	updateComponentInScene,
 	removeComponentFromScene,
 	updateAtlasPropertiesInScene,
+	updateReferenceImageInScene,
+	updateReferenceImageTransformInScene,
+	removeReferenceImageFromScene,
+	toggleReferenceImageHiddenInScene,
+	toggleReferenceImageLockInScene,
 } from "./scene-mutations.js";
 import { addGuideToScene, moveGuideInScene, removeGuideFromScene, clearGuidesInScene, toggleGuidesVisibilityInScene, toggleGuideLockInScene } from "./guide-mutations.js";
 import { ClipboardStore } from "./clipboardStore.js";
@@ -79,10 +84,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			newObj.zIndex = getNextZIndex(scene);
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, `add ${msg.objectType}`);
-
-			setTimeout(() => {
-				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
-			}, 50);
+			setTimeout(() => host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage), 50);
 			break;
 		}
 		case "requestAddSprite": {
@@ -105,12 +107,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 				newObj.zIndex = getNextZIndex(scene);
 
 				if (newObj.components) {
-					newObj.components = newObj.components.map((c) => {
-						if (c.type === "sprite") {
-							return { ...c, texture: relativePath };
-						}
-						return c;
-					});
+					newObj.components = newObj.components.map((c) => (c.type === "sprite" ? { ...c, texture: relativePath } : c));
 				}
 
 				if (dims) {
@@ -124,9 +121,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 				const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, updated);
 				host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-				setTimeout(() => {
-					host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
-				}, 100);
+				setTimeout(() => host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage), 100);
 			} catch (err) {
 				vscode.window.showErrorMessage(`Failed to add sprite: ${err instanceof Error ? err.message : String(err)}`);
 			}
@@ -139,12 +134,8 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			newObj.zIndex = getNextZIndex(scene);
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, `add ${msg.shapeType}`);
-
 			await config.update({ ui: { lastShapeType: msg.shapeType } });
-
-			setTimeout(() => {
-				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
-			}, 50);
+			setTimeout(() => host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage), 50);
 			break;
 		}
 		case "requestAddEmptyObject": {
@@ -154,10 +145,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			newObj.zIndex = getNextZIndex(scene);
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, "add empty object");
-
-			setTimeout(() => {
-				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
-			}, 50);
+			setTimeout(() => host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage), 50);
 			break;
 		}
 		case "requestAddText": {
@@ -167,10 +155,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			newObj.zIndex = getNextZIndex(scene);
 			const updated = addObjectToScene(scene, newObj);
 			host.getHistory().commit(updated, "add text");
-
-			setTimeout(() => {
-				host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
-			}, 50);
+			setTimeout(() => host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage), 50);
 			break;
 		}
 		case "requestAddAtlas": {
@@ -179,10 +164,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 
 			const uris = await vscode.window.showOpenDialog({
 				canSelectMany: false,
-				filters: {
-					Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp"],
-					"Atlas Files": ["atlas"],
-				},
+				filters: { Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp"], "Atlas Files": ["atlas"] },
 				title: "Select Atlas Texture",
 			});
 			if (!uris || uris.length === 0) break;
@@ -238,21 +220,11 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 						type: "atlasRegionsLoaded",
 						texturePath: atlas.texturePath,
 						atlasPath: atlas.atlasPath,
-						regions: atlas.regions.map((r) => ({
-							name: r.name,
-							x: r.x,
-							y: r.y,
-							width: r.width,
-							height: r.height,
-							rotate: r.rotate,
-							index: r.index,
-						})),
+						regions: atlas.regions.map((r) => ({ name: r.name, x: r.x, y: r.y, width: r.width, height: r.height, rotate: r.rotate, index: r.index })),
 					} satisfies ExtensionToWebviewMessage);
 				}
 
-				setTimeout(() => {
-					host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
-				}, 100);
+				setTimeout(() => host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage), 100);
 			} catch (err) {
 				vscode.window.showErrorMessage(`Failed to add atlas: ${err instanceof Error ? err.message : String(err)}`);
 			}
@@ -291,9 +263,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const current = host.getScene();
 			if (!current) break;
 			let updated = current;
-			for (const id of msg.objectIds) {
-				updated = deleteObjectFromScene(updated, id);
-			}
+			for (const id of msg.objectIds) updated = deleteObjectFromScene(updated, id);
 			host.getHistory().commit(updated, "delete objects");
 			break;
 		}
@@ -303,14 +273,11 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const items: GameObject[] = [];
 			for (const layer of current.layers) {
 				for (const obj of layer.objects) {
-					if (msg.objectIds.includes(obj.id)) {
-						items.push(structuredClone(obj) as GameObject);
-					}
+					if (msg.objectIds.includes(obj.id)) items.push(structuredClone(obj) as GameObject);
 				}
 			}
 			const docUri = ctx.document.uri.toString();
 			ClipboardStore.set(items, current.name, docUri);
-			log.info(`[message-handler] COPY ${items.length} objects | docUri=${docUri}`);
 			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
 			break;
 		}
@@ -320,19 +287,14 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const items: GameObject[] = [];
 			for (const layer of current.layers) {
 				for (const obj of layer.objects) {
-					if (msg.objectIds.includes(obj.id)) {
-						items.push(structuredClone(obj) as GameObject);
-					}
+					if (msg.objectIds.includes(obj.id)) items.push(structuredClone(obj) as GameObject);
 				}
 			}
 			const docUri = ctx.document.uri.toString();
 			ClipboardStore.set(items, current.name, docUri);
 			host.postToWebview({ type: "clipboardChanged", count: items.length } satisfies ExtensionToWebviewMessage);
-
 			let updated = current;
-			for (const id of msg.objectIds) {
-				updated = deleteObjectFromScene(updated, id);
-			}
+			for (const id of msg.objectIds) updated = deleteObjectFromScene(updated, id);
 			host.getHistory().commit(updated, "cut");
 			break;
 		}
@@ -350,10 +312,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const targetUriStr = ctx.document.uri.toString();
 			const isCrossScene = sourceUri !== null && sourceUri.toString() !== targetUriStr;
 
-			log.info(`[message-handler] PASTE | sourceUri=${sourceUriStr} | targetUri=${targetUriStr} | crossScene=${isCrossScene} | items=${ClipboardStore.size()}`);
-
 			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
-
 			const texturePathMap = new Map<string, string>();
 
 			if (isCrossScene && sourceUri) {
@@ -361,15 +320,12 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 					if (obj.components) {
 						for (const comp of obj.components) {
 							const texturePath = (comp as { texture?: string }).texture;
-							if (texturePath) {
-								if (!texturePathMap.has(texturePath)) {
-									try {
-										const newPath = await AssetManager.copyAssetFromScene(sourceUri, ctx.document.uri, texturePath);
-										texturePathMap.set(texturePath, newPath);
-										log.info(`[message-handler] copied asset "${texturePath}" → "${newPath}"`);
-									} catch (err) {
-										log.error(`[message-handler] failed to copy asset "${texturePath}":`, err);
-									}
+							if (texturePath && !texturePathMap.has(texturePath)) {
+								try {
+									const newPath = await AssetManager.copyAssetFromScene(sourceUri, ctx.document.uri, texturePath);
+									texturePathMap.set(texturePath, newPath);
+								} catch (err) {
+									log.error(`[message-handler] failed to copy asset "${texturePath}":`, err);
 								}
 							}
 						}
@@ -398,10 +354,8 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 
 			const newIds = pasted.map((o) => o.id);
 			host.postToWebview({ type: "selectObjects", objectIds: newIds } satisfies ExtensionToWebviewMessage);
-
 			const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, updated);
 			host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
-
 			break;
 		}
 		case "duplicateObjects":
@@ -418,18 +372,14 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const current = host.getScene();
 			if (!current) break;
 			const updated = bringForwardInScene(current, msg.objectId);
-			if (updated !== current) {
-				host.getHistory().commit(updated, "bring forward");
-			}
+			if (updated !== current) host.getHistory().commit(updated, "bring forward");
 			break;
 		}
 		case "sendBackward": {
 			const current = host.getScene();
 			if (!current) break;
 			const updated = sendBackwardInScene(current, msg.objectId);
-			if (updated !== current) {
-				host.getHistory().commit(updated, "send backward");
-			}
+			if (updated !== current) host.getHistory().commit(updated, "send backward");
 			break;
 		}
 		case "bringToFront": {
@@ -458,10 +408,9 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "redo":
 			redoOp(host);
 			break;
-		case "updateConfig": {
+		case "updateConfig":
 			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 			break;
-		}
 		case "addComponent":
 			handleAddComponent(host, msg.objectId, msg.componentType);
 			break;
@@ -474,7 +423,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "replaceComponent":
 			handleReplaceComponent(host, msg.objectId, msg.component);
 			break;
-		// 🆕 Guides
 		case "addGuide": {
 			const current = host.getScene();
 			if (!current) break;
@@ -517,9 +465,44 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.getHistory().commit(updated, "toggle guide lock");
 			break;
 		}
+		// 🆕 Reference Image
+		case "updateReferenceImage": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = updateReferenceImageInScene(current, msg.updates);
+			host.getHistory().commit(updated, "update reference");
+			break;
+		}
+		case "updateReferenceTransform": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = updateReferenceImageTransformInScene(current, msg.transform);
+			host.getHistory().commit(updated, "move reference");
+			break;
+		}
+		case "removeReferenceImage": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = removeReferenceImageFromScene(current);
+			host.getHistory().commit(updated, "remove reference");
+			break;
+		}
+		case "toggleReferenceHidden": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = toggleReferenceImageHiddenInScene(current);
+			host.getHistory().commit(updated, "toggle reference visibility");
+			break;
+		}
+		case "toggleReferenceLock": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = toggleReferenceImageLockInScene(current);
+			host.getHistory().commit(updated, "toggle reference lock");
+			break;
+		}
 		case "updateConfigPartial": {
 			await config.update(msg.partial as never);
-
 			const scene = host.getScene();
 			if (scene && msg.partial.grid) {
 				const partial = msg.partial.grid as { snap?: boolean; size?: number };
@@ -542,7 +525,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "requestAtlasRegions": {
 			const scene = host.getScene();
 			if (!scene) break;
-
 			try {
 				const atlas = await AtlasImporter.loadAtlasRegions(ctx.document.uri, msg.texturePath);
 				if (atlas) {
@@ -550,28 +532,14 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 						type: "atlasRegionsLoaded",
 						texturePath: msg.texturePath,
 						atlasPath: atlas.atlasPath,
-						regions: atlas.regions.map((r) => ({
-							name: r.name,
-							x: r.x,
-							y: r.y,
-							width: r.width,
-							height: r.height,
-							rotate: r.rotate,
-							index: r.index,
-						})),
+						regions: atlas.regions.map((r) => ({ name: r.name, x: r.x, y: r.y, width: r.width, height: r.height, rotate: r.rotate, index: r.index })),
 					} satisfies ExtensionToWebviewMessage);
 				} else {
-					ctx.webviewPanel.webview.postMessage({
-						type: "atlasNotFound",
-						texturePath: msg.texturePath,
-					} satisfies ExtensionToWebviewMessage);
+					ctx.webviewPanel.webview.postMessage({ type: "atlasNotFound", texturePath: msg.texturePath } satisfies ExtensionToWebviewMessage);
 				}
 			} catch (err) {
 				log.error("[message-handler] requestAtlasRegions failed:", err);
-				ctx.webviewPanel.webview.postMessage({
-					type: "atlasNotFound",
-					texturePath: msg.texturePath,
-				} satisfies ExtensionToWebviewMessage);
+				ctx.webviewPanel.webview.postMessage({ type: "atlasNotFound", texturePath: msg.texturePath } satisfies ExtensionToWebviewMessage);
 			}
 			break;
 		}
@@ -585,7 +553,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 export function handleAddComponent(host: SceneHost, objectId: string, componentType: Component["type"]): void {
 	const scene = host.getScene();
 	if (!scene) return;
-
 	const newComponent = createDefaultComponent(componentType);
 	const updated = addComponentToObjectInScene(scene, objectId, newComponent);
 	host.getHistory().commit(updated, `add ${componentType} component`);
@@ -594,7 +561,6 @@ export function handleAddComponent(host: SceneHost, objectId: string, componentT
 export function handleUpdateComponent(host: SceneHost, objectId: string, componentId: string, updates: Partial<Component>): void {
 	const scene = host.getScene();
 	if (!scene) return;
-
 	const updated = updateComponentInScene(scene, objectId, componentId, updates);
 	host.getHistory().commit(updated, "update component");
 }
@@ -602,7 +568,6 @@ export function handleUpdateComponent(host: SceneHost, objectId: string, compone
 export function handleRemoveComponent(host: SceneHost, objectId: string, componentId: string): void {
 	const scene = host.getScene();
 	if (!scene) return;
-
 	const updated = removeComponentFromScene(scene, objectId, componentId);
 	host.getHistory().commit(updated, "remove component");
 }
@@ -610,7 +575,6 @@ export function handleRemoveComponent(host: SceneHost, objectId: string, compone
 export function handleReplaceComponent(host: SceneHost, objectId: string, component: Component): void {
 	const scene = host.getScene();
 	if (!scene) return;
-
 	const updated = addComponentToObjectInScene(scene, objectId, component);
 	host.getHistory().commit(updated, "update component");
 }
@@ -626,22 +590,15 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	host.getHistory().reset(scene);
 
 	ctx.webviewPanel.webview.postMessage({ type: "load", scene } satisfies ExtensionToWebviewMessage);
-
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, scene);
 	ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
-
 	const broken = await AssetManager.findBrokenAssets(ctx.document.uri, scene);
 	ctx.webviewPanel.webview.postMessage({ type: "brokenAssets", paths: broken } satisfies ExtensionToWebviewMessage);
 
 	const config = ConfigManager.getInstance().get();
-	ctx.webviewPanel.webview.postMessage({
-		type: "configLoaded",
-		config: toConfigMessage(config),
-	} satisfies ExtensionToWebviewMessage);
+	ctx.webviewPanel.webview.postMessage({ type: "configLoaded", config: toConfigMessage(config) } satisfies ExtensionToWebviewMessage);
 
-	if (host.isActive()) {
-		SceneRegistry.emitSceneChange(host, scene);
-	}
+	if (host.isActive()) SceneRegistry.emitSceneChange(host, scene);
 }
 
 export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void> {
@@ -649,7 +606,6 @@ export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void>
 
 	const host = ctx.host;
 	const fileScene = parseDocument(ctx.document);
-
 	const currentScene = host.getScene();
 	if (currentScene) {
 		try {
@@ -661,32 +617,22 @@ export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void>
 
 	host.setScene(fileScene);
 	ctx.webviewPanel.webview.postMessage({ type: "load", scene: fileScene } satisfies ExtensionToWebviewMessage);
-
 	const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, fileScene);
 	ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
-
 	const broken = await AssetManager.findBrokenAssets(ctx.document.uri, fileScene);
 	ctx.webviewPanel.webview.postMessage({ type: "brokenAssets", paths: broken } satisfies ExtensionToWebviewMessage);
-
-	if (host.isActive()) {
-		SceneRegistry.emitSceneChange(host, fileScene);
-	}
+	if (host.isActive()) SceneRegistry.emitSceneChange(host, fileScene);
 }
 
 async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Promise<void> {
 	ctx.setProgrammaticChange(true);
-
 	try {
 		ctx.host.setScene(msg.scene);
 		await writeDocument(ctx.document, msg.scene);
 		await saveDocument(ctx.document);
 		ctx.markNotDirty();
-
 		ctx.host.broadcastHistoryState();
-
-		if (ctx.host.isActive()) {
-			SceneRegistry.emitSceneChange(ctx.host, msg.scene);
-		}
+		if (ctx.host.isActive()) SceneRegistry.emitSceneChange(ctx.host, msg.scene);
 	} catch (err) {
 		log.error("[handleSave] failed:", err);
 	}

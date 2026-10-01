@@ -1,3 +1,4 @@
+// src/editor/assetManager.ts
 import * as vscode from "vscode";
 import * as path from "node:path";
 import { imageSize } from "image-size";
@@ -5,6 +6,19 @@ import { imageSize } from "image-size";
 export interface ImageDimensions {
 	width: number;
 	height: number;
+}
+
+// type helper برای scene ای که ممکنه reference داشته باشه
+interface SceneLike {
+	layers: Array<{
+		objects: Array<{
+			texture?: string;
+			components?: Array<{ type: string; texture?: string }>;
+			properties?: Record<string, unknown>;
+			children?: unknown;
+		}>;
+	}>;
+	referenceImage?: { texture: string } | null;
 }
 
 export class AssetManager {
@@ -28,14 +42,11 @@ export class AssetManager {
 				if (nameExt !== ext) continue;
 				const base = path.basename(name, nameExt);
 				const num = Number.parseInt(base, 10);
-				if (!Number.isNaN(num) && num > maxNum) {
-					maxNum = num;
-				}
+				if (!Number.isNaN(num) && num > maxNum) maxNum = num;
 			}
 		} catch {
 			// پوشه وجود ندارد
 		}
-
 		return `${maxNum + 1}${ext}`;
 	}
 
@@ -60,9 +71,6 @@ export class AssetManager {
 		return `${assetsDirName}/${uniqueName}`;
 	}
 
-	/**
-	 * کپی یه asset از صحنه‌ی مبدأ به صحنه‌ی مقصد.
-	 */
 	public static async copyAssetFromScene(sourceSceneUri: vscode.Uri, targetSceneUri: vscode.Uri, sourceRelativePath: string): Promise<string> {
 		const sourceSceneDir = vscode.Uri.joinPath(sourceSceneUri, "..");
 		const sourceAssetUri = vscode.Uri.joinPath(sourceSceneDir, sourceRelativePath);
@@ -115,7 +123,10 @@ export class AssetManager {
 		}
 	}
 
-	public static getAllUsedTextures(scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Set<string> {
+	/**
+	 * همه texture های استفاده‌شده (شامل reference image).
+	 */
+	public static getAllUsedTextures(scene: SceneLike): Set<string> {
 		const set = new Set<string>();
 		const visit = (objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }>) => {
 			for (const obj of objects) {
@@ -127,24 +138,29 @@ export class AssetManager {
 					}
 				}
 
-				// 🆕 Atlas texture from properties.atlas.texture
+				// Atlas texture from properties.atlas.texture
 				const atlasRaw = obj.properties?.atlas as { texture?: string } | undefined;
-				if (atlasRaw?.texture) {
-					set.add(atlasRaw.texture);
-				}
+				if (atlasRaw?.texture) set.add(atlasRaw.texture);
 
 				if (Array.isArray(obj.children)) {
 					visit(obj.children as Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }>);
 				}
 			}
 		};
+
 		for (const layer of scene.layers) {
 			visit(layer.objects);
 		}
+
+		// Reference image
+		if (scene.referenceImage?.texture) {
+			set.add(scene.referenceImage.texture);
+		}
+
 		return set;
 	}
 
-	public static async findBrokenAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Promise<string[]> {
+	public static async findBrokenAssets(sceneUri: vscode.Uri, scene: SceneLike): Promise<string[]> {
 		const used = AssetManager.getAllUsedTextures(scene);
 		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
 		const broken: string[] = [];
@@ -161,7 +177,7 @@ export class AssetManager {
 		return broken;
 	}
 
-	public static async cleanupUnusedAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Promise<void> {
+	public static async cleanupUnusedAssets(sceneUri: vscode.Uri, scene: SceneLike): Promise<void> {
 		const assetsDir = AssetManager.getAssetsDir(sceneUri);
 		const assetsDirName = AssetManager.getAssetsDirName(sceneUri);
 		const used = AssetManager.getAllUsedTextures(scene);
@@ -183,7 +199,7 @@ export class AssetManager {
 		}
 	}
 
-	public static async loadTexturesAsDataUrls(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Promise<Record<string, string>> {
+	public static async loadTexturesAsDataUrls(sceneUri: vscode.Uri, scene: SceneLike): Promise<Record<string, string>> {
 		const result: Record<string, string> = {};
 		const used = AssetManager.getAllUsedTextures(scene);
 		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
@@ -203,7 +219,7 @@ export class AssetManager {
 		return result;
 	}
 
-	public static async migrateOldAssets(sceneUri: vscode.Uri, scene: { layers: Array<{ objects: Array<{ texture?: string; components?: Array<{ type: string; texture?: string }>; properties?: Record<string, unknown>; children?: unknown }> }> }): Promise<boolean> {
+	public static async migrateOldAssets(sceneUri: vscode.Uri, scene: SceneLike): Promise<boolean> {
 		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
 		const oldAssetsDir = vscode.Uri.joinPath(sceneDir, "assets");
 		const newAssetsDir = AssetManager.getAssetsDir(sceneUri);

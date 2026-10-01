@@ -12,10 +12,6 @@ let currentToolbar: HTMLDivElement | null = null;
 let keyboardShortcutsInstalled = false;
 let openDropdown: HTMLDivElement | null = null;
 
-// ============================================================
-// Grid size presets
-// ============================================================
-
 const GRID_SIZES = [8, 16, 32, 64, 128];
 
 // ============================================================
@@ -28,8 +24,6 @@ export function setupToolbar(): void {
 
 	window.addEventListener("theme-changed", () => rebuildToolbar());
 	window.addEventListener("config-changed", () => rebuildToolbar());
-
-	// 🆕 وقتی scene عوض شد، toolbar رو rebuild کن (چون showGuides و guide count عوض می‌شه)
 	window.addEventListener("scene-changed", () => rebuildToolbar());
 
 	document.addEventListener(
@@ -37,12 +31,9 @@ export function setupToolbar(): void {
 		(e) => {
 			if (!openDropdown) return;
 			const target = e.target as Node;
-
 			if (openDropdown.contains(target)) return;
-
 			const trigger = (target as HTMLElement).closest?.("[data-action$='-menu']");
 			if (trigger) return;
-
 			closeDropdown();
 		},
 		false,
@@ -78,6 +69,8 @@ function buildToolbar(): HTMLDivElement {
 	const showGuides = scene?.showGuides !== false;
 	const guideCount = scene?.guides?.length ?? 0;
 	const hasGuides = guideCount > 0;
+	const hasReference = !!scene?.referenceImage;
+	const refHidden = scene?.referenceImage?.hidden ?? false;
 
 	toolbar.innerHTML = `
 		<div class="tb-group" data-dropdown="add">
@@ -190,11 +183,16 @@ function buildToolbar(): HTMLDivElement {
 			<span>📐 ${hasGuides ? guideCount : ""}</span>
 		</button>
 
+		${hasGuides ? `<button class="tb-btn" data-action="clear-guides" title="Clear All Guides"><span>🧹</span></button>` : ""}
+
 		${
-			hasGuides
+			hasReference
 				? `
-			<button class="tb-btn" data-action="clear-guides" title="Clear All Guides">
-				<span>🧹</span>
+			<button class="tb-btn ${!refHidden ? "active" : ""}" data-action="toggle-reference" title="Toggle Reference Visibility">
+				<span>🖼️ Ref</span>
+			</button>
+			<button class="tb-btn danger" data-action="remove-reference" title="Remove Reference">
+				<span>❌</span>
 			</button>
 		`
 				: ""
@@ -229,9 +227,7 @@ function buildToolbar(): HTMLDivElement {
 		if (action === "shapes-submenu") {
 			e.stopPropagation();
 			const submenu = document.querySelector('[data-menu="shapes"]') as HTMLDivElement;
-			if (submenu) {
-				submenu.classList.toggle("open");
-			}
+			if (submenu) submenu.classList.toggle("open");
 			return;
 		}
 
@@ -239,9 +235,7 @@ function buildToolbar(): HTMLDivElement {
 			e.stopPropagation();
 			closeDropdown();
 			const newSize = Number.parseInt(target.dataset.gridSize, 10);
-			if (!Number.isNaN(newSize)) {
-				setGridSize(newSize);
-			}
+			if (!Number.isNaN(newSize)) setGridSize(newSize);
 			return;
 		}
 
@@ -263,14 +257,11 @@ function buildToolbar(): HTMLDivElement {
 		if (target.dataset.viewToggle) {
 			e.stopPropagation();
 			const key = target.dataset.viewToggle as "showGrid" | "showWorldBorder" | "showRulers" | "showGuides";
-
 			if (key === "showGuides") {
-				// 🆕 showGuides توی scene هست، نه config
 				toggleGuidesVisibility();
 				closeDropdown();
 				return;
 			}
-
 			const config = getConfig();
 			const current = config?.view[key] ?? true;
 			updateConfigPartial({ view: { [key]: !current } });
@@ -328,6 +319,12 @@ function buildToolbar(): HTMLDivElement {
 			case "clear-guides":
 				clearAllGuides();
 				showInfo("Guides cleared");
+				break;
+			case "toggle-reference":
+				vscode.postMessage({ type: "toggleReferenceHidden" });
+				break;
+			case "remove-reference":
+				vscode.postMessage({ type: "removeReferenceImage" });
 				break;
 			case "delete":
 				deleteSelection();
@@ -395,52 +392,31 @@ function showInfo(text: string): void {
 function addEmptyObject(): void {
 	if (!viewport) return;
 	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddEmptyObject",
-		x: Math.round(center.x),
-		y: Math.round(center.y),
-	});
+	vscode.postMessage({ type: "requestAddEmptyObject", x: Math.round(center.x), y: Math.round(center.y) });
 }
 
 function addSprite(): void {
 	if (!viewport) return;
 	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddSprite",
-		x: Math.round(center.x),
-		y: Math.round(center.y),
-	});
+	vscode.postMessage({ type: "requestAddSprite", x: Math.round(center.x), y: Math.round(center.y) });
 }
 
 function addAtlas(): void {
 	if (!viewport) return;
 	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddAtlas",
-		x: Math.round(center.x),
-		y: Math.round(center.y),
-	});
+	vscode.postMessage({ type: "requestAddAtlas", x: Math.round(center.x), y: Math.round(center.y) });
 }
 
 function addText(): void {
 	if (!viewport) return;
 	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddText",
-		x: Math.round(center.x),
-		y: Math.round(center.y),
-	});
+	vscode.postMessage({ type: "requestAddText", x: Math.round(center.x), y: Math.round(center.y) });
 }
 
 function addShape(shapeType: ShapeType): void {
 	if (!viewport) return;
 	const center = viewport.center;
-	vscode.postMessage({
-		type: "requestAddShape",
-		shapeType,
-		x: Math.round(center.x),
-		y: Math.round(center.y),
-	});
+	vscode.postMessage({ type: "requestAddShape", shapeType, x: Math.round(center.x), y: Math.round(center.y) });
 }
 
 function deleteSelection(): void {
@@ -459,7 +435,6 @@ function toggleSnapGrid(button: HTMLElement): void {
 	button.classList.toggle("active", next);
 	vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: next, historyLabel: "toggle snap grid" });
 	updateConfigPartial({ grid: { snap: next } });
-
 	showInfo(next ? "Snap to Grid: ON" : "Snap to Grid: OFF");
 }
 
@@ -467,33 +442,17 @@ function toggleSnapObjects(button: HTMLElement): void {
 	const config = getConfig();
 	const current = config?.snapping?.enabled ?? false;
 	const next = !current;
-
 	button.classList.toggle("active", next);
-
-	vscode.postMessage({
-		type: "updateConfigPartial",
-		partial: { snapping: { enabled: next } },
-	});
-
+	vscode.postMessage({ type: "updateConfigPartial", partial: { snapping: { enabled: next } } });
 	showInfo(next ? "Snap to Objects: ON" : "Snap to Objects: OFF");
 }
 
 function setGridSize(size: number): void {
 	if (!scene) return;
-
 	setScene({ ...scene, gridSize: size });
-
-	vscode.postMessage({
-		type: "updateSceneField",
-		field: "gridSize",
-		value: size,
-		historyLabel: "grid size",
-	});
-
+	vscode.postMessage({ type: "updateSceneField", field: "gridSize", value: size, historyLabel: "grid size" });
 	updateConfigPartial({ grid: { size } });
-
 	rebuildToolbar();
-
 	showInfo(`Grid: ${size}px`);
 }
 
@@ -543,7 +502,6 @@ function setupKeyboardShortcuts(): void {
 			resetView();
 			showInfo("Reset View");
 		} else if (mod && e.key === ";") {
-			// 🆕 toggle guides visibility
 			e.preventDefault();
 			toggleGuidesVisibility();
 			showInfo("Toggle Guides");
