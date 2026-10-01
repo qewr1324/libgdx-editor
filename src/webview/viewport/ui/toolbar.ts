@@ -4,11 +4,22 @@ import { scene, setScene, viewport } from "../state.js";
 import { getConfig } from "../config-store.js";
 import { copySelection, cutSelection, pasteClipboard, pasteInPlace, duplicateSelection } from "../commands/clipboard.js";
 import { setupHistoryKeyboardShortcuts } from "../history/history-ui.js";
+import { zoomToFit, resetView } from "../pixi/viewport-utils.js";
 import type { ShapeType } from "../../../config/config-types.js";
 
 let currentToolbar: HTMLDivElement | null = null;
 let keyboardShortcutsInstalled = false;
 let openDropdown: HTMLDivElement | null = null;
+
+// ============================================================
+// Grid size presets
+// ============================================================
+
+const GRID_SIZES = [8, 16, 32, 64, 128];
+
+// ============================================================
+// Setup
+// ============================================================
 
 export function setupToolbar(): void {
 	buildToolbar();
@@ -41,6 +52,10 @@ function installKeyboardShortcutsOnce(): void {
 	setupHistoryKeyboardShortcuts();
 }
 
+// ============================================================
+// Build Toolbar
+// ============================================================
+
 function buildToolbar(): HTMLDivElement {
 	const config = getConfig();
 	const toolbar = document.createElement("div");
@@ -55,6 +70,7 @@ function buildToolbar(): HTMLDivElement {
 	const snapGrid = scene?.snapToGrid ?? false;
 	const snapObjects = config?.snapping?.enabled ?? false;
 	const gizmoMode = config?.gizmo.mode ?? "world";
+	const gridSize = scene?.gridSize ?? 32;
 
 	toolbar.innerHTML = `
 		<div class="tb-group" data-dropdown="add">
@@ -93,6 +109,22 @@ function buildToolbar(): HTMLDivElement {
 		<button class="tb-btn ${showGrid ? "active" : ""}" data-action="toggle-grid" title="Toggle Grid">
 			<span>⊞ Grid</span>
 		</button>
+
+		<div class="tb-group" data-dropdown="gridsize">
+			<button class="tb-btn tb-dropdown-trigger" data-action="gridsize-menu" title="Grid size">
+				<span>📏 ${gridSize}</span>
+				<span class="tb-caret">▼</span>
+			</button>
+			<div class="tb-dropdown" data-menu="gridsize">
+				${GRID_SIZES.map(
+					(s) => `
+					<div class="tb-menu-item ${gridSize === s ? "checked" : ""}" data-grid-size="${s}">
+						<span class="tb-check">${gridSize === s ? "✓" : ""}</span> ${s} px
+					</div>
+				`,
+				).join("")}
+			</div>
+		</div>
 
 		<div class="tb-group" data-dropdown="view">
 			<button class="tb-btn tb-dropdown-trigger" data-action="view-menu">
@@ -134,6 +166,16 @@ function buildToolbar(): HTMLDivElement {
 			<span>🧷 Objects</span>
 		</button>
 
+		<span class="tb-sep"></span>
+
+		<button class="tb-btn" data-action="zoom-fit" title="Zoom to Fit (Ctrl+0)">
+			<span>🔲 Fit</span>
+		</button>
+
+		<button class="tb-btn" data-action="reset-view" title="Reset View (Ctrl+1)">
+			<span>⟲ Reset</span>
+		</button>
+
 		<button class="tb-btn" data-action="delete" title="Delete Selected">
 			<span>🗑️</span>
 		</button>
@@ -147,12 +189,13 @@ function buildToolbar(): HTMLDivElement {
 	`;
 
 	toolbar.addEventListener("click", (e) => {
-		const target = (e.target as HTMLElement).closest("[data-action], [data-shape], [data-view-mode], [data-view-toggle]") as HTMLElement | null;
+		const target = (e.target as HTMLElement).closest("[data-action], [data-shape], [data-view-mode], [data-view-toggle], [data-grid-size]") as HTMLElement | null;
 		if (!target) return;
 
 		const action = target.dataset.action;
 
-		if (action === "add-menu" || action === "view-menu") {
+		// ---------- Dropdowns ----------
+		if (action === "add-menu" || action === "view-menu" || action === "gridsize-menu") {
 			e.stopPropagation();
 			const group = target.closest(".tb-group") as HTMLElement;
 			const dropdown = group.querySelector(".tb-dropdown") as HTMLDivElement;
@@ -169,6 +212,18 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
+		// ---------- Grid size ----------
+		if (target.dataset.gridSize) {
+			e.stopPropagation();
+			closeDropdown();
+			const newSize = Number.parseInt(target.dataset.gridSize, 10);
+			if (!Number.isNaN(newSize)) {
+				setGridSize(newSize);
+			}
+			return;
+		}
+
+		// ---------- Shape ----------
 		if (target.dataset.shape) {
 			e.stopPropagation();
 			closeDropdown();
@@ -176,6 +231,7 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
+		// ---------- View mode ----------
 		if (target.dataset.viewMode) {
 			e.stopPropagation();
 			closeDropdown();
@@ -184,6 +240,7 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
+		// ---------- View toggle ----------
 		if (target.dataset.viewToggle) {
 			e.stopPropagation();
 			const key = target.dataset.viewToggle as "showGrid" | "showWorldBorder" | "showRulers";
@@ -194,6 +251,7 @@ function buildToolbar(): HTMLDivElement {
 			return;
 		}
 
+		// ---------- Actions ----------
 		switch (action) {
 			case "add-empty-object":
 				closeDropdown();
@@ -229,6 +287,14 @@ function buildToolbar(): HTMLDivElement {
 			case "snap-objects":
 				toggleSnapObjects(target);
 				break;
+			case "zoom-fit":
+				zoomToFit();
+				showInfo("Zoom to Fit");
+				break;
+			case "reset-view":
+				resetView();
+				showInfo("Reset View");
+				break;
 			case "delete":
 				deleteSelection();
 				break;
@@ -242,6 +308,10 @@ function buildToolbar(): HTMLDivElement {
 	currentToolbar = toolbar;
 	return toolbar;
 }
+
+// ============================================================
+// Dropdown helpers
+// ============================================================
 
 function toggleDropdown(dropdown: HTMLDivElement): void {
 	if (dropdown === openDropdown) {
@@ -270,10 +340,23 @@ function rebuildToolbar(): void {
 	buildToolbar();
 }
 
+// ============================================================
+// Info
+// ============================================================
+
 export function updateToolbarInfo(text: string): void {
 	const el = document.getElementById("toolbar-info");
 	if (el) el.textContent = text;
 }
+
+function showInfo(text: string): void {
+	updateToolbarInfo(text);
+	setTimeout(() => updateToolbarInfo(""), 1200);
+}
+
+// ============================================================
+// Actions
+// ============================================================
 
 function addEmptyObject(): void {
 	if (!viewport) return;
@@ -343,8 +426,7 @@ function toggleSnapGrid(button: HTMLElement): void {
 	vscode.postMessage({ type: "updateSceneField", field: "snapToGrid", value: next, historyLabel: "toggle snap grid" });
 	updateConfigPartial({ grid: { snap: next } });
 
-	updateToolbarInfo(next ? "Snap to Grid: ON" : "Snap to Grid: OFF");
-	setTimeout(() => updateToolbarInfo(""), 1200);
+	showInfo(next ? "Snap to Grid: ON" : "Snap to Grid: OFF");
 }
 
 function toggleSnapObjects(button: HTMLElement): void {
@@ -359,21 +441,46 @@ function toggleSnapObjects(button: HTMLElement): void {
 		partial: { snapping: { enabled: next } },
 	});
 
-	updateToolbarInfo(next ? "Snap to Objects: ON" : "Snap to Objects: OFF");
-	setTimeout(() => updateToolbarInfo(""), 1200);
+	showInfo(next ? "Snap to Objects: ON" : "Snap to Objects: OFF");
+}
+
+function setGridSize(size: number): void {
+	if (!scene) return;
+
+	// آپدیت local scene
+	setScene({ ...scene, gridSize: size });
+
+	// پیام به extension
+	vscode.postMessage({
+		type: "updateSceneField",
+		field: "gridSize",
+		value: size,
+		historyLabel: "grid size",
+	});
+
+	// آپدیت config (برای هماهنگی)
+	updateConfigPartial({ grid: { size } });
+
+	// rebuild toolbar برای نشون دادن مقدار جدید
+	rebuildToolbar();
+
+	showInfo(`Grid: ${size}px`);
 }
 
 function saveScene(): void {
 	if (scene) {
 		vscode.postMessage({ type: "save", scene });
-		updateToolbarInfo("Saved ✓");
-		setTimeout(() => updateToolbarInfo(""), 1500);
+		showInfo("Saved ✓");
 	}
 }
 
 function updateConfigPartial(partial: Record<string, unknown>): void {
 	vscode.postMessage({ type: "updateConfigPartial", partial });
 }
+
+// ============================================================
+// Keyboard shortcuts
+// ============================================================
 
 function setupKeyboardShortcuts(): void {
 	window.addEventListener("keydown", (e) => {
@@ -397,6 +504,14 @@ function setupKeyboardShortcuts(): void {
 		} else if (mod && e.key === "d") {
 			e.preventDefault();
 			duplicateSelection();
+		} else if (mod && e.key === "0") {
+			e.preventDefault();
+			zoomToFit();
+			showInfo("Zoom to Fit");
+		} else if (mod && e.key === "1") {
+			e.preventDefault();
+			resetView();
+			showInfo("Reset View");
 		} else if (e.key === "Delete") {
 			void import("../state.js").then((state) => {
 				if (state.selectedIds.length > 0) {
