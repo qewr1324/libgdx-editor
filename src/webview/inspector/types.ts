@@ -20,4 +20,14 @@ export interface LayerInfo {
 	name: string;
 }
 
+export interface AtlasRegionInfo {
+	name: string;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	rotate: boolean;
+	index: number;
+}
+
 export type { GameObject, Scene, LibGdxEditorConfigMessage };

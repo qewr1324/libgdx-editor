@@ -4,6 +4,7 @@ import type { Component, ShapeType, AnimationComponent } from "../types/componen
 import { findComponent } from "../types/components.js";
 import type { GenerateOptions } from "./generator-types.js";
 import { generateAnimatedActorFile } from "./javaAnimatedActor.js";
+import { getAtlasProperties } from "../features/texture-atlas/atlas-properties.js";
 
 export type { GenerateOptions, GeneratedFile, GenerateResult } from "./generator-types.js";
 
@@ -105,6 +106,16 @@ function generateJavaObject(obj: GameObject, includeComments: boolean): string[]
 	const t = obj.transform;
 	const varName = sanitizeIdentifier(obj.name);
 	const components = obj.components ?? [];
+	const atlasProps = getAtlasProperties(obj);
+
+	// ---------- Atlas (properties.atlas) ----------
+	if (atlasProps && atlasProps.texture) {
+		if (includeComments) {
+			lines.push(`\t\t// ${obj.name} (atlas, mode=${atlasProps.mode})`);
+		}
+		lines.push(...generateJavaAtlas(atlasProps, obj, varName));
+		return lines;
+	}
 
 	if (includeComments) {
 		lines.push(`\t\t// ${obj.name} (${obj.type}, ${components.length} components)`);
@@ -118,7 +129,6 @@ function generateJavaObject(obj: GameObject, includeComments: boolean): string[]
 
 	// ---------- اول animation رو چک کن (چون ممکنه sprite رو override کنه) ----------
 	const animationComp = findComponent(components, "animation");
-	const atlasComp = findComponent(components, "atlas");
 	const spriteComp = findComponent(components, "sprite");
 	const shapeComp = findComponent(components, "shape");
 	const textComp = findComponent(components, "text");
@@ -126,25 +136,6 @@ function generateJavaObject(obj: GameObject, includeComments: boolean): string[]
 	// ---------- Animation ----------
 	if (animationComp) {
 		lines.push(...generateJavaAnimation(animationComp, obj, varName));
-		return lines;
-	}
-
-	// ---------- Atlas region ----------
-	if (atlasComp && atlasComp.texture && atlasComp.region) {
-		lines.push(`\t\tTextureAtlas ${varName}Atlas = assets.get("${atlasComp.atlasPath}", TextureAtlas.class);`);
-		lines.push(`\t\tTextureRegion ${varName}Region = ${varName}Atlas.findRegion("${atlasComp.region}");`);
-		lines.push(`\t\tImage ${varName} = new Image(new TextureRegionDrawable(${varName}Region));`);
-		lines.push(`\t\t${varName}.setSize(${t.width}f, ${t.height}f);`);
-		lines.push(`\t\t${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f);`);
-		lines.push(`\t\t${varName}.setOrigin(${t.width * t.originX}f, ${t.height * t.originY}f);`);
-		if (t.rotation !== 0) {
-			lines.push(`\t\t${varName}.setRotation(${t.rotation}f);`);
-		}
-		if (atlasComp.tint && atlasComp.tint !== "#ffffff") {
-			const c = hexToRgbaFloat(atlasComp.tint);
-			lines.push(`\t\t${varName}.setColor(new Color(${c.r}f, ${c.g}f, ${c.b}f, ${c.a}f));`);
-		}
-		lines.push(`\t\tstage.addActor(${varName});`);
 		return lines;
 	}
 
@@ -201,6 +192,74 @@ function generateJavaObject(obj: GameObject, includeComments: boolean): string[]
 	if (includeComments) {
 		lines.push(`\t\t// (no supported component found)`);
 	}
+	return lines;
+}
+
+/**
+ * کد Atlas رو بر اساس mode تولید می‌کنه.
+ */
+function generateJavaAtlas(atlasProps: ReturnType<typeof getAtlasProperties> & object, obj: GameObject, varName: string): string[] {
+	const lines: string[] = [];
+	const t = obj.transform;
+
+	if (!atlasProps.atlasPath) {
+		// فقط PNG داریم — از Texture استفاده کن
+		lines.push(`\t\tTexture ${varName}Tex = assets.get("${atlasProps.texture}", Texture.class);`);
+		lines.push(`\t\tImage ${varName} = new Image(new TextureRegionDrawable(new TextureRegion(${varName}Tex)));`);
+		lines.push(`\t\t${varName}.setSize(${t.width}f, ${t.height}f);`);
+		lines.push(`\t\t${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f);`);
+		lines.push(`\t\t${varName}.setOrigin(${t.width * t.originX}f, ${t.height * t.originY}f);`);
+		if (t.rotation !== 0) {
+			lines.push(`\t\t${varName}.setRotation(${t.rotation}f);`);
+		}
+		lines.push(`\t\tstage.addActor(${varName});`);
+		return lines;
+	}
+
+	// atlas داریم
+	lines.push(`\t\tTextureAtlas ${varName}Atlas = assets.get("${atlasProps.atlasPath}", TextureAtlas.class);`);
+
+	if (atlasProps.mode === "single" && atlasProps.region) {
+		lines.push(`\t\tTextureRegion ${varName}Region = ${varName}Atlas.findRegion("${atlasProps.region}");`);
+		lines.push(`\t\tImage ${varName} = new Image(new TextureRegionDrawable(${varName}Region));`);
+		lines.push(`\t\t${varName}.setSize(${t.width}f, ${t.height}f);`);
+		lines.push(`\t\t${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f);`);
+		lines.push(`\t\t${varName}.setOrigin(${t.width * t.originX}f, ${t.height * t.originY}f);`);
+		if (t.rotation !== 0) {
+			lines.push(`\t\t${varName}.setRotation(${t.rotation}f);`);
+		}
+		if (atlasProps.tint && atlasProps.tint !== "#ffffff") {
+			const c = hexToRgbaFloat(atlasProps.tint);
+			lines.push(`\t\t${varName}.setColor(new Color(${c.r}f, ${c.g}f, ${c.b}f, ${c.a}f));`);
+		}
+		lines.push(`\t\tstage.addActor(${varName});`);
+	} else if (atlasProps.mode === "sequence" && atlasProps.frames && atlasProps.frames.length > 0) {
+		const fps = atlasProps.fps ?? 8;
+		lines.push(`\t\tAnimation<TextureRegion> ${varName}Anim = new Animation<>(1f / ${fps}f,`);
+		atlasProps.frames.forEach((frame, i) => {
+			const isLast = i === atlasProps.frames!.length - 1;
+			lines.push(`\t\t\t${varName}Atlas.findRegion("${frame}")${isLast ? "" : ","}`);
+		});
+		lines.push(`\t\t);`);
+		lines.push(`\t\t${varName}Anim.setPlayMode(Animation.PlayMode.${atlasProps.loop ? "LOOP" : "NORMAL"});`);
+		lines.push(`\t\tAnimatedActor ${varName} = new AnimatedActor(${varName}Anim);`);
+		lines.push(`\t\t${varName}.setSize(${t.width}f, ${t.height}f);`);
+		lines.push(`\t\t${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f);`);
+		lines.push(`\t\t${varName}.setOrigin(${t.width * t.originX}f, ${t.height * t.originY}f);`);
+		lines.push(`\t\tstage.addActor(${varName});`);
+	} else if (atlasProps.mode === "grid") {
+		const cols = atlasProps.gridCols ?? 1;
+		const rows = atlasProps.gridRows ?? 1;
+		const start = atlasProps.startIndex ?? 0;
+		lines.push(`\t\t// Grid mode: ${cols}x${rows}, start index: ${start}`);
+		lines.push(`\t\t// TODO: implement grid slicing using regions.slice(${start}, ${start + cols * rows})`);
+		lines.push(`\t\tTextureRegion ${varName}Region = ${varName}Atlas.getRegions().get(${start});`);
+		lines.push(`\t\tImage ${varName} = new Image(new TextureRegionDrawable(${varName}Region));`);
+		lines.push(`\t\t${varName}.setSize(${t.width}f, ${t.height}f);`);
+		lines.push(`\t\t${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f);`);
+		lines.push(`\t\tstage.addActor(${varName});`);
+	}
+
 	return lines;
 }
 
@@ -327,6 +386,16 @@ function generateKotlinObject(obj: GameObject, includeComments: boolean): string
 	const t = obj.transform;
 	const varName = sanitizeIdentifier(obj.name);
 	const components = obj.components ?? [];
+	const atlasProps = getAtlasProperties(obj);
+
+	// ---------- Atlas ----------
+	if (atlasProps && atlasProps.texture) {
+		if (includeComments) {
+			lines.push(`        // ${obj.name} (atlas, mode=${atlasProps.mode})`);
+		}
+		lines.push(...generateKotlinAtlas(atlasProps, obj, varName));
+		return lines;
+	}
 
 	if (includeComments) {
 		lines.push(`        // ${obj.name} (${obj.type}, ${components.length} components)`);
@@ -338,27 +407,12 @@ function generateKotlinObject(obj: GameObject, includeComments: boolean): string
 	}
 
 	const animationComp = findComponent(components, "animation");
-	const atlasComp = findComponent(components, "atlas");
 	const spriteComp = findComponent(components, "sprite");
 	const shapeComp = findComponent(components, "shape");
 	const textComp = findComponent(components, "text");
 
 	if (animationComp) {
 		lines.push(...generateKotlinAnimation(animationComp, obj, varName));
-		return lines;
-	}
-
-	if (atlasComp && atlasComp.texture && atlasComp.region) {
-		lines.push(`        val ${varName}Atlas = assets.get("${atlasComp.atlasPath}", TextureAtlas::class.java)`);
-		lines.push(`        val ${varName}Region = ${varName}Atlas.findRegion("${atlasComp.region}")`);
-		lines.push(`        val ${varName} = Image(TextureRegionDrawable(${varName}Region))`);
-		lines.push(`        ${varName}.setSize(${t.width}f, ${t.height}f)`);
-		lines.push(`        ${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f)`);
-		lines.push(`        ${varName}.setOrigin(${t.width * t.originX}f, ${t.height * t.originY}f)`);
-		if (t.rotation !== 0) {
-			lines.push(`        ${varName}.rotation = ${t.rotation}f`);
-		}
-		lines.push(`        stage.addActor(${varName})`);
 		return lines;
 	}
 
@@ -383,6 +437,49 @@ function generateKotlinObject(obj: GameObject, includeComments: boolean): string
 
 	if (textComp) {
 		lines.push(`        // TODO: Label ${varName} = Label("${escapeJavaString(textComp.text)}", skin)`);
+	}
+
+	return lines;
+}
+
+function generateKotlinAtlas(atlasProps: ReturnType<typeof getAtlasProperties> & object, obj: GameObject, varName: string): string[] {
+	const lines: string[] = [];
+	const t = obj.transform;
+
+	if (!atlasProps.atlasPath) {
+		lines.push(`        val ${varName}Tex = assets.get("${atlasProps.texture}", Texture::class.java)`);
+		lines.push(`        val ${varName} = Image(TextureRegionDrawable(TextureRegion(${varName}Tex)))`);
+		lines.push(`        ${varName}.setSize(${t.width}f, ${t.height}f)`);
+		lines.push(`        ${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f)`);
+		lines.push(`        stage.addActor(${varName})`);
+		return lines;
+	}
+
+	lines.push(`        val ${varName}Atlas = assets.get("${atlasProps.atlasPath}", TextureAtlas::class.java)`);
+
+	if (atlasProps.mode === "single" && atlasProps.region) {
+		lines.push(`        val ${varName}Region = ${varName}Atlas.findRegion("${atlasProps.region}")`);
+		lines.push(`        val ${varName} = Image(TextureRegionDrawable(${varName}Region))`);
+		lines.push(`        ${varName}.setSize(${t.width}f, ${t.height}f)`);
+		lines.push(`        ${varName}.setPosition(${t.x - t.width * t.originX}f, ${t.y - t.height * t.originY}f)`);
+		lines.push(`        stage.addActor(${varName})`);
+	} else if (atlasProps.mode === "sequence" && atlasProps.frames && atlasProps.frames.length > 0) {
+		const fps = atlasProps.fps ?? 8;
+		lines.push(`        val ${varName}Anim = Animation<TextureRegion>(1f / ${fps}f,`);
+		atlasProps.frames.forEach((frame, i) => {
+			const isLast = i === atlasProps.frames!.length - 1;
+			lines.push(`            ${varName}Atlas.findRegion("${frame}")${isLast ? "" : ","}`);
+		});
+		lines.push(`        )`);
+		lines.push(`        val ${varName} = AnimatedActor(${varName}Anim)`);
+		lines.push(`        ${varName}.setSize(${t.width}f, ${t.height}f)`);
+		lines.push(`        stage.addActor(${varName})`);
+	} else if (atlasProps.mode === "grid") {
+		lines.push(`        // Grid mode — TODO: implement grid slicing`);
+		lines.push(`        val ${varName}Region = ${varName}Atlas.regions[${atlasProps.startIndex ?? 0}]`);
+		lines.push(`        val ${varName} = Image(TextureRegionDrawable(${varName}Region))`);
+		lines.push(`        ${varName}.setSize(${t.width}f, ${t.height}f)`);
+		lines.push(`        stage.addActor(${varName})`);
 	}
 
 	return lines;

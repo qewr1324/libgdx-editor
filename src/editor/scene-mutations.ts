@@ -2,6 +2,8 @@
 import type { GameObject, Layer, Scene } from "../types/scene.js";
 import type { ShapeType, Component } from "../types/components.js";
 import { createComponentId, isComponentUnique } from "../types/components.js";
+import type { AtlasProperties } from "../features/texture-atlas/atlas-properties.js";
+import { normalizeAtlasProperties } from "../features/texture-atlas/atlas-properties.js";
 
 // ============================================================
 // Factory Functions
@@ -198,6 +200,39 @@ export function updateSceneFieldInScene(scene: Scene, field: string, value: unkn
 	return newScene;
 }
 
+// ============================================================
+// 🆕 Atlas Properties
+// ============================================================
+
+/**
+ * تنظیمات atlas آبجکت رو آپدیت می‌کنه.
+ * اگه `properties` نال باشه، کلید `atlas` پاک می‌شه.
+ */
+export function updateAtlasPropertiesInScene(scene: Scene, objectId: string, properties: Partial<AtlasProperties> | null): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (!obj) continue;
+
+		if (!obj.properties) obj.properties = {};
+
+		if (properties === null) {
+			delete obj.properties.atlas;
+			return newScene;
+		}
+
+		const existing = (obj.properties.atlas as Partial<AtlasProperties> | undefined) ?? {};
+		const merged = normalizeAtlasProperties({ ...existing, ...properties });
+		obj.properties.atlas = merged;
+		return newScene;
+	}
+	return newScene;
+}
+
+// ============================================================
+// Duplicate
+// ============================================================
+
 export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offsetX: number, offsetY: number): { scene: Scene; newIds: string[] } {
 	const newScene = structuredClone(scene) as Scene;
 	const newIds: string[] = [];
@@ -221,7 +256,7 @@ export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offse
 					}));
 				}
 
-				objectsToClone.push(clone);
+				objectsToPush(clone, objectsToClone);
 				newIds.push(clone.id);
 			}
 		}
@@ -229,6 +264,10 @@ export function duplicateObjectsInScene(scene: Scene, objectIds: string[], offse
 	}
 
 	return { scene: newScene, newIds };
+}
+
+function objectsToPush(clone: GameObject, arr: GameObject[]): void {
+	arr.push(clone);
 }
 
 // ============================================================
@@ -412,10 +451,6 @@ function getNextZIndexForLayer(scene: Scene, layerId: string): number {
 // Component Mutations
 // ============================================================
 
-/**
- * یه component به آبجکت اضافه می‌کنه.
- * اگه component از این نوع از قبل بود، جایگزینش می‌کنه (چون همه unique هستن).
- */
 export function addComponentToObjectInScene(scene: Scene, objectId: string, component: Component): Scene {
 	const newScene = structuredClone(scene) as Scene;
 	for (const layer of newScene.layers) {

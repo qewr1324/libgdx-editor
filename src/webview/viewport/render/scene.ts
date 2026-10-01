@@ -5,10 +5,11 @@ import type { GameObject, Scene } from "../../../types/scene.js";
 import { sortObjectsByZIndex } from "../../../types/scene.js";
 import type { Component, ShapeType } from "../../../types/components.js";
 import { findComponent } from "../../../types/components.js";
+import { getAtlasProperties } from "../../../features/texture-atlas/atlas-properties.js";
+import { resolveFrameRects } from "../../../features/texture-atlas/atlas-grid.js";
 import { redrawGrid } from "./grid.js";
 import { beginDrag } from "../interaction/drag.js";
 import { selectObjects, drawSelectionOutlines } from "../selection/selection.js";
-import { findObject } from "../utils/geometry.js";
 import { getConfig } from "../config-store.js";
 
 // ============================================================
@@ -88,13 +89,20 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 	const isWireframe = getConfig()?.view.renderMode === "wireframe";
 	const broken = getBrokenAssets();
 
-	const components = obj.components ?? [];
+	// 🆕 اول atlas رو چک کن
+	const atlasProps = getAtlasProperties(obj);
 
-	if (components.length === 0) {
-		renderLegacy(obj, container, isWireframe);
+	if (atlasProps && atlasProps.texture) {
+		renderAtlasObject(obj, atlasProps, container, isWireframe);
 	} else {
-		for (const comp of components) {
-			renderComponent(comp, obj, container, isWireframe);
+		// مسیر قدیمی components
+		const components = obj.components ?? [];
+		if (components.length === 0) {
+			renderLegacy(obj, container, isWireframe);
+		} else {
+			for (const comp of components) {
+				renderComponent(comp, obj, container, isWireframe);
+			}
 		}
 	}
 
@@ -152,6 +160,61 @@ export function renderObject(obj: GameObject, layerLocked = false): void {
 }
 
 // ============================================================
+// Atlas renderer
+// ============================================================
+
+function renderAtlasObject(obj: GameObject, atlasProps: NonNullable<ReturnType<typeof getAtlasProperties>>, container: Container, _isWireframe: boolean): void {
+	const t = obj.transform;
+	const cached = textureCache.get(atlasProps.texture);
+	if (!cached) {
+		// texture هنوز لود نشده — fallback خالی
+		return;
+	}
+
+	const rects = resolveFrameRects(atlasProps, null, cached.width, cached.height);
+	if (rects.length === 0) {
+		// هیچ frame ای نیست — فقط texture کامل نشون بده
+		const sprite = new Sprite(cached);
+		sprite.width = t.width;
+		sprite.height = t.height;
+		sprite.eventMode = "none";
+		applyTint(sprite, atlasProps.tint);
+		container.addChild(sprite);
+		return;
+	}
+
+	// اولین frame رو رندر کن (بقیه برای preview در inspector)
+	const first = rects[0];
+	const subTex = getSubTexture(atlasProps.texture, first);
+	if (!subTex) return;
+
+	const sprite = new Sprite(subTex);
+	sprite.width = t.width;
+	sprite.height = t.height;
+	sprite.eventMode = "none";
+	applyTint(sprite, atlasProps.tint);
+	container.addChild(sprite);
+
+	// badge برای sequence/grid
+	if (atlasProps.mode !== "single" && rects.length > 1) {
+		const badge = new Text({
+			text: atlasProps.mode === "sequence" ? `🎬 ${rects.length}` : `⊞ ${rects.length}`,
+			style: new TextStyle({ fontSize: 11, fill: "#ffffff", stroke: { color: 0x000000, width: 3 } }),
+		});
+		badge.x = t.width - 40;
+		badge.y = 2;
+		badge.eventMode = "none";
+		container.addChild(badge);
+	}
+}
+
+function applyTint(sprite: Sprite, tint: string | undefined): void {
+	if (!tint || tint === "#ffffff") return;
+	const color = parseInt(tint.replace("#", ""), 16);
+	if (!Number.isNaN(color)) sprite.tint = color;
+}
+
+// ============================================================
 // Component renderers
 // ============================================================
 
@@ -170,8 +233,7 @@ function renderComponent(comp: Component, obj: GameObject, container: Container,
 			sprite.eventMode = "none";
 
 			if (comp.tint) {
-				const color = parseInt(comp.tint.replace("#", "0x"));
-				if (!Number.isNaN(color)) sprite.tint = color;
+				applyTint(sprite, comp.tint);
 			}
 
 			if (comp.flipX) sprite.scale.x *= -1;
@@ -181,29 +243,13 @@ function renderComponent(comp: Component, obj: GameObject, container: Container,
 			break;
 		}
 
-		case "atlas": {
-			if (!comp.texture || !comp.region) break;
-			const subTex = getSubTexture(comp.texture, getRegionFromAtlas(comp.texture, comp.region) ?? { x: 0, y: 0, width: 0, height: 0 });
-			if (!subTex) break;
-
-			const sprite = new Sprite(subTex);
-			sprite.width = t.width;
-			sprite.height = t.height;
-			sprite.eventMode = "none";
-
-			if (comp.tint) {
-				const color = parseInt(comp.tint.replace("#", "0x"));
-				if (!Number.isNaN(color)) sprite.tint = color;
-			}
-
-			container.addChild(sprite);
-			break;
-		}
-
 		case "animation": {
 			if (!comp.texture || comp.frames.length === 0) break;
+			const cached = textureCache.get(comp.texture);
+			if (!cached) break;
+
 			const firstFrame = comp.frames[0];
-			const subTex = getSubTexture(comp.texture, getRegionFromAtlas(comp.texture, firstFrame) ?? { x: 0, y: 0, width: 0, height: 0 });
+			const subTex = getSubTexture(comp.texture, { x: 0, y: 0, width: cached.width, height: cached.height });
 			if (!subTex) break;
 
 			const sprite = new Sprite(subTex);
@@ -227,14 +273,14 @@ function renderComponent(comp: Component, obj: GameObject, container: Container,
 			const g = new Graphics();
 			drawShape(g, comp.shape, t.width, t.height);
 
-			const color = parseInt(comp.color.replace("#", "0x")) || 0x4a9eff;
+			const color = parseInt(comp.color.replace("#", ""), 16) || 0x4a9eff;
 
 			if (isWireframe) {
 				g.stroke({ width: 2, color, alpha: 1 });
 			} else if (comp.filled) {
 				g.fill({ color, alpha: 1 });
 				if (comp.strokeWidth && comp.strokeWidth > 0) {
-					const strokeColor = comp.strokeColor ? parseInt(comp.strokeColor.replace("#", "0x")) : 0x000000;
+					const strokeColor = comp.strokeColor ? parseInt(comp.strokeColor.replace("#", ""), 16) : 0x000000;
 					g.stroke({ width: comp.strokeWidth, color: strokeColor, alpha: 0.5 });
 				}
 			} else {
@@ -282,7 +328,7 @@ function renderLegacy(obj: GameObject, container: Container, isWireframe: boolea
 	}
 
 	if (!rendered) {
-		const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x4a9eff;
+		const color = obj.color ? parseInt(obj.color.replace("#", ""), 16) : 0x4a9eff;
 		const g = new Graphics();
 
 		if (obj.type === "shape") {
@@ -317,7 +363,7 @@ function renderLegacy(obj: GameObject, container: Container, isWireframe: boolea
 
 function renderEmptyFallback(obj: GameObject, container: Container): void {
 	const t = obj.transform;
-	const color = obj.color ? parseInt(obj.color.replace("#", "0x")) : 0x9b59b6;
+	const color = obj.color ? parseInt(obj.color.replace("#", ""), 16) : 0x9b59b6;
 
 	const border = new Graphics();
 	drawDashedRect(border, 0, 0, t.width, t.height, 6, 4);
@@ -452,18 +498,6 @@ function drawStar(g: Graphics, cx: number, cy: number, outerR: number, innerR: n
 		else g.lineTo(x, y);
 	}
 	g.closePath();
-}
-
-// ============================================================
-// Atlas region lookup
-// ============================================================
-
-import { findRegionByName as findAtlasRegion } from "../features/texture-atlas/atlas-picker.js";
-
-function getRegionFromAtlas(texturePath: string, regionName: string): { x: number; y: number; width: number; height: number; rotate: boolean } | null {
-	const r = findAtlasRegion(texturePath, regionName);
-	if (!r) return null;
-	return { x: r.x, y: r.y, width: r.width, height: r.height, rotate: r.rotate };
 }
 
 // ============================================================

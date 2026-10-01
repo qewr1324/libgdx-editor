@@ -9,7 +9,7 @@ export type OpenSceneSettingsHandler = (host: SceneHost, scene: Scene) => void;
 export interface SceneHost {
 	getScene(): Scene | null;
 	setScene(scene: Scene): void;
-	getDocument(): vscode.TextDocument | null;
+	getDocument(): vscode.TextDocument;
 	postToWebview(msg: unknown): void;
 	markDirty(): void;
 	autoSave(): Promise<void>;

@@ -2,8 +2,12 @@
 //
 // سیستم کامپوننت‌ها برای LibGDX Editor
 //
+// توجه: Atlas دیگه اینجا نیست. تنظیمات Atlas توی
+// `GameObject.properties.atlas` قرار داره و از
+// `features/texture-atlas/atlas-properties.ts` استفاده می‌شه.
+//
 // Visual components (خودکار با ساخت آبجکت):
-//   - sprite, atlas, animation, shape, text
+//   - sprite, animation, shape, text
 //
 // Logic components (اضافه شدن دستی از تب Components):
 //   - physics, collider, script, tag, custom
@@ -13,7 +17,7 @@
 // Visual Component Types
 // ============================================================
 
-export type VisualComponentType = "sprite" | "atlas" | "animation" | "shape" | "text";
+export type VisualComponentType = "sprite" | "animation" | "shape" | "text";
 
 // ---------- Sprite ----------
 export interface SpriteComponent {
@@ -23,16 +27,6 @@ export interface SpriteComponent {
 	tint?: string;
 	flipX?: boolean;
 	flipY?: boolean;
-}
-
-// ---------- Atlas (single region) ----------
-export interface AtlasComponent {
-	id: string;
-	type: "atlas";
-	texture: string;
-	atlasPath: string;
-	region: string;
-	tint?: string;
 }
 
 // ---------- Animation ----------
@@ -135,7 +129,7 @@ export interface CustomComponent {
 // ---------- Union ----------
 export type ComponentType = VisualComponentType | "physics" | "collider" | "script" | "tag" | "custom";
 
-export type VisualComponent = SpriteComponent | AtlasComponent | AnimationComponent | ShapeComponent | TextComponent;
+export type VisualComponent = SpriteComponent | AnimationComponent | ShapeComponent | TextComponent;
 export type LogicComponent = PhysicsComponent | ColliderComponent | ScriptComponent | TagComponent | CustomComponent;
 
 export type Component = VisualComponent | LogicComponent;
@@ -149,7 +143,7 @@ export function createComponentId(): string {
 }
 
 export function isVisualComponent(type: ComponentType): type is VisualComponentType {
-	return type === "sprite" || type === "atlas" || type === "animation" || type === "shape" || type === "text";
+	return type === "sprite" || type === "animation" || type === "shape" || type === "text";
 }
 
 export function isLogicComponent(type: ComponentType): boolean {
@@ -190,13 +184,6 @@ export const COMPONENT_DEFINITIONS: Record<ComponentType, ComponentDefinition> =
 		icon: "🖼️",
 		unique: true,
 		create: () => ({ id: createComponentId(), type: "sprite", texture: "", tint: "#ffffff" }),
-	},
-	atlas: {
-		type: "atlas",
-		label: "Atlas Region",
-		icon: "🗺️",
-		unique: true,
-		create: () => ({ id: createComponentId(), type: "atlas", texture: "", atlasPath: "", region: "", tint: "#ffffff" }),
 	},
 	animation: {
 		type: "animation",
@@ -277,7 +264,7 @@ export const COMPONENT_DEFINITIONS: Record<ComponentType, ComponentDefinition> =
 	},
 };
 
-export const VISUAL_COMPONENT_ORDER: VisualComponentType[] = ["sprite", "atlas", "animation", "shape", "text"];
+export const VISUAL_COMPONENT_ORDER: VisualComponentType[] = ["sprite", "animation", "shape", "text"];
 
 export const LOGIC_COMPONENT_ORDER: ComponentType[] = ["physics", "collider", "script", "tag", "custom"];
 
@@ -285,7 +272,6 @@ export const COMPONENT_ORDER: ComponentType[] = [...VISUAL_COMPONENT_ORDER, ...L
 
 export const COMPONENT_LABELS: Record<ComponentType, string> = {
 	sprite: COMPONENT_DEFINITIONS.sprite.label,
-	atlas: COMPONENT_DEFINITIONS.atlas.label,
 	animation: COMPONENT_DEFINITIONS.animation.label,
 	shape: COMPONENT_DEFINITIONS.shape.label,
 	text: COMPONENT_DEFINITIONS.text.label,
@@ -298,7 +284,6 @@ export const COMPONENT_LABELS: Record<ComponentType, string> = {
 
 export const COMPONENT_ICONS: Record<ComponentType, string> = {
 	sprite: COMPONENT_DEFINITIONS.sprite.icon,
-	atlas: COMPONENT_DEFINITIONS.atlas.icon,
 	animation: COMPONENT_DEFINITIONS.animation.icon,
 	shape: COMPONENT_DEFINITIONS.shape.icon,
 	text: COMPONENT_DEFINITIONS.text.icon,

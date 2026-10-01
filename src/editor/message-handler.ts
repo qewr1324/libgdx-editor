@@ -26,6 +26,7 @@ import {
 	addComponentToObjectInScene,
 	updateComponentInScene,
 	removeComponentFromScene,
+	updateAtlasPropertiesInScene,
 } from "./scene-mutations.js";
 import { ClipboardStore } from "./clipboardStore.js";
 import { importTextureAtOp, importTextureDialogOp } from "./scene-ops/addObjectOps.js";
@@ -33,6 +34,7 @@ import { deleteObjectOp, duplicateObjectsOp, updateObjectOp } from "./scene-ops/
 import { updateSceneFieldOp } from "./scene-ops/sceneFieldOps.js";
 import { undoOp, redoOp } from "./scene-ops/historyOps.js";
 import { AtlasImporter } from "../features/texture-atlas/atlas-importer.js";
+import { normalizeAtlasProperties } from "../features/texture-atlas/atlas-properties.js";
 import type { SceneHost } from "./scene-types.js";
 import { log } from "../shared/logger.js";
 
@@ -170,6 +172,93 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			}, 50);
 			break;
 		}
+		// 🆕 Atlas — کاربر از toolbar می‌زنه، فایل picker باز می‌شه
+		case "requestAddAtlas": {
+			const scene = host.getScene();
+			if (!scene) break;
+
+			const uris = await vscode.window.showOpenDialog({
+				canSelectMany: false,
+				filters: {
+					Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp"],
+					"Atlas Files": ["atlas"],
+				},
+				title: "Select Atlas Texture",
+			});
+			if (!uris || uris.length === 0) break;
+
+			let sourceUri = uris[0];
+			const sourceExt = sourceUri.fsPath.toLowerCase();
+
+			// اگه خود .atlas انتخاب شد، کنارش .png رو پیدا کن
+			if (sourceExt.endsWith(".atlas")) {
+				const pngPath = sourceUri.fsPath.replace(/\.atlas$/i, ".png");
+				const pngUri = vscode.Uri.file(pngPath);
+				try {
+					await vscode.workspace.fs.stat(pngUri);
+					sourceUri = pngUri;
+				} catch {
+					vscode.window.showErrorMessage(`Could not find matching PNG: ${pngPath}`);
+					break;
+				}
+			}
+
+			try {
+				const { texturePath, atlas } = await AtlasImporter.importAtlas(ctx.document.uri, sourceUri);
+
+				const newObj = createEmptyGameObject(msg.x, msg.y);
+				newObj.name = `atlas_${newObj.id.slice(-4)}`;
+				newObj.zIndex = getNextZIndex(scene);
+
+				const defaultProps = normalizeAtlasProperties({
+					texture: texturePath,
+					atlasPath: atlas?.atlasPath ?? "",
+					tint: "#ffffff",
+					mode: atlas && atlas.regions.length > 0 ? "single" : "grid",
+					region: atlas && atlas.regions.length > 0 ? atlas.regions[0].name : undefined,
+					gridCols: 1,
+					gridRows: 1,
+				});
+
+				if (atlas && atlas.regions.length > 0) {
+					const r = atlas.regions[0];
+					newObj.transform.width = r.width;
+					newObj.transform.height = r.height;
+				}
+
+				newObj.properties.atlas = defaultProps;
+
+				const updated = addObjectToScene(scene, newObj);
+				host.getHistory().commit(updated, "add atlas");
+
+				const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, updated);
+				host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+				if (atlas) {
+					host.postToWebview({
+						type: "atlasRegionsLoaded",
+						texturePath: atlas.texturePath,
+						atlasPath: atlas.atlasPath,
+						regions: atlas.regions.map((r) => ({
+							name: r.name,
+							x: r.x,
+							y: r.y,
+							width: r.width,
+							height: r.height,
+							rotate: r.rotate,
+							index: r.index,
+						})),
+					} satisfies ExtensionToWebviewMessage);
+				}
+
+				setTimeout(() => {
+					host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
+				}, 100);
+			} catch (err) {
+				vscode.window.showErrorMessage(`Failed to add atlas: ${err instanceof Error ? err.message : String(err)}`);
+			}
+			break;
+		}
 		case "requestAddTexture":
 			await importTextureAtOp(host, msg.x, msg.y);
 			break;
@@ -189,6 +278,14 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "updateSceneField":
 			updateSceneFieldOp(host, msg.field, msg.value, msg.historyLabel ?? `update ${msg.field}`);
 			break;
+		// 🆕 Atlas update از inspector
+		case "updateAtlasProperties": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = updateAtlasPropertiesInScene(current, msg.objectId, msg.properties);
+			host.getHistory().commit(updated, "update atlas");
+			break;
+		}
 		case "deleteObject":
 			deleteObjectOp(host, msg.objectId);
 			break;
@@ -367,6 +464,18 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 			break;
 		}
+		case "addComponent":
+			handleAddComponent(host, msg.objectId, msg.componentType);
+			break;
+		case "updateComponent":
+			handleUpdateComponent(host, msg.objectId, msg.componentId, msg.updates);
+			break;
+		case "removeComponent":
+			handleRemoveComponent(host, msg.objectId, msg.componentId);
+			break;
+		case "replaceComponent":
+			handleReplaceComponent(host, msg.objectId, msg.component);
+			break;
 		case "updateConfigPartial": {
 			await config.update(msg.partial as never);
 

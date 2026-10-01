@@ -65,6 +65,7 @@ function buildToolbar(): HTMLDivElement {
 			<div class="tb-dropdown" data-menu="add">
 				<div class="tb-menu-item" data-action="add-empty-object"><span class="shape-icon">◇</span> Empty</div>
 				<div class="tb-menu-item" data-action="add-sprite"><span class="shape-icon">🖼️</span> Sprite</div>
+				<div class="tb-menu-item" data-action="add-atlas"><span class="shape-icon">🗺️</span> Atlas Sprite</div>
 				<div class="tb-menu-item" data-action="add-text"><span class="shape-icon">🔤</span> Text</div>
 				<div class="tb-menu-sep"></div>
 				<div class="tb-menu-item tb-menu-submenu" data-action="shapes-submenu">
@@ -202,6 +203,10 @@ function buildToolbar(): HTMLDivElement {
 				closeDropdown();
 				addSprite();
 				break;
+			case "add-atlas":
+				closeDropdown();
+				addAtlas();
+				break;
 			case "add-text":
 				closeDropdown();
 				addText();
@@ -285,6 +290,16 @@ function addSprite(): void {
 	const center = viewport.center;
 	vscode.postMessage({
 		type: "requestAddSprite",
+		x: Math.round(center.x),
+		y: Math.round(center.y),
+	});
+}
+
+function addAtlas(): void {
+	if (!viewport) return;
+	const center = viewport.center;
+	vscode.postMessage({
+		type: "requestAddAtlas",
 		x: Math.round(center.x),
 		y: Math.round(center.y),
 	});

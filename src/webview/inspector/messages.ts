@@ -2,8 +2,8 @@
 import type { GameObject, Scene } from "../../types/scene.js";
 import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
 import { getLayerNameOfObject } from "../../types/scene.js";
-import { vscode, app } from "./vscode-api.js";
-import { setCurrentObject, setCurrentScene, setCurrentConfig, setMultiSelection, setSceneMode, setAvailableLayers, setLastAppliedTheme, lastAppliedTheme, availableLayers, currentObject, currentScene } from "./state.js";
+import { app } from "./vscode-api.js";
+import { setCurrentObject, setCurrentScene, setCurrentConfig, setMultiSelection, setSceneMode, setAvailableLayers, setLastAppliedTheme, setAtlasRegions, setAtlasNotFound, setAtlasTextureInfo, lastAppliedTheme, availableLayers, currentObject, currentScene, sceneMode } from "./state.js";
 import { escapeAttr, escapeHtml } from "./utils.js";
 import { render } from "./render/index.js";
 
@@ -26,7 +26,7 @@ export function setupMessages(): void {
 
 			case "showScene":
 				setCurrentScene(msg.scene as Scene);
-				if (sceneModeActive()) {
+				if (sceneMode) {
 					void import("./render/scene-settings.js").then((m) => m.updateSceneFieldValues(msg.scene as Scene));
 				}
 				break;
@@ -41,7 +41,7 @@ export function setupMessages(): void {
 
 			case "layersLoaded":
 				setAvailableLayers(msg.layers ?? []);
-				if (currentObject && !sceneModeActive()) {
+				if (currentObject && !sceneMode) {
 					const layerSelect = app.querySelector<HTMLSelectElement>("[data-layer-select]");
 					if (layerSelect) {
 						const obj = currentObject;
@@ -57,6 +57,41 @@ export function setupMessages(): void {
 				}
 				break;
 
+			// 🆕 Atlas regions
+			case "atlasRegionsLoaded":
+				setAtlasRegions(msg.texturePath as string, msg.atlasPath as string, msg.regions ?? []);
+				render(true);
+				break;
+
+			case "atlasNotFound":
+				setAtlasNotFound(msg.texturePath as string);
+				render(true);
+				break;
+
+			// 🆕 Textures (برای preview)
+			case "texturesLoaded": {
+				const textures = msg.textures as Record<string, string>;
+				let needsRerender = false;
+				for (const [path, dataUrl] of Object.entries(textures)) {
+					// فقط برای texture های atlas که در آبجکت فعلی هستن
+					if (currentObject && isCurrentObjectTexture(path)) {
+						const img = new Image();
+						// data URL رو به image تبدیل می‌کنیم تا ابعاد رو بفهمیم
+						img.onload = () => {
+							setAtlasTextureInfo(path, img.naturalWidth, img.naturalHeight, dataUrl);
+							render(true);
+						};
+						img.src = dataUrl;
+						needsRerender = true;
+					}
+				}
+				if (!needsRerender) {
+					// حتی اگه چیزی برای atlas نبود، ممکنه sprite ها لود شده باشن — rerender سبک
+					void import("./render/index.js").then((m) => m.render(true));
+				}
+				break;
+			}
+
 			case "clearSelection":
 				setMultiSelection(null);
 				setCurrentObject(null);
@@ -71,7 +106,7 @@ export function setupMessages(): void {
 				void import("./theme.js").then((m) => {
 					m.applyEffectiveTheme();
 					const themeChanged = previousTheme !== lastAppliedTheme;
-					if (sceneModeActive() && themeChanged) {
+					if (sceneMode && themeChanged) {
 						render(true);
 					}
 				});
@@ -81,6 +116,8 @@ export function setupMessages(): void {
 	});
 }
 
-function sceneModeActive(): boolean {
-	return document.querySelector(".inspector-scene") !== null;
+function isCurrentObjectTexture(path: string): boolean {
+	if (!currentObject) return false;
+	const raw = currentObject.properties?.atlas as { texture?: string } | undefined;
+	return !!raw && raw.texture === path;
 }

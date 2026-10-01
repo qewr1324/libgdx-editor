@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { createEmptyScene, type GameObject, type Scene } from "../types/scene.js";
 import { createComponentId, type Component } from "../types/components.js";
 import type { ShapeType } from "../types/components.js";
+import { normalizeAtlasProperties, type AtlasProperties } from "../features/texture-atlas/atlas-properties.js";
 
 // ============================================================
 // Parse
@@ -80,10 +81,14 @@ export function migrateScene(parsed: Scene): Scene {
  *   - sprite قدیمی با texture → SpriteComponent
  *   - shape قدیمی → ShapeComponent
  *   - text قدیمی → TextComponent
- *   - properties.atlas قدیمی → AtlasComponent
+ *   - AtlasComponent قدیمی → properties.atlas (جدید)
+ *   - properties.atlas قدیمی → normalize می‌شه به فرمت جدید
  */
 function migrateObjectToComponents(obj: GameObject): void {
-	// اگه از قبل components داره، فقط type رو اصلاح کن
+	// ---------- گام ۱: مهاجرت AtlasComponent → properties.atlas ----------
+	migrateAtlasComponentToProperties(obj);
+
+	// ---------- گام ۲: اگه components داره، فقط type رو درست کن ----------
 	if (obj.components && obj.components.length > 0) {
 		if (obj.type !== "gameobject" && obj.type !== "group") {
 			obj.type = "gameobject";
@@ -95,24 +100,8 @@ function migrateObjectToComponents(obj: GameObject): void {
 
 	// ---------- sprite ----------
 	if (obj.type === "sprite") {
-		// اگه properties.atlas داشت، به AtlasComponent تبدیل کن
-		if (obj.properties?.atlas) {
-			const atlas = obj.properties.atlas as {
-				atlasPath?: string;
-				texturePath?: string;
-				selectedRegion?: string;
-				regionName?: string;
-			};
-			components.push({
-				id: createComponentId(),
-				type: "atlas",
-				texture: obj.texture ?? atlas.texturePath ?? "",
-				atlasPath: atlas.atlasPath ?? "",
-				region: atlas.selectedRegion ?? atlas.regionName ?? "",
-				tint: "#ffffff",
-			});
-		} else {
-			// sprite ساده
+		// sprite ساده (اگه properties.atlas داره، دیگه sprite نیست — atlas حساب می‌شه)
+		if (!hasAtlasProperties(obj)) {
 			components.push({
 				id: createComponentId(),
 				type: "sprite",
@@ -152,6 +141,55 @@ function migrateObjectToComponents(obj: GameObject): void {
 	if (obj.type !== "group") {
 		obj.type = "gameobject";
 	}
+}
+
+/**
+ * اگه آبجکت یه AtlasComponent قدیمی داره، تبدیلش می‌کنه به properties.atlas.
+ * این تابع idempotent هست — بار دوم کاری نمی‌کنه.
+ */
+function migrateAtlasComponentToProperties(obj: GameObject): void {
+	if (!obj.components || obj.components.length === 0) return;
+
+	const atlasComp = obj.components.find((c) => (c as { type: string }).type === "atlas") as
+		| {
+				type: "atlas";
+				texture?: string;
+				atlasPath?: string;
+				region?: string;
+				tint?: string;
+		  }
+		| undefined;
+
+	if (!atlasComp) return;
+
+	// properties.atlas رو ست کن (اگه از قبل نیست)
+	if (!obj.properties) obj.properties = {};
+	if (!obj.properties.atlas) {
+		const migrated: Partial<AtlasProperties> = {
+			texture: atlasComp.texture ?? obj.texture ?? "",
+			atlasPath: atlasComp.atlasPath ?? "",
+			tint: atlasComp.tint ?? "#ffffff",
+			mode: "single",
+			region: atlasComp.region ?? undefined,
+		};
+		obj.properties.atlas = normalizeAtlasProperties(migrated);
+	}
+
+	// AtlasComponent رو حذف کن
+	obj.components = obj.components.filter((c) => (c as { type: string }).type !== "atlas");
+
+	// اگه components خالی شد، undefined کن
+	if (obj.components.length === 0) {
+		obj.components = undefined;
+	}
+}
+
+/**
+ * چک می‌کنه آیا آبجکت `properties.atlas` داره.
+ */
+function hasAtlasProperties(obj: GameObject): boolean {
+	const raw = obj.properties?.atlas;
+	return raw !== undefined && raw !== null && typeof raw === "object";
 }
 
 // ============================================================
