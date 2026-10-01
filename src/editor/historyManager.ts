@@ -1,3 +1,4 @@
+// src/editor/historyManager.ts
 import type { Scene } from "../types/scene.js";
 import { log } from "../shared/logger.js";
 
@@ -16,6 +17,17 @@ export class HistoryManager {
 	private currentIndex = -1;
 
 	push(scene: Scene, label: string): void {
+		// 🆕 defensive: مطمئن شو snapshots آرایه‌ست
+		if (!Array.isArray(this.snapshots)) {
+			this.snapshots = [];
+			this.currentIndex = -1;
+		}
+
+		// 🆕 defensive: currentIndex معتبره؟
+		if (this.currentIndex < -1 || this.currentIndex >= this.snapshots.length) {
+			this.currentIndex = this.snapshots.length - 1;
+		}
+
 		const serialized = JSON.stringify(scene);
 		const current = this.snapshots[this.currentIndex];
 
@@ -64,6 +76,7 @@ export class HistoryManager {
 		if (!this.canUndo()) return null;
 		this.currentIndex--;
 		const snap = this.snapshots[this.currentIndex];
+		if (!snap) return null;
 		log.debug(`[History] undo → "${snap.label}" (idx=${this.currentIndex})`);
 		return structuredClone(snap.scene) as Scene;
 	}
@@ -72,6 +85,7 @@ export class HistoryManager {
 		if (!this.canRedo()) return null;
 		this.currentIndex++;
 		const snap = this.snapshots[this.currentIndex];
+		if (!snap) return null;
 		log.debug(`[History] redo → "${snap.label}" (idx=${this.currentIndex})`);
 		return structuredClone(snap.scene) as Scene;
 	}

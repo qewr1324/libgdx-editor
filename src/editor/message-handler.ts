@@ -61,9 +61,13 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "ready":
 			await sendScene(ctx);
 			break;
-		case "save":
-			await handleSave(msg, ctx);
+		case "save": {
+			// 🆕 از state خود extension استفاده کن، نه از webview
+			const current = host.getScene();
+			if (!current) break;
+			await handleSave({ scene: current }, ctx);
 			break;
+		}
 		case "selectObject": {
 			SceneRegistry.setActiveInstance(host);
 			const scene = host.getScene() ?? parseDocument(ctx.document);
@@ -466,6 +470,10 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			break;
 		}
 		// 🆕 Reference Image
+		case "openImportReference": {
+			await vscode.commands.executeCommand("libgdx-editor.importReference");
+			break;
+		}
 		case "updateReferenceImage": {
 			const current = host.getScene();
 			if (!current) break;

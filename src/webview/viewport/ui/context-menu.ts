@@ -5,6 +5,13 @@ import { copySelection, pasteClipboard, duplicateSelection } from "../commands/c
 import { HISTORY_MENU_ITEMS, handleHistoryMenuAction } from "../history/history-ui.js";
 
 let currentMenu: HTMLDivElement | null = null;
+let contextWorldX = 0;
+let contextWorldY = 0;
+let globalListenersInstalled = false;
+
+// ============================================================
+// Setup
+// ============================================================
 
 export function setupContextMenu(): void {
 	buildContextMenu();
@@ -12,11 +19,77 @@ export function setupContextMenu(): void {
 	window.addEventListener("theme-changed", () => {
 		rebuildContextMenu();
 	});
+
+	// 🆕 global listeners فقط یک بار
+	installGlobalListeners();
+
+	// 🆕 contextmenu listener روی canvas
+	setupCanvasContextMenu();
 }
+
+// ============================================================
+// Canvas context menu trigger
+// ============================================================
+
+function setupCanvasContextMenu(): void {
+	app.canvas.addEventListener("contextmenu", (e) => {
+		e.preventDefault();
+		if (!viewport) return;
+
+		const rect = app.canvas.getBoundingClientRect();
+		const screenX = e.clientX - rect.left;
+		const screenY = e.clientY - rect.top;
+		const world = viewport.toWorld(screenX, screenY);
+		contextWorldX = Math.round(world.x);
+		contextWorldY = Math.round(world.y);
+
+		// rebuild menu چون ممکنه reference اضافه/حذف شده باشه
+		rebuildContextMenu();
+
+		// 🆕 از currentMenu استفاده کن
+		const m = currentMenu;
+		if (!m) return;
+
+		m.style.left = `${e.clientX}px`;
+		m.style.top = `${e.clientY}px`;
+		m.style.display = "block";
+	});
+}
+
+// ============================================================
+// Global listeners (فقط یک بار)
+// ============================================================
+
+function installGlobalListeners(): void {
+	if (globalListenersInstalled) return;
+	globalListenersInstalled = true;
+
+	document.addEventListener("click", (e) => {
+		const m = currentMenu;
+		if (!m) return;
+		if (!m.contains(e.target as Node)) {
+			m.style.display = "none";
+		}
+	});
+
+	document.addEventListener("keydown", (e) => {
+		if (e.key === "Escape") {
+			const m = currentMenu;
+			if (m) m.style.display = "none";
+		}
+	});
+}
+
+// ============================================================
+// Build menu
+// ============================================================
 
 function buildContextMenu(): HTMLDivElement {
 	const menu = document.createElement("div");
 	menu.id = "context-menu";
+
+	const hasReference = !!scene?.referenceImage;
+
 	menu.innerHTML = `
 		<div class="context-menu-item" data-action="scene-settings">⚙️ Scene Settings</div>
 		<div class="context-menu-separator"></div>
@@ -34,73 +107,56 @@ function buildContextMenu(): HTMLDivElement {
 		${HISTORY_MENU_ITEMS}
 		<div class="context-menu-separator"></div>
 		<div class="context-menu-item" data-action="delete">🗑️ Delete (Del)</div>
-		<div class="context-menu-separator"></div>
-		<div class="context-menu-item" data-action="import-reference">📷 Import Reference Image</div>
 		${
-			scene?.referenceImage
+			hasReference
 				? `
+		<div class="context-menu-separator"></div>
 		<div class="context-menu-item" data-action="toggle-reference">👁️ Toggle Reference Visibility</div>
 		<div class="context-menu-item" data-action="remove-reference">❌ Remove Reference Image</div>
 		`
 				: ""
 		}
 	`;
+
 	menu.style.display = "none";
+	menu.style.position = "fixed";
+	menu.style.zIndex = "9999";
+
 	document.body.appendChild(menu);
-	currentMenu = menu;
 
-	let contextWorldX = 0;
-	let contextWorldY = 0;
-
-	app.canvas.addEventListener("contextmenu", (e) => {
-		e.preventDefault();
-		if (!viewport) return;
-
-		const rect = app.canvas.getBoundingClientRect();
-		const screenX = e.clientX - rect.left;
-		const screenY = e.clientY - rect.top;
-		const world = viewport.toWorld(screenX, screenY);
-		contextWorldX = Math.round(world.x);
-		contextWorldY = Math.round(world.y);
-
-		// rebuild menu چون ممکنه reference اضافه/حذف شده باشه
-		rebuildContextMenu();
-
-		menu.style.left = `${e.clientX}px`;
-		menu.style.top = `${e.clientY}px`;
-		menu.style.display = "block";
-	});
-
-	document.addEventListener("click", (e) => {
-		if (!menu.contains(e.target as Node)) menu.style.display = "none";
-	});
-
-	document.addEventListener("keydown", (e) => {
-		if (e.key === "Escape") menu.style.display = "none";
-	});
-
+	// 🆕 click handler فقط روی همین menu (نه global)
 	menu.addEventListener("click", (e) => {
 		const target = e.target as HTMLElement;
 		const action = target.dataset.action;
-		menu.style.display = "none";
-		if (!action) return;
 
+		const m = currentMenu;
+		if (m) m.style.display = "none";
+
+		if (!action) return;
 		if (handleHistoryMenuAction(action)) return;
 
 		handleMenuAction(action, contextWorldX, contextWorldY);
 	});
 
+	currentMenu = menu;
 	return menu;
 }
 
+// ============================================================
+// Rebuild
+// ============================================================
+
 function rebuildContextMenu(): void {
-	const oldMenu = currentMenu;
-	if (oldMenu && oldMenu.parentNode) {
-		oldMenu.parentNode.removeChild(oldMenu);
+	if (currentMenu && currentMenu.parentNode) {
+		currentMenu.parentNode.removeChild(currentMenu);
 	}
 	currentMenu = null;
 	buildContextMenu();
 }
+
+// ============================================================
+// Handle actions
+// ============================================================
 
 function handleMenuAction(action: string, worldX: number, worldY: number): void {
 	switch (action) {
@@ -140,11 +196,6 @@ function handleMenuAction(action: string, worldX: number, worldY: number): void 
 					vscode.postMessage({ type: "deleteObjects", objectIds: state.selectedIds });
 					void import("../selection/selection.js").then((m) => m.selectObjects([]));
 				}
-			});
-			break;
-		case "import-reference":
-			void import("../types.js").then((m) => {
-				m.vscode.postMessage({ type: "openReferenceImport" as never });
 			});
 			break;
 		case "toggle-reference":

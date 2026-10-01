@@ -1,4 +1,4 @@
-// src/webview/viewport/render/reference.ts (نسخه‌ی نهایی)
+// src/webview/viewport/render/reference.ts
 import { Container, Graphics, Rectangle, Sprite } from "pixi.js";
 import { viewport, textureCache } from "../state.js";
 import type { Scene, ReferenceImage } from "../../../types/scene.js";
@@ -23,12 +23,9 @@ export function setupReferenceLayer(): void {
 	referenceLayer.label = "reference-image";
 	referenceLayer.eventMode = "static";
 
-	// بالا‌تر از grid (index 0)، پایین‌تر از content (index 2)
-	if (viewport.children.length > 0) {
-		viewport.addChildAt(referenceLayer, 1);
-	} else {
-		viewport.addChild(referenceLayer);
-	}
+	// 🆕 مطمئن شو که index معتبره
+	const targetIndex = Math.min(1, viewport.children.length);
+	viewport.addChildAt(referenceLayer, targetIndex);
 }
 
 // ============================================================
@@ -38,6 +35,7 @@ export function setupReferenceLayer(): void {
 export function renderReference(scene: Scene | null): void {
 	if (!referenceLayer) return;
 
+	// پاک کردن قبلی
 	if (referenceContainer) {
 		referenceLayer.removeChild(referenceContainer);
 		referenceContainer.destroy({ children: true });
@@ -52,6 +50,7 @@ export function renderReference(scene: Scene | null): void {
 	const ref = scene.referenceImage;
 	const cached = textureCache.get(ref.texture);
 
+	// container جدید
 	referenceContainer = new Container();
 	referenceContainer.label = "reference";
 	referenceContainer.eventMode = "static";
@@ -95,7 +94,7 @@ export function renderReference(scene: Scene | null): void {
 		referenceContainer.cursor = "not-allowed";
 	}
 
-	// 🆕 attach pointer events
+	// pointer events برای drag
 	attachReferencePointerEvents(referenceContainer);
 
 	referenceLayer.addChild(referenceContainer);

@@ -69,8 +69,11 @@ function buildToolbar(): HTMLDivElement {
 	const showGuides = scene?.showGuides !== false;
 	const guideCount = scene?.guides?.length ?? 0;
 	const hasGuides = guideCount > 0;
+
+	// 🆕 Reference state
 	const hasReference = !!scene?.referenceImage;
 	const refHidden = scene?.referenceImage?.hidden ?? false;
+	const refLocked = scene?.referenceImage?.locked ?? false;
 
 	toolbar.innerHTML = `
 		<div class="tb-group" data-dropdown="add">
@@ -185,17 +188,26 @@ function buildToolbar(): HTMLDivElement {
 
 		${hasGuides ? `<button class="tb-btn" data-action="clear-guides" title="Clear All Guides"><span>🧹</span></button>` : ""}
 
+		<span class="tb-sep"></span>
+
 		${
 			hasReference
 				? `
 			<button class="tb-btn ${!refHidden ? "active" : ""}" data-action="toggle-reference" title="Toggle Reference Visibility">
 				<span>🖼️ Ref</span>
 			</button>
+			<button class="tb-btn ${refLocked ? "active" : ""}" data-action="toggle-reference-lock" title="Toggle Reference Lock">
+				<span>${refLocked ? "🔒" : "🔓"}</span>
+			</button>
 			<button class="tb-btn danger" data-action="remove-reference" title="Remove Reference">
 				<span>❌</span>
 			</button>
 		`
-				: ""
+				: `
+			<button class="tb-btn" data-action="import-reference" title="Import Reference Image">
+				<span>📷 Add Ref</span>
+			</button>
+		`
 		}
 
 		<button class="tb-btn" data-action="delete" title="Delete Selected">
@@ -320,11 +332,22 @@ function buildToolbar(): HTMLDivElement {
 				clearAllGuides();
 				showInfo("Guides cleared");
 				break;
+			// 🆕 Reference
+			case "import-reference":
+				vscode.postMessage({ type: "openImportReference" } as never);
+				showInfo("Opening reference import...");
+				break;
 			case "toggle-reference":
 				vscode.postMessage({ type: "toggleReferenceHidden" });
+				showInfo(refHidden ? "Reference: VISIBLE" : "Reference: HIDDEN");
+				break;
+			case "toggle-reference-lock":
+				vscode.postMessage({ type: "toggleReferenceLock" });
+				showInfo(refLocked ? "Reference: UNLOCKED" : "Reference: LOCKED");
 				break;
 			case "remove-reference":
 				vscode.postMessage({ type: "removeReferenceImage" });
+				showInfo("Reference removed");
 				break;
 			case "delete":
 				deleteSelection();

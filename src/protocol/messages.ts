@@ -63,7 +63,7 @@ export function toConfigMessage(config: LibGdxEditorConfig): LibGdxEditorConfigM
 
 export type WebviewToExtensionMessage =
 	| { type: "ready" }
-	| { type: "save"; scene: Scene }
+	| { type: "save" }
 	| { type: "sceneChanged"; scene: Scene }
 	| { type: "selectObject"; objectId: string | null }
 	| { type: "selectObjects"; objectIds: string[] }
@@ -107,6 +107,7 @@ export type WebviewToExtensionMessage =
 	| { type: "toggleGuidesVisibility" }
 	| { type: "toggleGuideLock"; guideId: string }
 	// 🆕 Reference
+	| { type: "openImportReference" }
 	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> }
 	| { type: "updateReferenceTransform"; transform: Partial<ReferenceImage["transform"]> }
 	| { type: "removeReferenceImage" }
@@ -152,7 +153,6 @@ export type InspectorToExtensionMessage =
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
 	| { type: "requestConfig" }
 	| { type: "requestAtlasRegions"; texturePath: string }
-	// 🆕 Reference
 	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> };
 
 export type ExtensionToInspectorMessage =

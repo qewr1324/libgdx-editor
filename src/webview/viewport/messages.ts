@@ -4,7 +4,7 @@ import { loadTexture } from "./pixi/textures.js";
 import { renderScene, clearSubTextureCache } from "./render/scene.js";
 import { redrawGrid } from "./render/grid.js";
 import { renderReference } from "./render/reference.js";
-import { interactionMode, scene, selectedIds, setBrokenAssets, viewport, textureCache } from "./state.js";
+import { interactionMode, scene, selectedIds, setBrokenAssets, setScene, viewport, textureCache } from "./state.js";
 import { selectObjects, drawSelectionOutlines } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
 import { applyTheme } from "./theme/theme-manager.js";
@@ -95,6 +95,9 @@ export function setupMessages(): void {
 				currentSceneFromMessage = msg.scene;
 				applyEffectiveTheme();
 				clearSubTextureCache();
+				// 🆕 state رو فوری ست کن (نه داخل schedule)
+				// چون save از همین state استفاده می‌کنه و نباید منتظر رندر بمونه
+				setScene(msg.scene);
 				scheduleRender(() => {
 					renderScene(msg.scene);
 					renderReference(msg.scene);
