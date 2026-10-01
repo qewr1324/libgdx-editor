@@ -1,5 +1,5 @@
 // src/protocol/messages.ts
-import type { GameObject, Layer, Scene, ReferenceImage } from "../types/scene.js";
+import type { GameObject, Layer, Scene, ReferenceImage, SafeArea } from "../types/scene.js";
 import type { LibGdxEditorConfig, RenderMode, GizmoMode, ShapeType } from "../config/config-types.js";
 import type { AtlasSpriteProperties } from "../features/texture-atlas/atlas-types.js";
 import type { Component, ComponentType } from "../types/components.js";
@@ -106,13 +106,18 @@ export type WebviewToExtensionMessage =
 	| { type: "clearGuides" }
 	| { type: "toggleGuidesVisibility" }
 	| { type: "toggleGuideLock"; guideId: string }
-	// 🆕 Reference
+	// Reference
 	| { type: "openImportReference" }
 	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> }
 	| { type: "updateReferenceTransform"; transform: Partial<ReferenceImage["transform"]> }
 	| { type: "removeReferenceImage" }
 	| { type: "toggleReferenceHidden" }
-	| { type: "toggleReferenceLock" };
+	| { type: "toggleReferenceLock" }
+	// 🆕 Safe Area
+	| { type: "addSafeArea" }
+	| { type: "updateSafeArea"; updates: Partial<SafeArea> }
+	| { type: "removeSafeArea" }
+	| { type: "toggleSafeAreaVisible" };
 
 export type ExtensionToWebviewMessage =
 	| { type: "load"; scene: Scene }
@@ -153,7 +158,12 @@ export type InspectorToExtensionMessage =
 	| { type: "updateConfigPartial"; partial: Record<string, unknown> }
 	| { type: "requestConfig" }
 	| { type: "requestAtlasRegions"; texturePath: string }
-	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> };
+	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> }
+	// 🆕 Safe Area
+	| { type: "addSafeArea" }
+	| { type: "updateSafeArea"; updates: Partial<SafeArea> }
+	| { type: "removeSafeArea" }
+	| { type: "toggleSafeAreaVisible" };
 
 export type ExtensionToInspectorMessage =
 	| { type: "showObject"; object: GameObject }

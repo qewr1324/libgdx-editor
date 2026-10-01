@@ -32,6 +32,11 @@ import {
 	removeReferenceImageFromScene,
 	toggleReferenceImageHiddenInScene,
 	toggleReferenceImageLockInScene,
+	// 🆕 Safe Area
+	addSafeAreaToScene,
+	updateSafeAreaInScene,
+	removeSafeAreaFromScene,
+	toggleSafeAreaVisibleInScene,
 } from "./scene-mutations.js";
 import { addGuideToScene, moveGuideInScene, removeGuideFromScene, clearGuidesInScene, toggleGuidesVisibilityInScene, toggleGuideLockInScene } from "./guide-mutations.js";
 import { ClipboardStore } from "./clipboardStore.js";
@@ -63,13 +68,9 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			await sendScene(ctx);
 			break;
 		case "save": {
-			// 🆕 از state خود extension استفاده کن، نه از webview
 			const current = host.getScene();
 			if (!current) break;
-
-			// 🆕 کاربر تصمیم گرفت save کنه → cleanup معلق رو کنسل کن
 			cancelCleanup(ctx.document.uri);
-
 			await handleSave({ scene: current }, ctx);
 			break;
 		}
@@ -412,13 +413,11 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			break;
 		}
 		case "undo": {
-			// 🆕 کنسل cleanup معلق — چون کاربر Undo زد
 			cancelCleanup(ctx.document.uri);
 			undoOp(host);
 			break;
 		}
 		case "redo": {
-			// 🆕 کنسل cleanup معلق — چون کاربر Redo زد
 			cancelCleanup(ctx.document.uri);
 			redoOp(host);
 			break;
@@ -480,7 +479,7 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.getHistory().commit(updated, "toggle guide lock");
 			break;
 		}
-		// 🆕 Reference Image
+		// Reference Image
 		case "openImportReference": {
 			await vscode.commands.executeCommand("libgdx-editor.importReference");
 			break;
@@ -504,9 +503,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			if (!current) break;
 			const updated = removeReferenceImageFromScene(current);
 			host.getHistory().commit(updated, "remove reference");
-
-			// 🆕 schedule cleanup با تاخیر ۵ ثانیه
-			// اگه کاربر توی این مدت Undo بزنه، cleanup کنسل می‌شه
 			scheduleCleanup(ctx.document.uri, updated, 5000);
 			break;
 		}
@@ -522,6 +518,35 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			if (!current) break;
 			const updated = toggleReferenceImageLockInScene(current);
 			host.getHistory().commit(updated, "toggle reference lock");
+			break;
+		}
+		// 🆕 Safe Area
+		case "addSafeArea": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = addSafeAreaToScene(current);
+			host.getHistory().commit(updated, "add safe area");
+			break;
+		}
+		case "updateSafeArea": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = updateSafeAreaInScene(current, msg.updates);
+			host.getHistory().commit(updated, "update safe area");
+			break;
+		}
+		case "removeSafeArea": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = removeSafeAreaFromScene(current);
+			host.getHistory().commit(updated, "remove safe area");
+			break;
+		}
+		case "toggleSafeAreaVisible": {
+			const current = host.getScene();
+			if (!current) break;
+			const updated = toggleSafeAreaVisibleInScene(current);
+			host.getHistory().commit(updated, "toggle safe area");
 			break;
 		}
 		case "updateConfigPartial": {

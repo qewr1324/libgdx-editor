@@ -33,17 +33,12 @@ export interface GameObject {
 	id: string;
 	type: GameObjectType;
 	name: string;
-
-	/** @deprecated از components (sprite) استفاده کن */
 	texture?: string;
-	/** @deprecated از components.shape.color استفاده کن */
 	color?: string;
-
 	zIndex?: number;
 	layerId?: string;
 	transform: Transform;
 	properties: Record<string, unknown>;
-
 	components?: Component[];
 	children?: GameObject[];
 }
@@ -53,18 +48,32 @@ export interface GameObject {
 // ============================================================
 
 export interface ReferenceImage {
-	/** مسیر نسبی تصویر (نسبی به scene) */
 	texture: string;
-	/** موقعیت و اندازه */
 	transform: Transform;
-	/** شفافیت (0-1) */
 	opacity: number;
-	/** مخفی */
 	hidden?: boolean;
-	/** قفل (نه drag، نه select) */
 	locked?: boolean;
-	/** tint (hex) */
 	tint?: string;
+}
+
+// ============================================================
+// 🆕 Safe Area (Camera Viewport)
+// ============================================================
+
+export interface SafeArea {
+	/** موقعیت و اندازه */
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	/** قابل نمایش */
+	visible: boolean;
+	/** رنگ border (hex) */
+	color: string;
+	/** خط‌چین */
+	dashed: boolean;
+	/** label بالای کادر */
+	label: string;
 }
 
 // ============================================================
@@ -103,6 +112,9 @@ export interface Scene {
 	showGuides?: boolean;
 
 	referenceImage?: ReferenceImage | null;
+
+	/** 🆕 Safe Area */
+	safeArea?: SafeArea | null;
 }
 
 // ============================================================
@@ -133,6 +145,7 @@ export function createEmptyScene(name = "untitled"): Scene {
 		guides: [],
 		showGuides: true,
 		referenceImage: null,
+		safeArea: null,
 	};
 }
 
@@ -175,6 +188,23 @@ export function createReferenceImage(texture: string, x: number, y: number, widt
 		opacity: 0.5,
 		hidden: false,
 		locked: false,
+	};
+}
+
+// ============================================================
+// 🆕 Safe Area Factory
+// ============================================================
+
+export function createSafeArea(worldWidth: number, worldHeight: number, x = 0, y = 0): SafeArea {
+	return {
+		x,
+		y,
+		width: worldWidth,
+		height: worldHeight,
+		visible: true,
+		color: "#ff9500",
+		dashed: true,
+		label: "Camera",
 	};
 }
 

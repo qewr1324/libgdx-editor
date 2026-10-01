@@ -9,6 +9,7 @@ import { setupDeselect } from "./selection/selection.js";
 import { setupMessages } from "./messages.js";
 import { setupGuides } from "./ui/guides.js";
 import { setupReferenceLayer } from "./render/reference.js";
+import { setupSafeAreaLayer } from "./render/safe-area.js"; // 🆕
 import { setupReferenceInteraction } from "./ui/reference-interaction.js";
 import { vscode } from "./types.js";
 import { applyTheme } from "./theme/theme-manager.js";
@@ -20,12 +21,13 @@ import { installSnapping } from "./features/snapping/index.js";
 	installSnapping();
 
 	await initPixi();
-	setupReferenceLayer(); // 🆕 قبل از toolbar و messages
+	setupReferenceLayer();
+	setupSafeAreaLayer(); // 🆕
 	setupToolbar();
 	setupContextMenu();
 	setupRulers();
 	setupGuides();
-	setupReferenceInteraction(); // 🆕
+	setupReferenceInteraction();
 	setupMouseTracker();
 	setupDeselect();
 	setupMessages();

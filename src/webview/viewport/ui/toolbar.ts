@@ -14,10 +14,6 @@ let openDropdown: HTMLDivElement | null = null;
 
 const GRID_SIZES = [8, 16, 32, 64, 128];
 
-// ============================================================
-// Setup
-// ============================================================
-
 export function setupToolbar(): void {
 	buildToolbar();
 	installKeyboardShortcutsOnce();
@@ -47,10 +43,6 @@ function installKeyboardShortcutsOnce(): void {
 	setupHistoryKeyboardShortcuts();
 }
 
-// ============================================================
-// Build Toolbar
-// ============================================================
-
 function buildToolbar(): HTMLDivElement {
 	const config = getConfig();
 	const toolbar = document.createElement("div");
@@ -70,10 +62,13 @@ function buildToolbar(): HTMLDivElement {
 	const guideCount = scene?.guides?.length ?? 0;
 	const hasGuides = guideCount > 0;
 
-	// 🆕 Reference state
 	const hasReference = !!scene?.referenceImage;
 	const refHidden = scene?.referenceImage?.hidden ?? false;
 	const refLocked = scene?.referenceImage?.locked ?? false;
+
+	// 🆕 Safe Area
+	const hasSafeArea = !!scene?.safeArea;
+	const safeAreaVisible = scene?.safeArea?.visible ?? false;
 
 	toolbar.innerHTML = `
 		<div class="tb-group" data-dropdown="add">
@@ -189,6 +184,23 @@ function buildToolbar(): HTMLDivElement {
 		${hasGuides ? `<button class="tb-btn" data-action="clear-guides" title="Clear All Guides"><span>🧹</span></button>` : ""}
 
 		<span class="tb-sep"></span>
+
+		${
+			hasSafeArea
+				? `
+			<button class="tb-btn ${safeAreaVisible ? "active" : ""}" data-action="toggle-safe-area" title="Toggle Safe Area Visibility">
+				<span>🎯 Area</span>
+			</button>
+			<button class="tb-btn danger" data-action="remove-safe-area" title="Remove Safe Area">
+				<span>❌</span>
+			</button>
+		`
+				: `
+			<button class="tb-btn" data-action="add-safe-area" title="Add Camera Safe Area">
+				<span>🎯 Add Area</span>
+			</button>
+		`
+		}
 
 		${
 			hasReference
@@ -332,9 +344,22 @@ function buildToolbar(): HTMLDivElement {
 				clearAllGuides();
 				showInfo("Guides cleared");
 				break;
-			// 🆕 Reference
+			// 🆕 Safe Area
+			case "add-safe-area":
+				vscode.postMessage({ type: "addSafeArea" });
+				showInfo("Safe area added");
+				break;
+			case "toggle-safe-area":
+				vscode.postMessage({ type: "toggleSafeAreaVisible" });
+				showInfo(safeAreaVisible ? "Safe area: HIDDEN" : "Safe area: VISIBLE");
+				break;
+			case "remove-safe-area":
+				vscode.postMessage({ type: "removeSafeArea" });
+				showInfo("Safe area removed");
+				break;
+			// Reference
 			case "import-reference":
-				vscode.postMessage({ type: "openImportReference" } as never);
+				vscode.postMessage({ type: "openImportReference" });
 				showInfo("Opening reference import...");
 				break;
 			case "toggle-reference":
@@ -363,10 +388,6 @@ function buildToolbar(): HTMLDivElement {
 	return toolbar;
 }
 
-// ============================================================
-// Dropdown helpers
-// ============================================================
-
 function toggleDropdown(dropdown: HTMLDivElement): void {
 	if (dropdown === openDropdown) {
 		closeDropdown();
@@ -394,10 +415,6 @@ function rebuildToolbar(): void {
 	buildToolbar();
 }
 
-// ============================================================
-// Info
-// ============================================================
-
 export function updateToolbarInfo(text: string): void {
 	const el = document.getElementById("toolbar-info");
 	if (el) el.textContent = text;
@@ -407,10 +424,6 @@ function showInfo(text: string): void {
 	updateToolbarInfo(text);
 	setTimeout(() => updateToolbarInfo(""), 1200);
 }
-
-// ============================================================
-// Actions
-// ============================================================
 
 function addEmptyObject(): void {
 	if (!viewport) return;
@@ -480,19 +493,13 @@ function setGridSize(size: number): void {
 }
 
 function saveScene(): void {
-	if (scene) {
-		vscode.postMessage({ type: "save", scene });
-		showInfo("Saved ✓");
-	}
+	vscode.postMessage({ type: "save" });
+	showInfo("Saved ✓");
 }
 
 function updateConfigPartial(partial: Record<string, unknown>): void {
 	vscode.postMessage({ type: "updateConfigPartial", partial });
 }
-
-// ============================================================
-// Keyboard shortcuts
-// ============================================================
 
 function setupKeyboardShortcuts(): void {
 	window.addEventListener("keydown", (e) => {

@@ -4,6 +4,7 @@ import { loadTexture } from "./pixi/textures.js";
 import { renderScene, clearSubTextureCache } from "./render/scene.js";
 import { redrawGrid } from "./render/grid.js";
 import { renderReference } from "./render/reference.js";
+import { renderSafeArea } from "./render/safe-area.js";
 import { interactionMode, scene, selectedIds, setBrokenAssets, setScene, viewport, textureCache } from "./state.js";
 import { selectObjects, drawSelectionOutlines } from "./selection/selection.js";
 import { findObject } from "./utils/geometry.js";
@@ -18,10 +19,6 @@ import type { Scene } from "../../types/scene.js";
 let pendingRender: (() => void) | null = null;
 let currentSceneFromMessage: Scene | null = null;
 let lastAppliedThemeName: string | null = null;
-
-// ============================================================
-// Helpers
-// ============================================================
 
 function scheduleRender(callback: () => void): void {
 	if (interactionMode !== "idle") {
@@ -55,14 +52,9 @@ function notifySceneChanged(): void {
 	window.dispatchEvent(new CustomEvent("scene-changed"));
 }
 
-// ============================================================
-// Config
-// ============================================================
-
 function handleConfig(config: LibGdxEditorConfigMessage): void {
 	const previous = getConfig();
 	setConfig(config);
-
 	applyEffectiveTheme();
 
 	const viewChanged = !previous || previous.view.renderMode !== config.view.renderMode || previous.view.showGrid !== config.view.showGrid || previous.view.showWorldBorder !== config.view.showWorldBorder;
@@ -82,10 +74,6 @@ function handleConfig(config: LibGdxEditorConfigMessage): void {
 	window.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
 }
 
-// ============================================================
-// Setup
-// ============================================================
-
 export function setupMessages(): void {
 	window.addEventListener("message", async (event) => {
 		const msg = event.data;
@@ -95,12 +83,11 @@ export function setupMessages(): void {
 				currentSceneFromMessage = msg.scene;
 				applyEffectiveTheme();
 				clearSubTextureCache();
-				// 🆕 state رو فوری ست کن (نه داخل schedule)
-				// چون save از همین state استفاده می‌کنه و نباید منتظر رندر بمونه
 				setScene(msg.scene);
 				scheduleRender(() => {
 					renderScene(msg.scene);
 					renderReference(msg.scene);
+					renderSafeArea(msg.scene); // 🆕
 					renderGuides();
 					notifySceneChanged();
 				});

@@ -84,6 +84,9 @@ export function buildSceneSettingsHtml(scene: Scene): string {
 		`,
 	);
 
+	// 🆕 Safe Area section
+	const safeAreaSection = buildSafeAreaSection(scene);
+
 	return `
 		<div class="inspector inspector-scene">
 			<div class="inspector-header scene">
@@ -95,12 +98,75 @@ export function buildSceneSettingsHtml(scene: Scene): string {
 			${worldSection}
 			${appearanceSection}
 			${behaviorSection}
+			${safeAreaSection}
 		</div>
 	`;
 }
 
 // ============================================================
-// Update field values (وقتی پیام update میاد)
+// Safe Area Section
+// ============================================================
+
+function buildSafeAreaSection(scene: Scene): string {
+	const sa = scene.safeArea;
+
+	if (!sa) {
+		return sectionWrap(
+			"scene-safe-area",
+			"🎯 Camera Safe Area",
+			`
+			<div class="inspector-hint">No safe area defined.</div>
+			<button class="inspector-atlas-btn" data-safe-area-action="add" style="width:100%;justify-content:center;">
+				🎯 Add Safe Area
+			</button>
+		`,
+		);
+	}
+
+	return sectionWrap(
+		"scene-safe-area",
+		"🎯 Camera Safe Area",
+		`
+			<div class="inspector-field wide">
+				<label class="inspector-checkbox-row">
+					<input type="checkbox" data-safe-area-field="visible" ${sa.visible ? "checked" : ""} />
+					<span>Visible</span>
+				</label>
+			</div>
+			<div class="inspector-field wide">
+				<label class="inspector-checkbox-row">
+					<input type="checkbox" data-safe-area-field="dashed" ${sa.dashed ? "checked" : ""} />
+					<span>Dashed border</span>
+				</label>
+			</div>
+
+			${field("Label", `<input type="text" data-safe-area-field="label" value="${escapeAttr(sa.label)}" />`)}
+
+			${fieldRow(numberField("X", "safe-area-x", sa.x, { step: 1 }), numberField("Y", "safe-area-y", sa.y, { step: 1 }))}
+			${fieldRow(numberField("W", "safe-area-width", sa.width, { step: 1, min: 1 }), numberField("H", "safe-area-height", sa.height, { step: 1, min: 1 }))}
+
+			<div class="inspector-field wide">
+				<label class="inspector-field-label">Color</label>
+				<div class="inspector-color-row">
+					<input type="color" data-safe-area-field="color" value="${escapeAttr(sa.color)}" />
+					<input type="text" data-safe-area-field="color" value="${escapeAttr(sa.color)}" />
+				</div>
+			</div>
+
+			<div style="display:flex;gap:6px;margin-top:6px;">
+				<button class="inspector-atlas-btn" data-safe-area-action="reset-size" title="Reset to world size" style="flex:1;justify-content:center;">
+					↺ Reset Size
+				</button>
+				<button class="inspector-atlas-btn danger" data-safe-area-action="remove" title="Remove safe area" style="flex:1;justify-content:center;">
+					🗑️ Remove
+				</button>
+			</div>
+		`,
+	);
+}
+
+// ============================================================
+// Update field values
 // ============================================================
 
 export function updateSceneFieldValues(scene: Scene): void {
@@ -110,6 +176,47 @@ export function updateSceneFieldValues(scene: Scene): void {
 	setSceneFieldValue("backgroundColor", scene.backgroundColor, "text");
 	setSceneFieldValue("gridSize", scene.gridSize, "number");
 	setSceneFieldValue("snapToGrid", scene.snapToGrid, "checkbox");
+
+	// 🆕 Safe Area fields
+	updateSafeAreaFieldValues(scene);
+}
+
+function updateSafeAreaFieldValues(scene: Scene): void {
+	const sa = scene.safeArea;
+	if (!sa) return;
+
+	setSafeAreaValue("visible", sa.visible, "checkbox");
+	setSafeAreaValue("dashed", sa.dashed, "checkbox");
+	setSafeAreaValue("label", sa.label, "text");
+	setSafeAreaValue("color", sa.color, "color");
+	setSafeAreaValue("color", sa.color, "text");
+	setSafeAreaValue("safe-area-x", sa.x, "number");
+	setSafeAreaValue("safe-area-y", sa.y, "number");
+	setSafeAreaValue("safe-area-width", sa.width, "number");
+	setSafeAreaValue("safe-area-height", sa.height, "number");
+}
+
+function setSafeAreaValue(field: string, value: unknown, kind: "number" | "text" | "color" | "checkbox"): void {
+	const elements = app.querySelectorAll<HTMLInputElement>(`[data-safe-area-field="${field}"], [data-field="${field}"]`);
+
+	for (const el of elements) {
+		if (document.activeElement === el) continue;
+		const colorRow = el.closest(".inspector-color-row");
+		if (colorRow && colorRow.contains(document.activeElement)) continue;
+
+		if (kind === "color" && el.type !== "color") continue;
+		if (kind === "text" && el.type !== "text") continue;
+		if (kind === "number" && el.type !== "number") continue;
+		if (kind === "checkbox" && el.type !== "checkbox") continue;
+
+		if (el instanceof HTMLInputElement && el.type === "checkbox") {
+			if (el.checked === value) continue;
+			el.checked = value as boolean;
+		} else if (el instanceof HTMLInputElement) {
+			if (el.value === String(value)) continue;
+			el.value = String(value);
+		}
+	}
 }
 
 function setSceneFieldValue(field: string, value: unknown, kind: "number" | "text" | "color" | "checkbox" | "select"): void {
@@ -199,5 +306,95 @@ export function attachSceneListeners(): void {
 		}
 	}
 
+	// 🆕 Safe Area listeners
+	attachSafeAreaListeners();
+
 	attachDragHandles("scene");
+}
+
+function attachSafeAreaListeners(): void {
+	// buttons
+	const buttons = app.querySelectorAll<HTMLButtonElement>("[data-safe-area-action]");
+	for (const btn of buttons) {
+		btn.addEventListener("click", () => {
+			const action = btn.dataset.safeAreaAction;
+
+			if (action === "add") {
+				vscode.postMessage({ type: "addSafeArea" });
+			} else if (action === "remove") {
+				vscode.postMessage({ type: "removeSafeArea" });
+			} else if (action === "reset-size") {
+				// TODO: ارسال به extension با اندازه‌ی world
+				// فعلاً فقط از props استفاده می‌کنیم
+				const scene = getCurrentScene();
+				if (scene) {
+					vscode.postMessage({
+						type: "updateSafeArea",
+						updates: {
+							x: 0,
+							y: 0,
+							width: scene.worldSize.width,
+							height: scene.worldSize.height,
+						},
+					});
+				}
+			}
+		});
+	}
+
+	// fields
+	const fields = app.querySelectorAll<HTMLInputElement>("[data-safe-area-field], [data-field^='safe-area-']");
+	for (const input of fields) {
+		const fieldName = input.dataset.safeAreaField ?? input.dataset.field;
+		if (!fieldName) continue;
+
+		if (input.type === "checkbox") {
+			input.addEventListener("change", () => {
+				sendSafeAreaUpdate(fieldName, input.checked);
+			});
+		} else if (input.type === "number") {
+			input.addEventListener("change", () => {
+				const value = Number.parseFloat(input.value);
+				if (!Number.isNaN(value)) sendSafeAreaUpdate(fieldName, value);
+			});
+			input.addEventListener("keydown", (e) => {
+				if (e.key === "Enter") input.blur();
+			});
+		} else if (input.type === "color") {
+			input.addEventListener("input", () => {
+				const textInput = input.parentElement?.querySelector<HTMLInputElement>('input[type="text"]');
+				if (textInput && document.activeElement !== textInput) {
+					textInput.value = input.value;
+				}
+				sendSafeAreaUpdate(fieldName, input.value);
+			});
+		} else {
+			input.addEventListener("change", () => {
+				sendSafeAreaUpdate(fieldName, input.value);
+			});
+			input.addEventListener("keydown", (e) => {
+				if (e.key === "Enter") input.blur();
+			});
+		}
+	}
+}
+
+function sendSafeAreaUpdate(fieldName: string, value: unknown): void {
+	// نگاشت فیلدهای خاص
+	let key = fieldName;
+	if (fieldName === "safe-area-x") key = "x";
+	else if (fieldName === "safe-area-y") key = "y";
+	else if (fieldName === "safe-area-width") key = "width";
+	else if (fieldName === "safe-area-height") key = "height";
+
+	vscode.postMessage({
+		type: "updateSafeArea",
+		updates: { [key]: value },
+	});
+}
+
+function getCurrentScene(): Scene | null {
+	// از state وارد شده
+	const mod = app as unknown;
+	return null; // fallback
 }

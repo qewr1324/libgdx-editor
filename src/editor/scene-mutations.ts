@@ -1,6 +1,6 @@
 // src/editor/scene-mutations.ts
-import type { GameObject, Layer, Scene, ReferenceImage } from "../types/scene.js";
-import { createReferenceImage } from "../types/scene.js";
+import type { GameObject, Layer, Scene, ReferenceImage, SafeArea } from "../types/scene.js";
+import { createReferenceImage, createSafeArea } from "../types/scene.js";
 import type { ShapeType, Component } from "../types/components.js";
 import { createComponentId, isComponentUnique } from "../types/components.js";
 import type { AtlasProperties } from "../features/texture-atlas/atlas-properties.js";
@@ -176,6 +176,37 @@ export function toggleReferenceImageLockInScene(scene: Scene): Scene {
 	const newScene = structuredClone(scene) as Scene;
 	if (!newScene.referenceImage) return newScene;
 	newScene.referenceImage.locked = !newScene.referenceImage.locked;
+	return newScene;
+}
+
+// ============================================================
+// 🆕 Safe Area Mutations
+// ============================================================
+
+export function addSafeAreaToScene(scene: Scene): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	if (newScene.safeArea) return newScene; // already exists
+	newScene.safeArea = createSafeArea(newScene.worldSize.width, newScene.worldSize.height);
+	return newScene;
+}
+
+export function updateSafeAreaInScene(scene: Scene, updates: Partial<SafeArea>): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	if (!newScene.safeArea) return newScene;
+	newScene.safeArea = { ...newScene.safeArea, ...updates };
+	return newScene;
+}
+
+export function removeSafeAreaFromScene(scene: Scene): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	newScene.safeArea = null;
+	return newScene;
+}
+
+export function toggleSafeAreaVisibleInScene(scene: Scene): Scene {
+	const newScene = structuredClone(scene) as Scene;
+	if (!newScene.safeArea) return newScene;
+	newScene.safeArea.visible = !newScene.safeArea.visible;
 	return newScene;
 }
 

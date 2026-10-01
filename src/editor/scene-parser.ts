@@ -1,6 +1,6 @@
 // src/editor/scene-parser.ts
 import * as vscode from "vscode";
-import { createEmptyScene, type GameObject, type Scene, type ReferenceImage } from "../types/scene.js";
+import { createEmptyScene, type GameObject, type Scene, type ReferenceImage, type SafeArea } from "../types/scene.js";
 import { createComponentId, type Component } from "../types/components.js";
 import type { ShapeType } from "../types/components.js";
 import { normalizeAtlasProperties, type AtlasProperties } from "../features/texture-atlas/atlas-properties.js";
@@ -44,17 +44,12 @@ export function migrateScene(parsed: Scene): Scene {
 	if (parsed.referenceImage === undefined) parsed.referenceImage = null;
 	else if (parsed.referenceImage !== null) parsed.referenceImage = migrateReferenceImage(parsed.referenceImage);
 
+	// 🆕 Safe Area
+	if (parsed.safeArea === undefined) parsed.safeArea = null;
+	else if (parsed.safeArea !== null) parsed.safeArea = migrateSafeArea(parsed.safeArea, parsed.worldSize);
+
 	if (!Array.isArray(parsed.layers) || parsed.layers.length === 0) {
-		parsed.layers = [
-			{
-				id: "layer_default",
-				name: "default",
-				zIndex: 0,
-				visible: true,
-				locked: false,
-				objects: [],
-			},
-		];
+		parsed.layers = [{ id: "layer_default", name: "default", zIndex: 0, visible: true, locked: false, objects: [] }];
 	}
 
 	for (let i = 0; i < parsed.layers.length; i++) {
@@ -107,6 +102,24 @@ function migrateReferenceImage(ref: Partial<ReferenceImage>): ReferenceImage | n
 		hidden: typeof ref.hidden === "boolean" ? ref.hidden : false,
 		locked: typeof ref.locked === "boolean" ? ref.locked : false,
 		tint: typeof ref.tint === "string" ? ref.tint : undefined,
+	};
+}
+
+/**
+ * 🆕 Safe Area migration.
+ */
+function migrateSafeArea(sa: Partial<SafeArea>, worldSize: { width: number; height: number }): SafeArea | null {
+	if (!sa || typeof sa !== "object") return null;
+
+	return {
+		x: typeof sa.x === "number" ? sa.x : 0,
+		y: typeof sa.y === "number" ? sa.y : 0,
+		width: typeof sa.width === "number" && sa.width > 0 ? sa.width : worldSize.width,
+		height: typeof sa.height === "number" && sa.height > 0 ? sa.height : worldSize.height,
+		visible: typeof sa.visible === "boolean" ? sa.visible : true,
+		color: typeof sa.color === "string" ? sa.color : "#ff9500",
+		dashed: typeof sa.dashed === "boolean" ? sa.dashed : true,
+		label: typeof sa.label === "string" ? sa.label : "Camera",
 	};
 }
 
