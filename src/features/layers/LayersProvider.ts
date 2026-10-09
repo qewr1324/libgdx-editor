@@ -71,10 +71,12 @@ export class LayersProvider implements vscode.WebviewViewProvider {
 				break;
 			}
 			case "selectLayer":
+				// 🆕 همیشه با name مقایسه کن
 				this.selectedLayer = msg.name;
 				this.pushLayers(host!.getScene());
 				break;
 			case "addLayer": {
+				// 🆕 addLayerOp مقدار name رو برمی‌گردونه (نه id)
 				const newName = addLayerOp(host!);
 				if (newName) this.selectedLayer = newName;
 				break;

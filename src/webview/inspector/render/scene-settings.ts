@@ -2,7 +2,7 @@
 import type { Scene } from "../../../types/scene.js";
 import { THEMES, THEME_ORDER } from "../theme-types.js";
 import { vscode } from "../vscode-api.js";
-import { currentConfig, setSceneMode } from "../state.js";
+import { currentConfig, currentScene, setSceneMode } from "../state.js";
 import { ICONS } from "../icons.js";
 import { escapeAttr, escapeHtml } from "../utils.js";
 import { sectionWrap, field, fieldRow, numberField } from "./section-helpers.js";
@@ -84,7 +84,6 @@ export function buildSceneSettingsHtml(scene: Scene): string {
 		`,
 	);
 
-	// 🆕 Safe Area section
 	const safeAreaSection = buildSafeAreaSection(scene);
 
 	return `
@@ -177,7 +176,6 @@ export function updateSceneFieldValues(scene: Scene): void {
 	setSceneFieldValue("gridSize", scene.gridSize, "number");
 	setSceneFieldValue("snapToGrid", scene.snapToGrid, "checkbox");
 
-	// 🆕 Safe Area fields
 	updateSafeAreaFieldValues(scene);
 }
 
@@ -306,7 +304,6 @@ export function attachSceneListeners(): void {
 		}
 	}
 
-	// 🆕 Safe Area listeners
 	attachSafeAreaListeners();
 
 	attachDragHandles("scene");
@@ -324,9 +321,8 @@ function attachSafeAreaListeners(): void {
 			} else if (action === "remove") {
 				vscode.postMessage({ type: "removeSafeArea" });
 			} else if (action === "reset-size") {
-				// TODO: ارسال به extension با اندازه‌ی world
-				// فعلاً فقط از props استفاده می‌کنیم
-				const scene = getCurrentScene();
+				// 🆕 از currentScene استفاده کن (که import شده)
+				const scene = currentScene;
 				if (scene) {
 					vscode.postMessage({
 						type: "updateSafeArea",
@@ -391,10 +387,4 @@ function sendSafeAreaUpdate(fieldName: string, value: unknown): void {
 		type: "updateSafeArea",
 		updates: { [key]: value },
 	});
-}
-
-function getCurrentScene(): Scene | null {
-	// از state وارد شده
-	const mod = app as unknown;
-	return null; // fallback
 }

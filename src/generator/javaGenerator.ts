@@ -54,6 +54,12 @@ function generateJava(scene: Scene, options: GenerateOptions): string {
 	const { className, packageName, includeComments } = options;
 	const lines: string[] = [];
 
+	// 🆕 تشخیص helper ها
+	const hasAnimation = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "animation")));
+	const hasShape = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "shape")));
+	const hasText = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "text")));
+	const hasAtlas = scene.layers.some((l) => l.objects.some((o) => !!getAtlasProperties(o)));
+
 	if (packageName) {
 		lines.push(`package ${packageName};`);
 		lines.push("");
@@ -84,6 +90,7 @@ function generateJava(scene: Scene, options: GenerateOptions): string {
 		lines.push(` * IMPORTANT:`);
 		lines.push(` *   - If scene has shapes, you must set "ShapeActors.sharedRenderer".`);
 		lines.push(` *   - If scene has text, you must provide a BitmapFont.`);
+		lines.push(` *   - Helper classes (AnimatedActor, ShapeActors, LabelActor) must be in the same package.`);
 		lines.push(` */`);
 	}
 
@@ -93,8 +100,6 @@ function generateJava(scene: Scene, options: GenerateOptions): string {
 	lines.push(`\tpublic static final float WORLD_HEIGHT = ${scene.worldSize.height}f;`);
 	lines.push("");
 
-	// چک کنیم آیا shape داریم — اگه بله، یه ShapeRenderer static می‌سازیم
-	const hasShape = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "shape")));
 	if (hasShape) {
 		lines.push(`\t/** Shared ShapeRenderer — initialized by create() */`);
 		lines.push(`\tprivate static ShapeRenderer shapeRenderer;`);
@@ -398,6 +403,8 @@ function generateKotlin(scene: Scene, options: GenerateOptions): string {
 	const { className, packageName, includeComments } = options;
 	const lines: string[] = [];
 
+	const hasShape = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "shape")));
+
 	if (packageName) {
 		lines.push(`package ${packageName}`);
 		lines.push("");
@@ -421,6 +428,8 @@ function generateKotlin(scene: Scene, options: GenerateOptions): string {
 		lines.push(` * Auto-generated from LibGDX Editor.`);
 		lines.push(` * Scene: ${scene.name}`);
 		lines.push(` * Generated: ${new Date().toISOString()}`);
+		lines.push(` *`);
+		lines.push(` * Helper classes (AnimatedActor, ShapeActors, LabelActor) must be in the same package.`);
 		lines.push(` */`);
 	}
 
@@ -430,7 +439,6 @@ function generateKotlin(scene: Scene, options: GenerateOptions): string {
 	lines.push(`    const val WORLD_HEIGHT = ${scene.worldSize.height}f`);
 	lines.push("");
 
-	const hasShape = scene.layers.some((l) => l.objects.some((o) => !!findComponent(o.components, "shape")));
 	if (hasShape) {
 		lines.push(`    private var shapeRenderer: ShapeRenderer? = null`);
 		lines.push("");

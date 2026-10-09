@@ -7,6 +7,7 @@ import type { Component, ShapeType } from "../../../types/components.js";
 import { findComponent } from "../../../types/components.js";
 import { getAtlasProperties } from "../../../features/texture-atlas/atlas-properties.js";
 import { resolveFrameRects } from "../../../features/texture-atlas/atlas-grid.js";
+import { getAtlas as getAtlasFromCache } from "../features/texture-atlas/atlas-picker.js";
 import { redrawGrid } from "./grid.js";
 import { beginDrag } from "../interaction/drag.js";
 import { selectObjects, drawSelectionOutlines } from "../selection/selection.js";
@@ -171,7 +172,10 @@ function renderAtlasObject(obj: GameObject, atlasProps: NonNullable<ReturnType<t
 		return;
 	}
 
-	const rects = resolveFrameRects(atlasProps, null, cached.width, cached.height);
+	// 🆕 اول از atlas cache گرفته شده از extension استفاده کن
+	const atlasData = getAtlasFromCache(atlasProps.texture);
+	const rects = resolveFrameRects(atlasProps, atlasData ? ({ texturePath: atlasData.texturePath, atlasPath: atlasData.atlasPath, regions: atlasData.regions } as never) : null, cached.width, cached.height);
+
 	if (rects.length === 0) {
 		// هیچ frame ای نیست — فقط texture کامل نشون بده
 		const sprite = new Sprite(cached);
@@ -198,7 +202,7 @@ function renderAtlasObject(obj: GameObject, atlasProps: NonNullable<ReturnType<t
 	// badge برای sequence/grid
 	if (atlasProps.mode !== "single" && rects.length > 1) {
 		const badge = new Text({
-			text: atlasProps.mode === "sequence" ? `🎬 ${rects.length}` : `⊞ ${rects.length}`,
+			text: atlasProps.mode === "grid" ? `⊞ ${rects.length}` : `🎬 ${rects.length}`,
 			style: new TextStyle({ fontSize: 11, fill: "#ffffff", stroke: { color: 0x000000, width: 3 } }),
 		});
 		badge.x = t.width - 40;
@@ -248,8 +252,28 @@ function renderComponent(comp: Component, obj: GameObject, container: Container,
 			const cached = textureCache.get(comp.texture);
 			if (!cached) break;
 
-			const firstFrame = comp.frames[0];
-			const subTex = getSubTexture(comp.texture, { x: 0, y: 0, width: cached.width, height: cached.height });
+			// 🆕 از atlas cache برای پیدا کردن sub-texture frame اول استفاده کن
+			const atlasData = getAtlasFromCache(comp.texture);
+			let subTex: Texture | null = null;
+
+			if (atlasData && atlasData.regions.length > 0) {
+				const firstFrameName = comp.frames[0];
+				const region = atlasData.regions.find((r) => r.name === firstFrameName);
+				if (region) {
+					subTex = getSubTexture(comp.texture, {
+						x: region.x,
+						y: region.y,
+						width: region.width,
+						height: region.height,
+						rotate: region.rotate,
+					});
+				}
+			}
+
+			// 🆕 اگه atlas نداشتیم، از کل texture استفاده کن
+			if (!subTex) {
+				subTex = getSubTexture(comp.texture, { x: 0, y: 0, width: cached.width, height: cached.height });
+			}
 			if (!subTex) break;
 
 			const sprite = new Sprite(subTex);
@@ -508,6 +532,7 @@ export function rerenderObject(obj: GameObject): void {
 	const old = objectSprites.get(obj.id);
 	if (old) {
 		contentLayer.removeChild(old);
+		old.removeAllListeners();
 		old.destroy({ children: true });
 		objectSprites.delete(obj.id);
 	}

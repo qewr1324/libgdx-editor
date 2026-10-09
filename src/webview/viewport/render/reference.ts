@@ -23,9 +23,8 @@ export function setupReferenceLayer(): void {
 	referenceLayer.label = "reference-image";
 	referenceLayer.eventMode = "static";
 
-	// 🆕 مطمئن شو که index معتبره
-	const targetIndex = Math.min(1, viewport.children.length);
-	viewport.addChildAt(referenceLayer, targetIndex);
+	// 🆕 اضافه کردن به عنوان اولین فرزند (index 0) تا زیر همه چیز باشه
+	viewport.addChildAt(referenceLayer, 0);
 }
 
 // ============================================================
@@ -38,6 +37,7 @@ export function renderReference(scene: Scene | null): void {
 	// پاک کردن قبلی
 	if (referenceContainer) {
 		referenceLayer.removeChild(referenceContainer);
+		referenceContainer.removeAllListeners();
 		referenceContainer.destroy({ children: true });
 		referenceContainer = null;
 	}
@@ -86,7 +86,8 @@ export function renderReference(scene: Scene | null): void {
 	referenceContainer.rotation = (t.rotation * Math.PI) / 180;
 	referenceContainer.scale.set(t.scaleX, t.scaleY);
 
-	referenceContainer.hitArea = new Rectangle(0, 0, t.width, t.height);
+	// 🆕 hitArea با در نظر گرفتن pivot
+	referenceContainer.hitArea = new Rectangle(-t.width * t.originX, -t.height * t.originY, t.width, t.height);
 
 	if (!ref.locked) {
 		referenceContainer.cursor = "move";

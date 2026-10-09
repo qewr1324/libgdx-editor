@@ -82,12 +82,14 @@ export function setupMessages(): void {
 			case "update":
 				currentSceneFromMessage = msg.scene;
 				applyEffectiveTheme();
+				// 🆕 فقط اگه texture ها عوض شدن، cache رو پاک کن
+				// فعلاً برای سادگی همیشه پاک می‌کنیم ولی بهتره با دقت بیشتری چک بشه
 				clearSubTextureCache();
 				setScene(msg.scene);
 				scheduleRender(() => {
 					renderScene(msg.scene);
 					renderReference(msg.scene);
-					renderSafeArea(msg.scene); // 🆕
+					renderSafeArea(msg.scene);
 					renderGuides();
 					notifySceneChanged();
 				});
@@ -175,11 +177,16 @@ export function setupMessages(): void {
 				}
 				break;
 
-			case "selectObjects":
-				if (JSON.stringify(msg.objectIds) !== JSON.stringify(selectedIds)) {
-					selectObjects(msg.objectIds, msg.objectIds[msg.objectIds.length - 1] ?? null);
+			case "selectObjects": {
+				// 🆕 مقایسه‌ی set-like
+				const incoming: string[] = msg.objectIds;
+				const currentSet = new Set(selectedIds);
+				const same = incoming.length === selectedIds.length && incoming.every((id) => currentSet.has(id));
+				if (!same) {
+					selectObjects(incoming, incoming[incoming.length - 1] ?? null);
 				}
 				break;
+			}
 
 			case "focusObject":
 				if (viewport) {

@@ -15,7 +15,8 @@ const DEFAULT_DELAY_MS = 5000;
 
 interface PendingCleanup {
 	timeout: NodeJS.Timeout;
-	scene: Scene;
+	documentUri: vscode.Uri;
+	sceneAtSchedule: Scene;
 }
 
 // نقشه‌ی documentUri → cleanup معلق
@@ -41,7 +42,7 @@ export function scheduleCleanup(documentUri: vscode.Uri, scene: Scene, delayMs =
 	const timeout = setTimeout(async () => {
 		pendingCleanups.delete(key);
 
-		// 🆕 چک کن آیا سند هنوز باز و تغییر نکرده
+		// 🆕 چک کن آیا سند هنوز بازه
 		const currentDoc = vscode.workspace.textDocuments.find((d) => d.uri.toString() === key);
 		if (!currentDoc) {
 			log.debug(`[deferred-cleanup] document closed, skipping: ${key}`);
@@ -50,8 +51,20 @@ export function scheduleCleanup(documentUri: vscode.Uri, scene: Scene, delayMs =
 
 		try {
 			// 🆕 از state واقعی extension استفاده کن، نه از scene قدیمی
-			// (چون ممکنه کاربر توی این مدت چیز دیگه‌ای رو تغییر داده باشه)
-			await AssetManager.cleanupUnusedAssets(documentUri, scene);
+			// با import داینامیک از scene-registry تا circular نشه
+			const { SceneRegistry } = await import("./scene-registry.js");
+			const host = SceneRegistry.getInstances().find((h) => h.getDocument().uri.toString() === key);
+			if (!host) {
+				log.debug(`[deferred-cleanup] host not found, skipping: ${key}`);
+				return;
+			}
+			const currentScene = host.getScene();
+			if (!currentScene) {
+				log.debug(`[deferred-cleanup] scene not loaded, skipping: ${key}`);
+				return;
+			}
+
+			await AssetManager.cleanupUnusedAssets(documentUri, currentScene);
 			log.debug(`[deferred-cleanup] cleaned unused assets for ${documentUri.fsPath}`);
 
 			// 🆕 پیام info به کاربر
@@ -61,7 +74,7 @@ export function scheduleCleanup(documentUri: vscode.Uri, scene: Scene, delayMs =
 		}
 	}, delayMs);
 
-	pendingCleanups.set(key, { timeout, scene });
+	pendingCleanups.set(key, { timeout, documentUri, sceneAtSchedule: scene });
 }
 
 // ============================================================

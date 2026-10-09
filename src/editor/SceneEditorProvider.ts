@@ -237,9 +237,23 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			host.webviews.delete(webviewPanel.webview);
 
 			if (host.webviews.size === 0) {
+				// 🆕 قبل از پاک کردن timer، تغییرات ذخیره‌نشده رو flush کن
 				if (host.autoSaveTimer) {
 					clearTimeout(host.autoSaveTimer);
 					host.autoSaveTimer = null;
+				}
+				// 🆕 flush تغییرات ذخیره‌نشده
+				if (host.isDirty && host.scene) {
+					void (async () => {
+						try {
+							host.markProgrammaticChange(500);
+							await writeDocument(host.document, host.scene);
+							await saveDocument(host.document);
+							log.debug(`[SceneEditorProvider] flushed unsaved changes for ${host.document.uri.fsPath}`);
+						} catch (err) {
+							log.error("[SceneEditorProvider] failed to flush unsaved changes:", err);
+						}
+					})();
 				}
 				host.getHistory().clear();
 				this.hosts.delete(uriKey);

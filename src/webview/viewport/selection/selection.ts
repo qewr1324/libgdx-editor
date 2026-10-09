@@ -11,7 +11,24 @@ import { beginMarquee, cancelMarquee, finishMarquee, updateMarquee } from "../in
 import { getConfig } from "../config-store.js";
 import type { HandleType } from "../types.js";
 
+// 🆕 مقایسه‌ی set-like برای جلوگیری از حلقه
+function idsEqual(a: string[], b: string[]): boolean {
+	if (a.length !== b.length) return false;
+	const setB = new Set(b);
+	for (const id of a) {
+		if (!setB.has(id)) return false;
+	}
+	return true;
+}
+
 export function selectObjects(ids: string[], primaryId?: string | null): void {
+	// 🆕 اگه همون ids هستن، دوباره postMessage نکن (جلوگیری از حلقه)
+	if (idsEqual(ids, selectedIds)) {
+		// فقط primary رو آپدیت کن
+		setPrimarySelectedId(primaryId ?? (ids.length > 0 ? ids[ids.length - 1] : null));
+		return;
+	}
+
 	setSelectedIds(ids);
 	setPrimarySelectedId(primaryId ?? (ids.length > 0 ? ids[ids.length - 1] : null));
 
@@ -327,9 +344,13 @@ export function setupDeselect(): void {
 
 	let marqueeStarted = false;
 
+	// 🆕 فقط وقتی هدف خود stage باشه (نه یه آبجکت) marquee شروع کن
 	app.stage.on("pointerdown", (e) => {
 		if (interactionMode !== "idle") return;
 		if (e.button !== 0) return;
+		// 🆕 اگه target یه آبجکت دیگه‌ست، marquee شروع نکن
+		if (e.target !== app.stage) return;
+
 		const rect = app.canvas.getBoundingClientRect();
 		const screenX = e.clientX - rect.left;
 		const screenY = e.clientY - rect.top;

@@ -4,13 +4,17 @@ import { moveObjectToLayerInScene } from "../../editor/scene-mutations.js";
 import { log } from "../../shared/logger.js";
 import { addLayerToScene, deleteLayerFromScene, moveLayerDownInScene, moveLayerUpInScene, renameLayerInScene, reorderLayersInScene, toggleLayerLockInScene, toggleLayerVisibilityInScene } from "./layer-mutations.js";
 
+/**
+ * 🆕 name لایه‌ی جدید رو برمی‌گردونه (نه id).
+ * چون LayersProvider با name کار می‌کنه.
+ */
 export function addLayerOp(host: SceneHost): string | null {
 	const scene = host.getScene();
 	if (!scene) return null;
-	const { scene: updated, newLayerId } = addLayerToScene(scene);
+	const { scene: updated, newLayerName } = addLayerToScene(scene);
 	host.getHistory().commit(updated, "add layer");
-	log.debug(`[layers] added "${newLayerId}"`);
-	return newLayerId;
+	log.debug(`[layers] added "${newLayerName}"`);
+	return newLayerName;
 }
 
 export function deleteLayerOp(host: SceneHost, name: string): void {

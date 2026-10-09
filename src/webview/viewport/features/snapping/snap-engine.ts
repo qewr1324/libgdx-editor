@@ -54,7 +54,8 @@ export function computeSnapForObject(proposedX: number, proposedY: number, prima
 
 		for (const guide of guides) {
 			if (guide.axis !== "vertical") continue;
-			if (guide.locked === undefined) continue;
+			// 🆕 guide هایی که locked هستن رو رد کن
+			if (guide.locked === true) continue;
 
 			const candidates = [movingLeft, movingCenterX, movingRight];
 			for (const m of candidates) {
@@ -87,6 +88,8 @@ export function computeSnapForObject(proposedX: number, proposedY: number, prima
 
 		for (const guide of guides) {
 			if (guide.axis !== "horizontal") continue;
+			// 🆕 guide هایی که locked هستن رو رد کن
+			if (guide.locked === true) continue;
 
 			const candidates = [movingTop, movingCenterY, movingBottom];
 			for (const m of candidates) {
