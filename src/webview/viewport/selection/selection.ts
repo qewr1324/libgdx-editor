@@ -22,9 +22,7 @@ function idsEqual(a: string[], b: string[]): boolean {
 }
 
 export function selectObjects(ids: string[], primaryId?: string | null): void {
-	// 🆕 اگه همون ids هستن، دوباره postMessage نکن (جلوگیری از حلقه)
 	if (idsEqual(ids, selectedIds)) {
-		// فقط primary رو آپدیت کن
 		setPrimarySelectedId(primaryId ?? (ids.length > 0 ? ids[ids.length - 1] : null));
 		return;
 	}
@@ -335,47 +333,65 @@ function drawSingleRotateHandle(obj: GameObject, t: GameObject["transform"]): vo
 }
 
 // ============================================================
-// Marquee + Deselect
+// 🆕 Marquee + Deselect — با canvas events (نه PixiJS stage)
 // ============================================================
 
 export function setupDeselect(): void {
-	app.stage.eventMode = "static";
-	app.stage.hitArea = new Rectangle(0, 0, window.innerWidth, window.innerHeight);
+	// 🆕 marquee رو روی canvas HTML گوش می‌دیم، نه روی app.stage
+	// چون app.stage.hitArea کل صفحه رو پوشش می‌ده و event آبجکت‌ها رو بلاک می‌کنه.
+	const canvas = app.canvas;
 
 	let marqueeStarted = false;
+	let pendingMarqueeTimeout: number | null = null;
 
-	// 🆕 فقط وقتی هدف خود stage باشه (نه یه آبجکت) marquee شروع کن
-	app.stage.on("pointerdown", (e) => {
-		if (interactionMode !== "idle") return;
+	// 🆕 pointerdown → با تأخیر marquee رو شروع کن
+	// اگه توی این فاصله container.on("pointerdown") صدا زده شد، interactionMode عوض می‌شه
+	// و marquee بلاک می‌شه.
+	canvas.addEventListener("pointerdown", (e) => {
 		if (e.button !== 0) return;
-		// 🆕 اگه target یه آبجکت دیگه‌ست، marquee شروع نکن
-		if (e.target !== app.stage) return;
+		if (interactionMode !== "idle") return;
 
-		const rect = app.canvas.getBoundingClientRect();
-		const screenX = e.clientX - rect.left;
-		const screenY = e.clientY - rect.top;
-		beginMarquee(screenX, screenY);
-		marqueeStarted = true;
+		// 🆕 بعد از یه tick چک کن که interactionMode هنوز idle هست
+		pendingMarqueeTimeout = window.setTimeout(() => {
+			pendingMarqueeTimeout = null;
+			if (interactionMode !== "idle") return;
+
+			const rect = canvas.getBoundingClientRect();
+			const screenX = e.clientX - rect.left;
+			const screenY = e.clientY - rect.top;
+			beginMarquee(screenX, screenY);
+			marqueeStarted = true;
+		}, 0);
 	});
 
 	window.addEventListener("pointermove", (e) => {
 		if (!marqueeStarted || interactionMode !== "marquee") return;
-		const rect = app.canvas.getBoundingClientRect();
+		const rect = canvas.getBoundingClientRect();
 		const screenX = e.clientX - rect.left;
 		const screenY = e.clientY - rect.top;
 		updateMarquee(screenX, screenY);
 	});
 
 	window.addEventListener("pointerup", (e) => {
+		// 🆕 اگه marquee شروع نشده بود ولی timeout هست، کنسلش کن
+		if (pendingMarqueeTimeout !== null) {
+			clearTimeout(pendingMarqueeTimeout);
+			pendingMarqueeTimeout = null;
+			return;
+		}
 		if (!marqueeStarted) return;
 		marqueeStarted = false;
-		const rect = app.canvas.getBoundingClientRect();
+		const rect = canvas.getBoundingClientRect();
 		const screenX = e.clientX - rect.left;
 		const screenY = e.clientY - rect.top;
 		finishMarquee(screenX, screenY);
 	});
 
 	window.addEventListener("pointercancel", () => {
+		if (pendingMarqueeTimeout !== null) {
+			clearTimeout(pendingMarqueeTimeout);
+			pendingMarqueeTimeout = null;
+		}
 		if (marqueeStarted) {
 			marqueeStarted = false;
 			cancelMarquee();

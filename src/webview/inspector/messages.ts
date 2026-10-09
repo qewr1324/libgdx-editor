@@ -1,207 +1,125 @@
-// src/webview/viewport/messages.ts
-import { vscode } from "./types.js";
-import { loadTexture } from "./pixi/textures.js";
-import { renderScene, clearSubTextureCache } from "./render/scene.js";
-import { redrawGrid } from "./render/grid.js";
-import { renderReference } from "./render/reference.js";
-import { renderSafeArea } from "./render/safe-area.js";
-import { interactionMode, scene, selectedIds, setBrokenAssets, setScene, viewport, textureCache } from "./state.js";
-import { selectObjects, drawSelectionOutlines } from "./selection/selection.js";
-import { findObject } from "./utils/geometry.js";
-import { applyTheme } from "./theme/theme-manager.js";
-import { setConfig, getConfig } from "./config-store.js";
-import { registerAtlas } from "./features/texture-atlas/atlas-picker.js";
-import { renderGuides } from "./ui/guides.js";
-import type { AtlasData } from "../../features/texture-atlas/atlas-types.js";
+// src/webview/inspector/messages.ts
+import type { GameObject, Scene } from "../../types/scene.js";
 import type { LibGdxEditorConfigMessage } from "../../protocol/messages.js";
-import type { Scene } from "../../types/scene.js";
-
-let pendingRender: (() => void) | null = null;
-let currentSceneFromMessage: Scene | null = null;
-let lastAppliedThemeName: string | null = null;
-
-function scheduleRender(callback: () => void): void {
-	if (interactionMode !== "idle") {
-		pendingRender = callback;
-		return;
-	}
-	callback();
-}
-
-export function flushPendingRender(): void {
-	if (pendingRender && interactionMode === "idle") {
-		const cb = pendingRender;
-		pendingRender = null;
-		cb();
-	}
-}
-
-function applyEffectiveTheme(): void {
-	const config = getConfig();
-	const themeName = currentSceneFromMessage?.themeOverride ?? config?.defaultTheme ?? "win98";
-	if (themeName === lastAppliedThemeName) return;
-	lastAppliedThemeName = themeName;
-	applyTheme(themeName, true);
-}
-
-function textureCacheHas(path: string): boolean {
-	return textureCache.has(path);
-}
-
-function notifySceneChanged(): void {
-	window.dispatchEvent(new CustomEvent("scene-changed"));
-}
-
-function handleConfig(config: LibGdxEditorConfigMessage): void {
-	const previous = getConfig();
-	setConfig(config);
-	applyEffectiveTheme();
-
-	const viewChanged = !previous || previous.view.renderMode !== config.view.renderMode || previous.view.showGrid !== config.view.showGrid || previous.view.showWorldBorder !== config.view.showWorldBorder;
-
-	if (viewChanged) {
-		scheduleRender(() => {
-			redrawGrid();
-			if (scene) renderScene(scene);
-		});
-	}
-
-	const gizmoChanged = previous && previous.gizmo.mode !== config.gizmo.mode;
-	if (gizmoChanged) {
-		drawSelectionOutlines();
-	}
-
-	window.dispatchEvent(new CustomEvent("config-changed", { detail: { config } }));
-}
+import { getLayerNameOfObject } from "../../types/scene.js";
+import { app } from "./vscode-api.js";
+import { setCurrentObject, setCurrentScene, setCurrentConfig, setMultiSelection, setSceneMode, setAvailableLayers, setLastAppliedTheme, setAtlasRegions, setAtlasNotFound, setAtlasTextureInfo, lastAppliedTheme, availableLayers, currentObject, currentScene, sceneMode } from "./state.js";
+import { escapeAttr, escapeHtml } from "./utils.js";
+import { render } from "./render/index.js";
 
 export function setupMessages(): void {
-	window.addEventListener("message", async (event) => {
+	window.addEventListener("message", (event) => {
 		const msg = event.data;
 		switch (msg.type) {
-			case "load":
-			case "update":
-				// 🆕 اگه وسط یه interaction هستیم، load رو نادیده بگیر
-				// (چون host.scene هنوز در حال sync هست و ممکنه قدیمی باشه)
-				if (interactionMode !== "idle") {
-					console.log("[viewport] ignoring load/update during interaction:", interactionMode);
-					break;
-				}
-
-				currentSceneFromMessage = msg.scene;
-				applyEffectiveTheme();
-				clearSubTextureCache();
-				setScene(msg.scene);
-				scheduleRender(() => {
-					renderScene(msg.scene);
-					renderReference(msg.scene);
-					renderSafeArea(msg.scene);
-					renderGuides();
-					notifySceneChanged();
-				});
+			case "showObject":
+				setMultiSelection(null);
+				setSceneMode(false);
+				setCurrentObject(msg.object as GameObject);
+				render(false);
 				break;
 
-			case "texturesLoaded": {
-				const textures = msg.textures as Record<string, string>;
-				let anyLoaded = false;
-				for (const [path, dataUrl] of Object.entries(textures)) {
-					try {
-						const had = textureCacheHas(path);
-						await loadTexture(path, dataUrl);
-						if (!had) anyLoaded = true;
-					} catch (err) {
-						console.error("Failed to load texture:", path, err);
+			case "showMultiSelection":
+				setSceneMode(false);
+				setMultiSelection({ count: msg.count, ids: msg.ids });
+				render(true);
+				break;
+
+			case "showScene":
+				setCurrentScene(msg.scene as Scene);
+				if (sceneMode) {
+					void import("./render/scene-settings.js").then((m) => m.updateSceneFieldValues(msg.scene as Scene));
+				}
+				break;
+
+			case "showSceneSettings":
+				setCurrentScene(msg.scene as Scene);
+				setSceneMode(true);
+				setCurrentObject(null);
+				setMultiSelection(null);
+				render(true);
+				break;
+
+			case "layersLoaded":
+				setAvailableLayers(msg.layers ?? []);
+				if (currentObject && !sceneMode) {
+					const layerSelect = app.querySelector<HTMLSelectElement>("[data-layer-select]");
+					if (layerSelect) {
+						const obj = currentObject;
+						const scene = currentScene;
+						const currentLayerId = obj.layerId ?? (scene ? scene.layers.find((l) => getLayerNameOfObject(scene, obj) === l.name)?.id : undefined) ?? "";
+						layerSelect.innerHTML = availableLayers
+							.map((l) => {
+								const selected = l.id === currentLayerId ? "selected" : "";
+								return `<option value="${escapeAttr(l.id)}" ${selected}>${escapeHtml(l.name)}</option>`;
+							})
+							.join("");
 					}
 				}
-				if (anyLoaded) {
-					clearSubTextureCache();
-				}
-				scheduleRender(() => {
-					if (scene) {
-						renderScene(scene);
-						renderReference(scene);
-					}
-				});
 				break;
-			}
 
-			case "atlasRegionsLoaded": {
-				const atlasData: AtlasData = {
-					texturePath: msg.texturePath,
-					atlasPath: msg.atlasPath,
-					regions: (msg.regions as Array<{ name: string; x: number; y: number; width: number; height: number; rotate: boolean; index: number }>).map((r) => ({
-						name: r.name,
-						x: r.x,
-						y: r.y,
-						width: r.width,
-						height: r.height,
-						origWidth: r.width,
-						origHeight: r.height,
-						offsetX: 0,
-						offsetY: 0,
-						rotate: r.rotate,
-						index: r.index,
-					})),
-				};
-
-				registerAtlas(msg.texturePath, atlasData);
-				clearSubTextureCache();
-
-				scheduleRender(() => {
-					if (scene) renderScene(scene);
-				});
+			// 🆕 Atlas regions
+			case "atlasRegionsLoaded":
+				setAtlasRegions(msg.texturePath as string, msg.atlasPath as string, msg.regions ?? []);
+				render(true);
 				break;
-			}
 
 			case "atlasNotFound":
+				setAtlasNotFound(msg.texturePath as string);
+				render(true);
 				break;
 
-			case "brokenAssets":
-				setBrokenAssets(msg.paths as string[]);
-				scheduleRender(() => {
-					if (scene) renderScene(scene);
-				});
+			// 🆕 Textures (برای preview)
+			case "texturesLoaded": {
+				const textures = msg.textures as Record<string, string>;
+				let needsRerender = false;
+				for (const [path, dataUrl] of Object.entries(textures)) {
+					if (currentObject && isCurrentObjectTexture(path)) {
+						const img = new Image();
+						img.onload = () => {
+							setAtlasTextureInfo(path, img.naturalWidth, img.naturalHeight, dataUrl);
+							if (currentObject && isCurrentObjectTexture(path)) {
+								render(true);
+							}
+						};
+						img.src = dataUrl;
+						needsRerender = true;
+					}
+				}
+				if (!needsRerender && currentObject) {
+					const props = currentObject.properties?.atlas as { texture?: string } | undefined;
+					if (props?.texture && textures[props.texture]) {
+						render(true);
+					}
+				}
 				break;
+			}
 
-			case "clipboardChanged":
+			case "clearSelection":
+				setMultiSelection(null);
+				setCurrentObject(null);
+				setSceneMode(false);
+				render(true);
 				break;
 
 			case "configLoaded":
-			case "configUpdated":
-				handleConfig(msg.config);
-				break;
-
-			case "selectFromOutliner":
-				if (msg.objectId) {
-					selectObjects([msg.objectId], msg.objectId);
-					const obj = scene ? findObject(scene, msg.objectId) : null;
-					if (obj && viewport) {
-						viewport.moveCenter(obj.transform.x, obj.transform.y);
+			case "configUpdated": {
+				setCurrentConfig(msg.config as LibGdxEditorConfigMessage);
+				const previousTheme = lastAppliedTheme;
+				void import("./theme.js").then((m) => {
+					m.applyEffectiveTheme();
+					const themeChanged = previousTheme !== lastAppliedTheme;
+					if (sceneMode && themeChanged) {
+						render(true);
 					}
-				} else {
-					selectObjects([]);
-				}
-				break;
-
-			case "selectObjects": {
-				const incoming: string[] = msg.objectIds;
-				const currentSet = new Set(selectedIds);
-				const same = incoming.length === selectedIds.length && incoming.every((id) => currentSet.has(id));
-				if (!same) {
-					selectObjects(incoming, incoming[incoming.length - 1] ?? null);
-				}
+				});
 				break;
 			}
-
-			case "focusObject":
-				if (viewport) {
-					const obj = scene ? findObject(scene, msg.objectId) : null;
-					if (obj) {
-						viewport.moveCenter(obj.transform.x, obj.transform.y);
-					}
-				}
-				break;
 		}
 	});
+}
 
-	vscode.postMessage({ type: "requestConfig" });
+function isCurrentObjectTexture(path: string): boolean {
+	if (!currentObject) return false;
+	const raw = currentObject.properties?.atlas as { texture?: string } | undefined;
+	return !!raw && raw.texture === path;
 }
