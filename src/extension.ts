@@ -9,6 +9,7 @@ import { importTextureCommand, cleanupAssetsCommand } from "./commands/importTex
 import { generateCodeCommand } from "./commands/generateCode.js";
 import { importAtlasCommand } from "./commands/importAtlas.js";
 import { importReferenceCommand } from "./commands/importReference.js";
+import { pickAssetsFolderCommand, changeSpriteTextureCommand, changeAtlasTextureCommand } from "./commands/assetCommands.js";
 import { ConfigManager } from "./config/config-manager.js";
 import { SceneRegistry } from "./editor/scene-registry.js";
 import { updateObjectOp, deleteObjectOp, focusObjectOp, updateSceneFieldOp } from "./editor/scene-ops.js";
@@ -139,6 +140,10 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand("libgdx-editor.importReference", (uri?: vscode.Uri) => importReferenceCommand(context, uri)),
 		vscode.commands.registerCommand("libgdx-editor.cleanupAssets", () => cleanupAssetsCommand()),
 		vscode.commands.registerCommand("libgdx-editor.generateCode", () => generateCodeCommand()),
+		// 🆕 Asset path commands
+		vscode.commands.registerCommand("libgdx-editor.pickAssetsFolder", () => pickAssetsFolderCommand()),
+		vscode.commands.registerCommand("libgdx-editor.changeSpriteTexture", (objectId: string) => changeSpriteTextureCommand(objectId)),
+		vscode.commands.registerCommand("libgdx-editor.changeAtlasTexture", (objectId: string) => changeAtlasTextureCommand(objectId)),
 	);
 }
 

@@ -5,6 +5,7 @@ import { AssetManager } from "../editor/assetManager.js";
 import { addSpriteWithTextureOp } from "../editor/scene-ops/addObjectOps.js";
 
 export async function importTextureCommand(context: vscode.ExtensionContext, uriFromContext?: vscode.Uri): Promise<void> {
+	void context;
 	const host = SceneEditorProvider.getActiveProvider();
 	if (!host) {
 		vscode.window.showWarningMessage("No active LibGDX scene. Open or create a .lgdx.json file first.");
@@ -17,33 +18,22 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 		return;
 	}
 
+	// 🆕 چک کن assets تنظیم شده
+	if (!AssetManager.ensureAssetsConfigured()) return;
+
 	let sourceUri: vscode.Uri | undefined = uriFromContext;
 
 	if (!sourceUri) {
-		const uris = await vscode.window.showOpenDialog({
-			canSelectMany: false,
-			filters: {
-				Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"],
-			},
-			title: "Select Texture to Import",
-		});
-		if (!uris || uris.length === 0) return;
-		sourceUri = uris[0];
+		// 🆕 اگه uri از context نیومده، از داخل assets انتخاب کن
+		const picked = await AssetManager.pickImageFromAssets();
+		if (!picked) return;
+		sourceUri = picked.uri;
 	}
 
 	const ext = path.extname(sourceUri.fsPath).toLowerCase();
 	const allowedExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"];
 	if (!allowedExts.includes(ext)) {
 		vscode.window.showErrorMessage(`Unsupported image format: ${ext}`);
-		return;
-	}
-
-	const sceneDir = vscode.Uri.joinPath(document.uri, "..");
-	const assetsDirName = AssetManager.getAssetsDirName(document.uri);
-	const assetsDir = vscode.Uri.joinPath(sceneDir, assetsDirName);
-	if (sourceUri.fsPath.startsWith(assetsDir.fsPath)) {
-		const relative = path.relative(sceneDir.fsPath, sourceUri.fsPath).replace(/\\/g, "/");
-		vscode.window.showInformationMessage(`Texture already in assets: ${relative}`);
 		return;
 	}
 
@@ -68,7 +58,8 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 			if (Number.isNaN(scale) || scale <= 0) scale = 1.0;
 		}
 
-		const relativePath = await AssetManager.importTexture(document.uri, sourceUri);
+		const relativePath = await AssetManager.importTexture(sourceUri);
+		if (!relativePath) return;
 
 		const added = await addSpriteWithTextureOp(host, relativePath, dims ? Math.round(dims.width * scale) : undefined, dims ? Math.round(dims.height * scale) : undefined);
 

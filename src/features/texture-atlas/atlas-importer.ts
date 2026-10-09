@@ -8,11 +8,16 @@ import { log } from "../../shared/logger.js";
 
 export class AtlasImporter {
 	/**
-	 * atlas.png رو import می‌کنه و اگه فایل .atlas همنام کنارش بود،
-	 * اون رو هم parse می‌کنه.
+	 * 🆕 atlas.png رو از یه فایل داخل assets می‌گیره.
+	 * فایل از قبل داخل assets هست، پس فقط parse می‌کنیم.
+	 * اگه فایل .atlas همنام کنارش بود، parse می‌کنه.
 	 */
-	public static async importAtlas(sceneUri: vscode.Uri, sourceUri: vscode.Uri): Promise<{ texturePath: string; atlas: AtlasData | null }> {
-		const texturePath = await AssetManager.importTexture(sceneUri, sourceUri);
+	public static async importAtlas(sourceUri: vscode.Uri): Promise<{ texturePath: string; atlas: AtlasData | null }> {
+		// texture رو توی assets کپی کن (اگه از قبل نیست)
+		const texturePath = await AssetManager.importTexture(sourceUri);
+		if (!texturePath) {
+			return { texturePath: "", atlas: null };
+		}
 
 		const sourceDir = vscode.Uri.joinPath(sourceUri, "..");
 		const baseName = path.basename(sourceUri.fsPath, path.extname(sourceUri.fsPath));
@@ -25,18 +30,21 @@ export class AtlasImporter {
 			atlas = parseAtlasFile(atlasUri.fsPath, text, texturePath);
 			log.debug(`[atlas] parsed ${atlas.regions.length} regions from ${atlasUri.fsPath}`);
 		} catch {
-			// فایل .atlas نیست — فقط texture معمولی
+			// فایل .atlas نیست
 		}
 
 		return { texturePath, atlas };
 	}
 
 	/**
-	 * لیست region های یک atlas رو برمی‌گردونه (بدون import مجدد).
+	 * 🆕 لیست region های یک atlas رو بر اساس texturePath (نسبی) برمی‌گردونه.
 	 */
 	public static async loadAtlasRegions(sceneUri: vscode.Uri, texturePath: string): Promise<AtlasData | null> {
-		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
-		const textureUri = vscode.Uri.joinPath(sceneDir, texturePath);
+		void sceneUri;
+		const assetsDir = AssetManager.getAssetsDirUri();
+		if (!assetsDir) return null;
+
+		const textureUri = vscode.Uri.joinPath(assetsDir, texturePath);
 		const dir = vscode.Uri.joinPath(textureUri, "..");
 		const baseName = path.basename(texturePath, path.extname(texturePath));
 		const atlasUri = vscode.Uri.joinPath(dir, `${baseName}.atlas`);
@@ -44,20 +52,19 @@ export class AtlasImporter {
 		try {
 			const content = await vscode.workspace.fs.readFile(atlasUri);
 			const text = new TextDecoder().decode(content);
-			const sceneDirFs = sceneDir.fsPath;
-			const relativeAtlasPath = path.relative(sceneDirFs, atlasUri.fsPath).replace(/\\/g, "/");
+			const relativeAtlasPath = path.relative(assetsDir.fsPath, atlasUri.fsPath).replace(/\\/g, "/");
 			return parseAtlasFile(relativeAtlasPath, text, texturePath);
 		} catch {
 			return null;
 		}
 	}
 
-	/**
-	 * چک می‌کنه آیا برای این texture یه فایل .atlas همنام وجود داره یا نه.
-	 */
 	public static async hasAtlasFile(sceneUri: vscode.Uri, texturePath: string): Promise<boolean> {
-		const sceneDir = vscode.Uri.joinPath(sceneUri, "..");
-		const textureUri = vscode.Uri.joinPath(sceneDir, texturePath);
+		void sceneUri;
+		const assetsDir = AssetManager.getAssetsDirUri();
+		if (!assetsDir) return false;
+
+		const textureUri = vscode.Uri.joinPath(assetsDir, texturePath);
 		const dir = vscode.Uri.joinPath(textureUri, "..");
 		const baseName = path.basename(texturePath, path.extname(texturePath));
 		const atlasUri = vscode.Uri.joinPath(dir, `${baseName}.atlas`);

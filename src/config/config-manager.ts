@@ -107,6 +107,9 @@ export class ConfigManager {
 			showGrid: partial.showGrid ?? base.showGrid,
 			defaultGridSize: partial.defaultGridSize ?? base.defaultGridSize,
 
+			// 🆕 assetsPath
+			assetsPath: partial.assetsPath ?? base.assetsPath,
+
 			view: { ...base.view, ...(partial.view ?? {}) },
 			gizmo: { ...base.gizmo, ...(partial.gizmo ?? {}) },
 			grid: { ...base.grid, ...(partial.grid ?? {}) },

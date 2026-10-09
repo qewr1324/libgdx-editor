@@ -32,7 +32,6 @@ import {
 	removeReferenceImageFromScene,
 	toggleReferenceImageHiddenInScene,
 	toggleReferenceImageLockInScene,
-	// 🆕 Safe Area
 	addSafeAreaToScene,
 	updateSafeAreaInScene,
 	removeSafeAreaFromScene,
@@ -101,23 +100,23 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const scene = host.getScene();
 			if (!scene) break;
 
-			const uris = await vscode.window.showOpenDialog({
-				canSelectMany: false,
-				filters: { Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] },
-				title: "Select Texture for Sprite",
-			});
-			if (!uris || uris.length === 0) break;
+			// 🆕 چک کن assets تنظیم شده
+			if (!AssetManager.ensureAssetsConfigured()) break;
+
+			// 🆕 فقط از داخل assets انتخاب کن
+			const picked = await AssetManager.pickImageFromAssets();
+			if (!picked) break;
 
 			try {
-				const dims = await AssetManager.getImageDimensions(uris[0]);
-				const relativePath = await AssetManager.importTexture(ctx.document.uri, uris[0]);
+				const dims = await AssetManager.getImageDimensions(picked.uri);
 
 				const newObj = createObjectAt("sprite", msg.x, msg.y);
 				newObj.name = `sprite_${newObj.id.slice(-4)}`;
 				newObj.zIndex = getNextZIndex(scene);
+				newObj.texture = picked.relativePath;
 
 				if (newObj.components) {
-					newObj.components = newObj.components.map((c) => (c.type === "sprite" ? { ...c, texture: relativePath } : c));
+					newObj.components = newObj.components.map((c) => (c.type === "sprite" ? { ...c, texture: picked.relativePath } : c));
 				}
 
 				if (dims) {
@@ -172,30 +171,17 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const scene = host.getScene();
 			if (!scene) break;
 
-			const uris = await vscode.window.showOpenDialog({
-				canSelectMany: false,
-				filters: { Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp"], "Atlas Files": ["atlas"] },
-				title: "Select Atlas Texture",
-			});
-			if (!uris || uris.length === 0) break;
+			// 🆕 چک کن assets تنظیم شده
+			if (!AssetManager.ensureAssetsConfigured()) break;
 
-			let sourceUri = uris[0];
-			const sourceExt = sourceUri.fsPath.toLowerCase();
+			// 🆕 فقط از داخل assets انتخاب کن
+			const picked = await AssetManager.pickImageFromAssets();
+			if (!picked) break;
 
-			if (sourceExt.endsWith(".atlas")) {
-				const pngPath = sourceUri.fsPath.replace(/\.atlas$/i, ".png");
-				const pngUri = vscode.Uri.file(pngPath);
-				try {
-					await vscode.workspace.fs.stat(pngUri);
-					sourceUri = pngUri;
-				} catch {
-					vscode.window.showErrorMessage(`Could not find matching PNG: ${pngPath}`);
-					break;
-				}
-			}
+			const sourceUri = picked.uri;
 
 			try {
-				const { texturePath, atlas } = await AtlasImporter.importAtlas(ctx.document.uri, sourceUri);
+				const { texturePath, atlas } = await AtlasImporter.importAtlas(sourceUri);
 
 				const newObj = createEmptyGameObject(msg.x, msg.y);
 				newObj.name = `atlas_${newObj.id.slice(-4)}`;
@@ -325,18 +311,15 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
 			const texturePathMap = new Map<string, string>();
 
-			if (isCrossScene && sourceUri) {
+			// 🆕 چون assets الان global هست، کپی بین صحنه‌ها لازم نیست
+			// فقط اگه مسیر texture در assets وجود نداشت، warning بده
+			if (isCrossScene) {
 				for (const obj of pasted) {
 					if (obj.components) {
 						for (const comp of obj.components) {
 							const texturePath = (comp as { texture?: string }).texture;
 							if (texturePath && !texturePathMap.has(texturePath)) {
-								try {
-									const newPath = await AssetManager.copyAssetFromScene(sourceUri, ctx.document.uri, texturePath);
-									texturePathMap.set(texturePath, newPath);
-								} catch (err) {
-									log.error(`[message-handler] failed to copy asset "${texturePath}":`, err);
-								}
+								texturePathMap.set(texturePath, texturePath);
 							}
 						}
 					}
@@ -425,6 +408,16 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "updateConfig":
 			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 			break;
+		// 🆕 Asset path
+		case "pickAssetsFolder":
+			await handlePickAssetsFolder(host);
+			break;
+		case "requestSpriteTextureChange":
+			await handleSpriteTextureChange(host, msg.objectId);
+			break;
+		case "requestAtlasTextureChange":
+			await handleAtlasTextureChange(host, msg.objectId);
+			break;
 		case "addComponent":
 			handleAddComponent(host, msg.objectId, msg.componentType);
 			break;
@@ -479,7 +472,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.getHistory().commit(updated, "toggle guide lock");
 			break;
 		}
-		// Reference Image
 		case "openImportReference": {
 			await vscode.commands.executeCommand("libgdx-editor.importReference");
 			break;
@@ -520,7 +512,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			host.getHistory().commit(updated, "toggle reference lock");
 			break;
 		}
-		// 🆕 Safe Area
 		case "addSafeArea": {
 			const current = host.getScene();
 			if (!current) break;
@@ -592,6 +583,152 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			break;
 		}
 	}
+}
+
+// ============================================================
+// 🆕 Asset handlers
+// ============================================================
+
+async function handlePickAssetsFolder(host: SceneHost): Promise<void> {
+	const config = ConfigManager.getInstance();
+	const picked = await AssetManager.pickAssetsFolder();
+	if (!picked) return;
+
+	await config.set("assetsPath", picked);
+
+	// 🆕 همه‌ی texture ها رو دوباره لود کن
+	const document = host.getDocument();
+	const scene = host.getScene();
+	if (scene && document) {
+		const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
+		host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+		const broken = await AssetManager.findBrokenAssets(document.uri, scene);
+		host.postToWebview({ type: "brokenAssets", paths: broken } satisfies ExtensionToWebviewMessage);
+	}
+
+	vscode.window.showInformationMessage(`Assets folder set to: ${picked}`);
+}
+
+async function handleSpriteTextureChange(host: SceneHost, objectId: string): Promise<void> {
+	if (!AssetManager.ensureAssetsConfigured()) return;
+
+	const picked = await AssetManager.pickImageFromAssets();
+	if (!picked) return;
+
+	const scene = host.getScene();
+	if (!scene) return;
+
+	// پیدا کردن آبجکت
+	let target: GameObject | null = null;
+	for (const layer of scene.layers) {
+		const found = layer.objects.find((o) => o.id === objectId);
+		if (found) {
+			target = found;
+			break;
+		}
+	}
+	if (!target) return;
+
+	// 🆕 آپدیت sprite component
+	const newScene = structuredClone(scene) as Scene;
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (!obj) continue;
+
+		obj.texture = picked.relativePath;
+
+		if (obj.components) {
+			obj.components = obj.components.map((c) => (c.type === "sprite" ? { ...c, texture: picked.relativePath } : c));
+		}
+
+		// 🆕 ابعاد رو آپدیت کن
+		const dims = await AssetManager.getImageDimensions(picked.uri);
+		if (dims) {
+			obj.transform.width = dims.width;
+			obj.transform.height = dims.height;
+		}
+
+		break;
+	}
+
+	host.getHistory().commit(newScene, "change sprite texture");
+
+	const document = host.getDocument();
+	const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, newScene);
+	host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+	vscode.window.showInformationMessage(`Texture changed to: ${picked.relativePath}`);
+}
+
+async function handleAtlasTextureChange(host: SceneHost, objectId: string): Promise<void> {
+	if (!AssetManager.ensureAssetsConfigured()) return;
+
+	const picked = await AssetManager.pickImageFromAssets();
+	if (!picked) return;
+
+	const scene = host.getScene();
+	if (!scene) return;
+
+	// پیدا کردن آبجکت
+	let target: GameObject | null = null;
+	for (const layer of scene.layers) {
+		const found = layer.objects.find((o) => o.id === objectId);
+		if (found) {
+			target = found;
+			break;
+		}
+	}
+	if (!target) return;
+
+	// 🆕 atlas رو دوباره parse کن
+	const result = await AtlasImporter.importAtlas(picked.uri);
+
+	const newScene = structuredClone(scene) as Scene;
+	for (const layer of newScene.layers) {
+		const obj = layer.objects.find((o) => o.id === objectId);
+		if (!obj) continue;
+
+		const existingAtlas = (obj.properties?.atlas as Record<string, unknown> | undefined) ?? {};
+		obj.properties.atlas = normalizeAtlasProperties({
+			...existingAtlas,
+			texture: result.texturePath,
+			atlasPath: result.atlas?.atlasPath ?? "",
+			mode: result.atlas && result.atlas.regions.length > 0 ? "single" : "grid",
+			region: result.atlas && result.atlas.regions.length > 0 ? result.atlas.regions[0].name : undefined,
+		} as never);
+
+		// ابعاد
+		if (result.atlas && result.atlas.regions.length > 0) {
+			const r = result.atlas.regions[0];
+			obj.transform.width = r.width;
+			obj.transform.height = r.height;
+		} else {
+			const dims = await AssetManager.getImageDimensions(picked.uri);
+			if (dims) {
+				obj.transform.width = dims.width;
+				obj.transform.height = dims.height;
+			}
+		}
+
+		break;
+	}
+
+	host.getHistory().commit(newScene, "change atlas texture");
+
+	const document = host.getDocument();
+	const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, newScene);
+	host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+	if (result.atlas) {
+		host.postToWebview({
+			type: "atlasRegionsLoaded",
+			texturePath: result.atlas.texturePath,
+			atlasPath: result.atlas.atlasPath,
+			regions: result.atlas.regions.map((r) => ({ name: r.name, x: r.x, y: r.y, width: r.width, height: r.height, rotate: r.rotate, index: r.index })),
+		} satisfies ExtensionToWebviewMessage);
+	}
+
+	vscode.window.showInformationMessage(`Atlas texture changed to: ${picked.relativePath}`);
 }
 
 // ============================================================

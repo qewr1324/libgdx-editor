@@ -16,6 +16,11 @@ export async function addSpriteWithTextureOp(host: SceneHost, texturePath: strin
 	newObj.texture = texturePath;
 	newObj.name = `sprite_${newObj.id.slice(-4)}`;
 
+	// 🆕 sprite component رو هم آپدیت کن
+	if (newObj.components) {
+		newObj.components = newObj.components.map((c) => (c.type === "sprite" ? { ...c, texture: texturePath } : c));
+	}
+
 	if (width && height) {
 		newObj.transform.width = width;
 		newObj.transform.height = height;
@@ -43,15 +48,15 @@ async function doImportTextureOp(host: SceneHost, x: number, y: number, dialogOn
 	const scene = host.getScene();
 	if (!document || !scene) return;
 
-	const uris = await vscode.window.showOpenDialog({
-		canSelectMany: false,
-		filters: { Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"] },
-		title: "Import Texture",
-	});
-	if (!uris || uris.length === 0) return;
+	// 🆕 چک کن assets تنظیم شده
+	if (!AssetManager.ensureAssetsConfigured()) return;
+
+	// 🆕 فقط از داخل assets انتخاب کن
+	const picked = await AssetManager.pickImageFromAssets();
+	if (!picked) return;
 
 	try {
-		const dims = await AssetManager.getImageDimensions(uris[0]);
+		const dims = await AssetManager.getImageDimensions(picked.uri);
 
 		let scale = 1.0;
 		if (!dialogOnly && dims) {
@@ -71,18 +76,21 @@ async function doImportTextureOp(host: SceneHost, x: number, y: number, dialogOn
 			if (Number.isNaN(scale) || scale <= 0) scale = 1.0;
 		}
 
-		const relativePath = await AssetManager.importTexture(document.uri, uris[0]);
-
 		if (dialogOnly) {
-			vscode.window.showInformationMessage(`Texture imported: ${relativePath}${dims ? ` (${dims.width}×${dims.height})` : ""}`);
+			vscode.window.showInformationMessage(`Texture: ${picked.relativePath}${dims ? ` (${dims.width}×${dims.height})` : ""}`);
 			const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
 			host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 			return;
 		}
 
 		const newObj = createObjectAt("sprite", x, y);
-		newObj.texture = relativePath;
+		newObj.texture = picked.relativePath;
 		newObj.name = `sprite_${newObj.id.slice(-4)}`;
+
+		// 🆕 sprite component رو هم آپدیت کن
+		if (newObj.components) {
+			newObj.components = newObj.components.map((c) => (c.type === "sprite" ? { ...c, texture: picked.relativePath } : c));
+		}
 
 		if (dims) {
 			newObj.transform.width = Math.round(dims.width * scale);

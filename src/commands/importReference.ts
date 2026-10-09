@@ -7,13 +7,8 @@ import { addReferenceImageToScene } from "../editor/scene-mutations.js";
 import type { ExtensionToWebviewMessage } from "../protocol/messages.js";
 import { log } from "../shared/logger.js";
 
-/**
- * Command: import یه reference image به‌عنوان background.
- *
- * اگه uriFromContext بده، از همون استفاده می‌کنه.
- * وگرنه فایل picker باز می‌کنه.
- */
 export async function importReferenceCommand(context: vscode.ExtensionContext, uriFromContext?: vscode.Uri): Promise<void> {
+	void context;
 	const host = SceneEditorProvider.getActiveProvider();
 	if (!host) {
 		vscode.window.showWarningMessage("No active LibGDX scene. Open or create a .lgdx.json file first.");
@@ -26,7 +21,9 @@ export async function importReferenceCommand(context: vscode.ExtensionContext, u
 		return;
 	}
 
-	// اگه reference از قبل هست، هشدار بده
+	// 🆕 چک کن assets تنظیم شده
+	if (!AssetManager.ensureAssetsConfigured()) return;
+
 	if (scene.referenceImage) {
 		const choice = await vscode.window.showWarningMessage("Scene already has a reference image. Replace it?", { modal: true }, "Replace", "Cancel");
 		if (choice !== "Replace") return;
@@ -35,18 +32,12 @@ export async function importReferenceCommand(context: vscode.ExtensionContext, u
 	let sourceUri: vscode.Uri | undefined = uriFromContext;
 
 	if (!sourceUri) {
-		const uris = await vscode.window.showOpenDialog({
-			canSelectMany: false,
-			filters: {
-				Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp"],
-			},
-			title: "Select Reference Image",
-		});
-		if (!uris || uris.length === 0) return;
-		sourceUri = uris[0];
+		// 🆕 فقط از داخل assets
+		const picked = await AssetManager.pickImageFromAssets();
+		if (!picked) return;
+		sourceUri = picked.uri;
 	}
 
-	// validation
 	const ext = path.extname(sourceUri.fsPath).toLowerCase();
 	const allowedExts = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"];
 	if (!allowedExts.includes(ext)) {
@@ -55,27 +46,23 @@ export async function importReferenceCommand(context: vscode.ExtensionContext, u
 	}
 
 	try {
-		// ابعاد تصویر
 		const dims = await AssetManager.getImageDimensions(sourceUri);
 
-		// import به assets
-		const relativePath = await AssetManager.importTexture(document.uri, sourceUri);
+		const relativePath = await AssetManager.importTexture(sourceUri);
+		if (!relativePath) return;
 
-		// موقعیت: وسط صحنه
 		const worldW = scene.worldSize.width;
 		const worldH = scene.worldSize.height;
 
 		const imgW = dims?.width ?? worldW;
 		const imgH = dims?.height ?? worldH;
 
-		// موقعیت پیش‌فرض: وسط صحنه
 		const centerX = worldW / 2;
 		const centerY = worldH / 2;
 
 		const updated = addReferenceImageToScene(scene, relativePath, centerX, centerY, imgW, imgH);
 		host.getHistory().commit(updated, "add reference image");
 
-		// لود texture
 		const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, updated);
 		host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 

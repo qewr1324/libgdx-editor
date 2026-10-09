@@ -14,6 +14,9 @@ export interface LibGdxEditorConfigMessage {
 	showGrid: boolean;
 	defaultGridSize: number;
 
+	/** 🆕 مسیر assets */
+	assetsPath: string;
+
 	view: {
 		renderMode: RenderMode;
 		showGrid: boolean;
@@ -49,6 +52,7 @@ export function toConfigMessage(config: LibGdxEditorConfig): LibGdxEditorConfigM
 		showRulers: config.showRulers,
 		showGrid: config.showGrid,
 		defaultGridSize: config.defaultGridSize,
+		assetsPath: config.assetsPath, // 🆕
 		view: { ...config.view },
 		gizmo: { ...config.gizmo },
 		grid: { ...config.grid },
@@ -106,6 +110,10 @@ export type WebviewToExtensionMessage =
 	| { type: "clearGuides" }
 	| { type: "toggleGuidesVisibility" }
 	| { type: "toggleGuideLock"; guideId: string }
+	// 🆕 Asset path selection
+	| { type: "pickAssetsFolder" }
+	| { type: "requestSpriteTextureChange"; objectId: string }
+	| { type: "requestAtlasTextureChange"; objectId: string }
 	// Reference
 	| { type: "openImportReference" }
 	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> }
@@ -113,7 +121,7 @@ export type WebviewToExtensionMessage =
 	| { type: "removeReferenceImage" }
 	| { type: "toggleReferenceHidden" }
 	| { type: "toggleReferenceLock" }
-	// 🆕 Safe Area
+	// Safe Area
 	| { type: "addSafeArea" }
 	| { type: "updateSafeArea"; updates: Partial<SafeArea> }
 	| { type: "removeSafeArea" }
@@ -159,7 +167,11 @@ export type InspectorToExtensionMessage =
 	| { type: "requestConfig" }
 	| { type: "requestAtlasRegions"; texturePath: string }
 	| { type: "updateReferenceImage"; updates: Partial<ReferenceImage> }
-	// 🆕 Safe Area
+	// 🆕 Asset path selection
+	| { type: "pickAssetsFolder" }
+	| { type: "requestSpriteTextureChange"; objectId: string }
+	| { type: "requestAtlasTextureChange"; objectId: string }
+	// Safe Area
 	| { type: "addSafeArea" }
 	| { type: "updateSafeArea"; updates: Partial<SafeArea> }
 	| { type: "removeSafeArea" }

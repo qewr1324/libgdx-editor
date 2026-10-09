@@ -14,6 +14,9 @@ export interface LibGdxEditorConfig {
 	showGrid: boolean;
 	defaultGridSize: number;
 
+	/** 🆕 مسیر پوشه‌ی assets نسبت به workspace (مثلاً "assets/") — خالی یعنی تنظیم نشده */
+	assetsPath: string;
+
 	view: {
 		renderMode: RenderMode;
 		showGrid: boolean;
@@ -40,6 +43,8 @@ export const DEFAULT_CONFIG: LibGdxEditorConfig = {
 	showRulers: true,
 	showGrid: true,
 	defaultGridSize: 32,
+
+	assetsPath: "", // 🆕 خالی = تنظیم نشده (کاربر باید اول تنظیم کنه)
 
 	view: {
 		renderMode: "solid",

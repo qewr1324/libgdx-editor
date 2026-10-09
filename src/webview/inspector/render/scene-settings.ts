@@ -17,6 +17,9 @@ import { app } from "../vscode-api.js";
 export function buildSceneSettingsHtml(scene: Scene): string {
 	const isOverride = scene.themeOverride !== null && scene.themeOverride !== undefined;
 
+	// 🆕 Assets section
+	const assetsSection = buildAssetsSection();
+
 	const themeSection = sectionWrap(
 		"scene-theme",
 		"Theme",
@@ -93,6 +96,7 @@ export function buildSceneSettingsHtml(scene: Scene): string {
 				<div class="inspector-header-title">${escapeHtml(scene.name)}</div>
 				<button class="inspector-header-btn" id="btn-close-scene" title="Close">✖</button>
 			</div>
+			${assetsSection}
 			${themeSection}
 			${worldSection}
 			${appearanceSection}
@@ -100,6 +104,41 @@ export function buildSceneSettingsHtml(scene: Scene): string {
 			${safeAreaSection}
 		</div>
 	`;
+}
+
+// ============================================================
+// 🆕 Assets Section
+// ============================================================
+
+function buildAssetsSection(): string {
+	const assetsPath = currentConfig?.assetsPath ?? "";
+	const hasPath = assetsPath.trim().length > 0;
+
+	return sectionWrap(
+		"scene-assets",
+		"📁 Assets Folder",
+		`
+			<div class="inspector-field wide">
+				<label class="inspector-field-label">Path (relative to workspace)</label>
+				<div class="inspector-asset-row">
+					<input
+						type="text"
+						data-assets-path
+						value="${escapeAttr(assetsPath)}"
+						placeholder="e.g. assets/"
+						readonly
+					/>
+					<button class="inspector-asset-btn" data-assets-action="pick" title="Choose folder">
+						📂 Browse
+					</button>
+				</div>
+			</div>
+			${hasPath ? `<div class="inspector-hint">✔ Using: <code>${escapeHtml(assetsPath)}</code></div>` : `<div class="inspector-hint" style="color:#ffaa44;">⚠ No assets folder set. All import operations will require you to set it first.</div>`}
+			<div class="inspector-hint">
+				All images must be placed inside this folder. Import dialogs will only browse this location.
+			</div>
+		`,
+	);
 }
 
 // ============================================================
@@ -176,7 +215,17 @@ export function updateSceneFieldValues(scene: Scene): void {
 	setSceneFieldValue("gridSize", scene.gridSize, "number");
 	setSceneFieldValue("snapToGrid", scene.snapToGrid, "checkbox");
 
+	// 🆕 assets path
+	setAssetsPathValue(currentConfig?.assetsPath ?? "");
+
 	updateSafeAreaFieldValues(scene);
+}
+
+function setAssetsPathValue(value: string): void {
+	const el = app.querySelector<HTMLInputElement>("[data-assets-path]");
+	if (el && document.activeElement !== el && el.value !== value) {
+		el.value = value;
+	}
 }
 
 function updateSafeAreaFieldValues(scene: Scene): void {
@@ -304,13 +353,22 @@ export function attachSceneListeners(): void {
 		}
 	}
 
+	// 🆕 Assets listeners
+	attachAssetsListeners();
+
 	attachSafeAreaListeners();
 
 	attachDragHandles("scene");
 }
 
+function attachAssetsListeners(): void {
+	const pickBtn = app.querySelector<HTMLButtonElement>('[data-assets-action="pick"]');
+	pickBtn?.addEventListener("click", () => {
+		vscode.postMessage({ type: "pickAssetsFolder" });
+	});
+}
+
 function attachSafeAreaListeners(): void {
-	// buttons
 	const buttons = app.querySelectorAll<HTMLButtonElement>("[data-safe-area-action]");
 	for (const btn of buttons) {
 		btn.addEventListener("click", () => {
@@ -321,7 +379,6 @@ function attachSafeAreaListeners(): void {
 			} else if (action === "remove") {
 				vscode.postMessage({ type: "removeSafeArea" });
 			} else if (action === "reset-size") {
-				// 🆕 از currentScene استفاده کن (که import شده)
 				const scene = currentScene;
 				if (scene) {
 					vscode.postMessage({
@@ -338,7 +395,6 @@ function attachSafeAreaListeners(): void {
 		});
 	}
 
-	// fields
 	const fields = app.querySelectorAll<HTMLInputElement>("[data-safe-area-field], [data-field^='safe-area-']");
 	for (const input of fields) {
 		const fieldName = input.dataset.safeAreaField ?? input.dataset.field;
@@ -376,7 +432,6 @@ function attachSafeAreaListeners(): void {
 }
 
 function sendSafeAreaUpdate(fieldName: string, value: unknown): void {
-	// نگاشت فیلدهای خاص
 	let key = fieldName;
 	if (fieldName === "safe-area-x") key = "x";
 	else if (fieldName === "safe-area-y") key = "y";

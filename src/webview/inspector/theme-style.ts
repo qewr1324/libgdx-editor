@@ -215,7 +215,6 @@ export function buildInspectorCss(theme: Theme): string {
 			border: ${theme.isClassic ? `2px solid; border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : `1px solid ${theme.scrollThumbBorder}; border-radius: 5px;`};
 		}
 
-				/* ============ Read-only component fields ============ */
 		.inspector-readonly-field {
 			display: flex;
 			align-items: center;
@@ -274,7 +273,7 @@ export function buildInspectorCss(theme: Theme): string {
 			flex-shrink: 0;
 		}
 
-				.inspector-section-remove:hover {
+		.inspector-section-remove:hover {
 			opacity: 1;
 			background: rgba(255, 74, 74, 0.2);
 			color: #ff4a4a;
@@ -296,6 +295,7 @@ export function buildInspectorCss(theme: Theme): string {
 			justify-content: flex-end;
 			margin-top: 8px;
 			gap: 6px;
+			flex-wrap: wrap;
 		}
 
 		.inspector-atlas-btn {
@@ -329,6 +329,55 @@ export function buildInspectorCss(theme: Theme): string {
 
 		.inspector-atlas-btn.danger:hover {
 			background: rgba(255, 74, 74, 0.15);
+		}
+
+		/* 🆕 Assets section */
+		.inspector-asset-row {
+			display: flex;
+			gap: 4px;
+			align-items: stretch;
+		}
+
+		.inspector-asset-row input[data-assets-path] {
+			flex: 1;
+			min-width: 0;
+			background: ${theme.inputBg};
+			color: ${theme.inputFg};
+			border: 1px solid ${theme.inputBorder};
+			border-radius: ${theme.inputRadius};
+			padding: 3px 6px;
+			font-family: monospace;
+			font-size: 10px;
+			outline: none;
+		}
+
+		.inspector-asset-btn {
+			display: inline-flex;
+			align-items: center;
+			justify-content: center;
+			gap: 4px;
+			padding: 4px 10px;
+			background: ${theme.btnBg};
+			color: ${theme.btnFg};
+			border: ${theme.isClassic ? "2px" : "1px"} solid ${theme.btnBorder};
+			${theme.isClassic ? `border-color: ${theme.borderLight} ${theme.borderDark} ${theme.borderDark} ${theme.borderLight};` : ""}
+			border-radius: ${theme.btnRadius};
+			cursor: pointer;
+			font-family: inherit;
+			font-size: 11px;
+			flex-shrink: 0;
+		}
+
+		.inspector-asset-btn:hover {
+			background: ${theme.btnHoverBg};
+		}
+
+		.inspector-hint code {
+			background: ${theme.isClassic ? "#fff" : "rgba(0,0,0,0.3)"};
+			padding: 1px 4px;
+			border-radius: 2px;
+			font-family: monospace;
+			font-size: 10px;
 		}
 
 		.inspector-frames-textarea {

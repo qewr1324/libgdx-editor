@@ -9,13 +9,8 @@ import { AtlasImporter } from "../features/texture-atlas/atlas-importer.js";
 import type { ExtensionToWebviewMessage } from "../protocol/messages.js";
 import { log } from "../shared/logger.js";
 
-/**
- * Command: import یه atlas (PNG [+ .atlas کنارش]) و ساخت آبجکت Atlas.
- *
- * اگه uriFromContext بده، از همون استفاده می‌کنه.
- * وگرنه فایل picker باز می‌کنه.
- */
 export async function importAtlasCommand(context: vscode.ExtensionContext, uriFromContext?: vscode.Uri): Promise<void> {
+	void context;
 	const host = SceneEditorProvider.getActiveProvider();
 	if (!host) {
 		vscode.window.showWarningMessage("No active LibGDX scene. Open or create a .lgdx.json file first.");
@@ -28,25 +23,21 @@ export async function importAtlasCommand(context: vscode.ExtensionContext, uriFr
 		return;
 	}
 
+	// 🆕 چک کن assets تنظیم شده
+	if (!AssetManager.ensureAssetsConfigured()) return;
+
 	let sourceUri: vscode.Uri | undefined = uriFromContext;
 
 	if (!sourceUri) {
-		const uris = await vscode.window.showOpenDialog({
-			canSelectMany: false,
-			filters: {
-				Images: ["png", "jpg", "jpeg", "gif", "webp", "bmp"],
-				"Atlas Files": ["atlas"],
-			},
-			title: "Select Atlas Texture",
-		});
-		if (!uris || uris.length === 0) return;
-		sourceUri = uris[0];
+		// 🆕 فقط از داخل assets
+		const picked = await AssetManager.pickImageFromAssets();
+		if (!picked) return;
+		sourceUri = picked.uri;
 	}
 
-	// ---------- validation ----------
+	// validation
 	const ext = path.extname(sourceUri.fsPath).toLowerCase();
 
-	// اگه کاربر خود .atlas انتخاب کرده، بذار کنارش .png رو پیدا کنیم
 	if (ext === ".atlas") {
 		const png = sourceUri.fsPath.replace(/\.atlas$/i, ".png");
 		const pngUri = vscode.Uri.file(png);
@@ -67,12 +58,10 @@ export async function importAtlasCommand(context: vscode.ExtensionContext, uriFr
 	}
 
 	try {
-		// ---------- import texture + atlas ----------
-		const { texturePath, atlas } = await AtlasImporter.importAtlas(document.uri, sourceUri);
+		const { texturePath, atlas } = await AtlasImporter.importAtlas(sourceUri);
 
-		const dims = await AssetManager.getImageDimensions(vscode.Uri.joinPath(document.uri, "..", texturePath));
+		const dims = await AssetManager.getImageDimensions(sourceUri);
 
-		// ---------- pick default region ----------
 		const defaultProps: Partial<AtlasProperties> = {
 			texture: texturePath,
 			atlasPath: atlas?.atlasPath ?? "",
@@ -89,7 +78,6 @@ export async function importAtlasCommand(context: vscode.ExtensionContext, uriFr
 
 		const atlasProps = normalizeAtlasProperties(defaultProps);
 
-		// ---------- create object ----------
 		const defaultX = Math.round(scene.worldSize.width / 2);
 		const defaultY = Math.round(scene.worldSize.height / 2);
 
@@ -97,7 +85,6 @@ export async function importAtlasCommand(context: vscode.ExtensionContext, uriFr
 		newObj.name = `atlas_${newObj.id.slice(-4)}`;
 		newObj.zIndex = getNextZIndex(scene);
 
-		// ابعاد: از region اول یا از تصویر
 		if (atlas && atlas.regions.length > 0) {
 			const r = atlas.regions[0];
 			newObj.transform.width = r.width;
@@ -112,11 +99,9 @@ export async function importAtlasCommand(context: vscode.ExtensionContext, uriFr
 		const updated = addObjectToScene(scene, newObj);
 		host.getHistory().commit(updated, "add atlas");
 
-		// ---------- load textures to webview ----------
 		const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, updated);
 		host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
-		// ---------- atlas regions (اگه داشت) ----------
 		if (atlas) {
 			host.postToWebview({
 				type: "atlasRegionsLoaded",
@@ -134,7 +119,6 @@ export async function importAtlasCommand(context: vscode.ExtensionContext, uriFr
 			} satisfies ExtensionToWebviewMessage);
 		}
 
-		// ---------- select آبجکت جدید ----------
 		setTimeout(() => {
 			host.postToWebview({ type: "selectObjects", objectIds: [newObj.id] } satisfies ExtensionToWebviewMessage);
 		}, 100);

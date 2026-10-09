@@ -46,12 +46,10 @@ export async function generateCodeCommand(): Promise<void> {
 		value: "com.example.scenes",
 	});
 
-	// ---------- چک کردن feature ها ----------
 	const hasAnimation = scene.layers.some((layer) => layer.objects.some((obj) => !!findComponent(obj.components, "animation")));
 	const hasShape = scene.layers.some((layer) => layer.objects.some((obj) => !!findComponent(obj.components, "shape")));
 	const hasText = scene.layers.some((layer) => layer.objects.some((obj) => !!findComponent(obj.components, "text")));
 
-	// ---------- helper options ----------
 	let includeAnimatedActorHelper = false;
 	let includeShapeActorsHelper = false;
 	let includeLabelActorHelper = false;
@@ -100,10 +98,8 @@ export async function generateCodeCommand(): Promise<void> {
 		helperPackageName: packageName?.trim() || undefined,
 	});
 
-	// فایل اصلی
 	await vscode.workspace.fs.writeFile(saveUri, new TextEncoder().encode(result.main));
 
-	// فایل‌های کمکی
 	const helperUris: vscode.Uri[] = [];
 	for (const helper of result.helpers) {
 		const helperUri = vscode.Uri.joinPath(saveUri, "..", helper.fileName);
@@ -111,11 +107,9 @@ export async function generateCodeCommand(): Promise<void> {
 		helperUris.push(helperUri);
 	}
 
-	// فایل اصلی رو باز کن
 	const doc = await vscode.workspace.openTextDocument(saveUri);
 	await vscode.window.showTextDocument(doc);
 
-	// پیام موفقیت
 	if (helperUris.length > 0) {
 		const names = helperUris.map((u) => path.basename(u.fsPath)).join(", ");
 		vscode.window.showInformationMessage(`Generated ${path.basename(saveUri.fsPath)} + ${names}`);

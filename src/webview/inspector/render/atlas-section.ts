@@ -61,6 +61,9 @@ export function buildAtlasSection(props: AtlasProperties, obj: GameObject, ctx: 
 			${buildPreviewHtml(props, ctx, frameCount)}
 
 			<div class="inspector-atlas-footer" data-atlas-footer>
+				<button class="inspector-atlas-btn" data-atlas-action="change-texture" data-object-id="${escapeAttr(obj.id)}" title="Change atlas texture">
+					🖼️ Change Texture…
+				</button>
 				<button class="inspector-atlas-btn danger" data-atlas-action="remove" title="Remove atlas settings">
 					🗑️ Remove Atlas
 				</button>

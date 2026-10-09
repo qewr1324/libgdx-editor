@@ -96,7 +96,6 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					}
 					break;
 
-				// 🆕 Atlas properties update
 				case "updateAtlasProperties": {
 					if (!this.boundHost) break;
 					const scene = this.boundHost.getScene();
@@ -181,6 +180,25 @@ export class InspectorProvider implements vscode.WebviewViewProvider {
 					} satisfies ExtensionToInspectorMessage);
 					break;
 				}
+
+				// 🆕 Asset path
+				case "pickAssetsFolder":
+					if (this.boundHost) {
+						await vscode.commands.executeCommand("libgdx-editor.pickAssetsFolder");
+					}
+					break;
+
+				case "requestSpriteTextureChange":
+					if (this.boundHost) {
+						await vscode.commands.executeCommand("libgdx-editor.changeSpriteTexture", msg.objectId);
+					}
+					break;
+
+				case "requestAtlasTextureChange":
+					if (this.boundHost) {
+						await vscode.commands.executeCommand("libgdx-editor.changeAtlasTexture", msg.objectId);
+					}
+					break;
 
 				case "requestAtlasRegions": {
 					if (!this.boundHost) break;

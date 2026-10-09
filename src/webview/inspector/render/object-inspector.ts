@@ -43,6 +43,7 @@ export function buildInspectorHtml(obj: GameObject): string {
 		`,
 	);
 
+	// 🆕 Atlas section
 	const atlasProps = getAtlasProperties(obj);
 	let atlasSection = "";
 	if (atlasProps) {
@@ -143,7 +144,7 @@ function buildVisualComponentsSections(obj: GameObject): string {
 		.map((comp) => {
 			const icon = COMPONENT_ICONS[comp.type];
 			const label = COMPONENT_LABELS[comp.type];
-			const body = buildVisualComponentBody(comp);
+			const body = buildVisualComponentBody(comp, obj);
 
 			return `
 			<div class="inspector-section" data-section-id="vc-${comp.id}">
@@ -165,7 +166,7 @@ function isVisualComp(c: Component): boolean {
 	return c.type === "sprite" || c.type === "animation" || c.type === "shape" || c.type === "text";
 }
 
-function buildVisualComponentBody(comp: Component): string {
+function buildVisualComponentBody(comp: Component, obj: GameObject): string {
 	switch (comp.type) {
 		case "sprite":
 			return `
@@ -176,6 +177,11 @@ function buildVisualComponentBody(comp: Component): string {
 				<div class="inspector-readonly-field">
 					<span class="inspector-readonly-label">Tint</span>
 					<span class="inspector-readonly-value">${escapeHtml(comp.tint ?? "#ffffff")}</span>
+				</div>
+				<div style="margin-top:6px;">
+					<button class="inspector-atlas-btn" data-change-texture="sprite" data-object-id="${escapeAttr(obj.id)}" style="width:100%;justify-content:center;">
+						🖼️ Change Texture…
+					</button>
 				</div>
 			`;
 
@@ -400,6 +406,22 @@ export function attachObjectListeners(): void {
 
 	attachAtlasListeners();
 
+	// 🆕 Change Texture button (sprite)
+	const changeSpriteBtn = app.querySelector<HTMLButtonElement>('[data-change-texture="sprite"]');
+	changeSpriteBtn?.addEventListener("click", () => {
+		const objectId = changeSpriteBtn.dataset.objectId;
+		if (!objectId) return;
+		vscode.postMessage({ type: "requestSpriteTextureChange", objectId });
+	});
+
+	// 🆕 Change Texture button (atlas)
+	const changeAtlasBtn = app.querySelector<HTMLButtonElement>('[data-change-texture="atlas"]');
+	changeAtlasBtn?.addEventListener("click", () => {
+		const objectId = changeAtlasBtn.dataset.objectId;
+		if (!objectId) return;
+		vscode.postMessage({ type: "requestAtlasTextureChange", objectId });
+	});
+
 	const layerSelect = app.querySelector<HTMLSelectElement>("[data-layer-select]");
 	layerSelect?.addEventListener("change", () => {
 		if (!currentObject) return;
@@ -449,7 +471,7 @@ export function attachObjectListeners(): void {
 }
 
 // ============================================================
-// Atlas listeners (بدون sequence)
+// Atlas listeners
 // ============================================================
 
 function attachAtlasListeners(): void {
@@ -518,6 +540,16 @@ function attachAtlasListeners(): void {
 			properties: null,
 		});
 	});
+
+	// 🆕 Change Atlas Texture button (داخل atlas section)
+	const changeAtlasBtn = app.querySelector<HTMLButtonElement>('[data-atlas-action="change-texture"]');
+	changeAtlasBtn?.addEventListener("click", () => {
+		if (!currentObject) return;
+		vscode.postMessage({
+			type: "requestAtlasTextureChange",
+			objectId: currentObject.id,
+		});
+	});
 }
 
 function sendAtlasUpdate(partial: Partial<AtlasProperties>): void {
@@ -526,7 +558,6 @@ function sendAtlasUpdate(partial: Partial<AtlasProperties>): void {
 	const existing = getAtlasProperties(currentObject) ?? normalizeAtlasProperties({});
 	const merged = normalizeAtlasProperties({ ...existing, ...partial });
 
-	// mode change → مقادیر mode قدیمی رو حذف کن
 	if (partial.mode && partial.mode !== existing.mode) {
 		if (merged.mode !== "single") merged.region = undefined;
 		if (merged.mode !== "grid") {
