@@ -29,8 +29,8 @@ export async function importAtlasCommand(context: vscode.ExtensionContext, uriFr
 	let sourceUri: vscode.Uri | undefined = uriFromContext;
 
 	if (!sourceUri) {
-		// 🆕 فقط از داخل assets
-		const picked = await AssetManager.pickImageFromAssets();
+		// 🆕 فقط از داخل assets — نسبت به پوشه‌ی صحنه
+		const picked = await AssetManager.pickImageFromAssets(document.uri);
 		if (!picked) return;
 		sourceUri = picked.uri;
 	}
@@ -58,7 +58,8 @@ export async function importAtlasCommand(context: vscode.ExtensionContext, uriFr
 	}
 
 	try {
-		const { texturePath, atlas } = await AtlasImporter.importAtlas(sourceUri);
+		// 🆕 sceneUri پاس بده
+		const { texturePath, atlas } = await AtlasImporter.importAtlas(sourceUri, document.uri);
 
 		const dims = await AssetManager.getImageDimensions(sourceUri);
 

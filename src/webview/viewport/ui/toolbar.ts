@@ -492,9 +492,22 @@ function setGridSize(size: number): void {
 	showInfo(`Grid: ${size}px`);
 }
 
+/**
+ * 🆕 ذخیره‌ی امن:
+ * اول interaction جاری رو finish می‌کنه تا آخرین تغییرات به extension بره،
+ * بعد پیام save رو می‌فرسته.
+ */
 function saveScene(): void {
-	vscode.postMessage({ type: "save" });
-	showInfo("Saved ✓");
+	// 🆕 اول interaction جاری رو finish کن
+	void import("../interaction/global.js").then((m) => {
+		m.finishInteractionSafely();
+
+		// 🆕 بعد از یک tick صبر کن تا updateObjects به extension برسه
+		setTimeout(() => {
+			vscode.postMessage({ type: "save" });
+			showInfo("Saved ✓");
+		}, 80);
+	});
 }
 
 function updateConfigPartial(partial: Record<string, unknown>): void {

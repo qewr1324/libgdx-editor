@@ -24,8 +24,8 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 	let sourceUri: vscode.Uri | undefined = uriFromContext;
 
 	if (!sourceUri) {
-		// 🆕 اگه uri از context نیومده، از داخل assets انتخاب کن
-		const picked = await AssetManager.pickImageFromAssets();
+		// 🆕 فقط از داخل assets — نسبت به پوشه‌ی صحنه
+		const picked = await AssetManager.pickImageFromAssets(document.uri);
 		if (!picked) return;
 		sourceUri = picked.uri;
 	}
@@ -58,7 +58,7 @@ export async function importTextureCommand(context: vscode.ExtensionContext, uri
 			if (Number.isNaN(scale) || scale <= 0) scale = 1.0;
 		}
 
-		const relativePath = await AssetManager.importTexture(sourceUri);
+		const relativePath = await AssetManager.importTexture(sourceUri, document.uri);
 		if (!relativePath) return;
 
 		const added = await addSpriteWithTextureOp(host, relativePath, dims ? Math.round(dims.width * scale) : undefined, dims ? Math.round(dims.height * scale) : undefined);

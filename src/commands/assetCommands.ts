@@ -6,20 +6,22 @@ import { ConfigManager } from "../config/config-manager.js";
 import { AtlasImporter } from "../features/texture-atlas/atlas-importer.js";
 import { normalizeAtlasProperties } from "../features/texture-atlas/atlas-properties.js";
 import type { ExtensionToWebviewMessage } from "../protocol/messages.js";
-import type { GameObject, Scene } from "../types/scene.js";
-import { log } from "../shared/logger.js";
+import type { Scene } from "../types/scene.js";
 
 /**
  * 🆕 انتخاب پوشه‌ی assets توسط کاربر.
+ * نسبت به پوشه‌ی صحنه‌ی فعلی محاسبه می‌شه.
  */
 export async function pickAssetsFolderCommand(): Promise<void> {
-	const config = ConfigManager.getInstance();
-	const picked = await AssetManager.pickAssetsFolder();
+	const host = SceneEditorProvider.getActiveProvider();
+	const sceneUri = host?.getDocument()?.uri;
+
+	const picked = await AssetManager.pickAssetsFolder(sceneUri);
 	if (!picked) return;
 
+	const config = ConfigManager.getInstance();
 	await config.set("assetsPath", picked);
 
-	const host = SceneEditorProvider.getActiveProvider();
 	if (host) {
 		const document = host.getDocument();
 		const scene = host.getScene();
@@ -43,7 +45,8 @@ export async function changeSpriteTextureCommand(objectId: string): Promise<void
 
 	if (!AssetManager.ensureAssetsConfigured()) return;
 
-	const picked = await AssetManager.pickImageFromAssets();
+	const document = host.getDocument();
+	const picked = await AssetManager.pickImageFromAssets(document.uri);
 	if (!picked) return;
 
 	const scene = host.getScene();
@@ -79,7 +82,7 @@ export async function changeSpriteTextureCommand(objectId: string): Promise<void
 
 	host.getHistory().commit(newScene, "change sprite texture");
 
-	const textures = await AssetManager.loadTexturesAsDataUrls(host.getDocument().uri, newScene);
+	const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, newScene);
 	host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
 	vscode.window.showInformationMessage(`Texture changed to: ${picked.relativePath}`);
@@ -94,13 +97,14 @@ export async function changeAtlasTextureCommand(objectId: string): Promise<void>
 
 	if (!AssetManager.ensureAssetsConfigured()) return;
 
-	const picked = await AssetManager.pickImageFromAssets();
+	const document = host.getDocument();
+	const picked = await AssetManager.pickImageFromAssets(document.uri);
 	if (!picked) return;
 
 	const scene = host.getScene();
 	if (!scene) return;
 
-	const result = await AtlasImporter.importAtlas(picked.uri);
+	const result = await AtlasImporter.importAtlas(picked.uri, document.uri);
 
 	const newScene = structuredClone(scene) as Scene;
 	let found = false;
@@ -141,7 +145,7 @@ export async function changeAtlasTextureCommand(objectId: string): Promise<void>
 
 	host.getHistory().commit(newScene, "change atlas texture");
 
-	const textures = await AssetManager.loadTexturesAsDataUrls(host.getDocument().uri, newScene);
+	const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, newScene);
 	host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
 	if (result.atlas) {

@@ -77,7 +77,7 @@ class DocumentHost implements SceneHost {
 			return;
 		}
 
-		this.markProgrammaticChange(300);
+		this.markProgrammaticChange(2000);
 		try {
 			await writeDocument(this.document, this.scene);
 			await saveDocument(this.document);
@@ -205,7 +205,7 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			getIsProgrammaticChange: () => host.isProgrammaticChange(),
 			setProgrammaticChange: (value: boolean) => {
 				if (value) {
-					host.markProgrammaticChange(300);
+					host.markProgrammaticChange(2000);
 				} else {
 					host.programmaticChangeUntil = 0;
 				}
@@ -237,12 +237,10 @@ export class SceneEditorProvider implements vscode.CustomTextEditorProvider {
 			host.webviews.delete(webviewPanel.webview);
 
 			if (host.webviews.size === 0) {
-				// 🆕 قبل از پاک کردن timer، تغییرات ذخیره‌نشده رو flush کن
 				if (host.autoSaveTimer) {
 					clearTimeout(host.autoSaveTimer);
 					host.autoSaveTimer = null;
 				}
-				// 🆕 flush تغییرات ذخیره‌نشده
 				if (host.isDirty && host.scene) {
 					void (async () => {
 						try {

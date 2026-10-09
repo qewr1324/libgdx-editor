@@ -14,6 +14,8 @@ import { ConfigManager } from "./config/config-manager.js";
 import { SceneRegistry } from "./editor/scene-registry.js";
 import { updateObjectOp, deleteObjectOp, focusObjectOp, updateSceneFieldOp } from "./editor/scene-ops.js";
 import { setObjectZIndexInScene, bringForwardInScene, sendBackwardInScene, bringToFrontInScene, sendToBackInScene } from "./editor/scene-mutations.js";
+import { AssetManager } from "./editor/assetManager.js";
+import type { ExtensionToWebviewMessage } from "./protocol/messages.js";
 import { setDebugEnabled, log } from "./shared/logger.js";
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -78,11 +80,16 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 	);
 
+	// 🆕 Config change → broadcast + reload textures
 	context.subscriptions.push(
 		configManager.onChange((config) => {
 			SceneEditorProvider.broadcastConfigChange(config);
 			inspector.broadcastConfigChange(config);
 			components.broadcastConfigChange(config);
+
+			// 🆕 اگه assetsPath عوض شد، texture ها رو دوباره لود کن
+			// (چون texture cache توی webview هنوز از مسیر قبلی پر شده)
+			void reloadAllTextures();
 		}),
 	);
 
@@ -140,11 +147,39 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand("libgdx-editor.importReference", (uri?: vscode.Uri) => importReferenceCommand(context, uri)),
 		vscode.commands.registerCommand("libgdx-editor.cleanupAssets", () => cleanupAssetsCommand()),
 		vscode.commands.registerCommand("libgdx-editor.generateCode", () => generateCodeCommand()),
-		// 🆕 Asset path commands
 		vscode.commands.registerCommand("libgdx-editor.pickAssetsFolder", () => pickAssetsFolderCommand()),
 		vscode.commands.registerCommand("libgdx-editor.changeSpriteTexture", (objectId: string) => changeSpriteTextureCommand(objectId)),
 		vscode.commands.registerCommand("libgdx-editor.changeAtlasTexture", (objectId: string) => changeAtlasTextureCommand(objectId)),
 	);
+}
+
+/**
+ * 🆕 همه‌ی scene های باز رو reload کن و texture ها رو دوباره بفرست.
+ * برای وقتی که assetsPath عوض می‌شه.
+ */
+async function reloadAllTextures(): Promise<void> {
+	const instances = SceneRegistry.getInstances();
+	for (const host of instances) {
+		try {
+			const document = host.getDocument();
+			const scene = host.getScene();
+			if (!scene || !document) continue;
+
+			// texture ها رو دوباره load کن
+			const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
+
+			// 🆕 پیام texturesLoaded رو بفرست (که توی webview cache رو پر می‌کنه)
+			host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+
+			// broken assets هم آپدیت کن
+			const broken = await AssetManager.findBrokenAssets(document.uri, scene);
+			host.postToWebview({ type: "brokenAssets", paths: broken } satisfies ExtensionToWebviewMessage);
+
+			log.debug(`[extension] reloaded ${Object.keys(textures).length} textures for ${document.uri.fsPath}`);
+		} catch (err) {
+			log.warn("[extension] reloadAllTextures failed:", err);
+		}
+	}
 }
 
 export function deactivate() {}

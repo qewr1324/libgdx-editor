@@ -99,12 +99,9 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "requestAddSprite": {
 			const scene = host.getScene();
 			if (!scene) break;
-
-			// 🆕 چک کن assets تنظیم شده
 			if (!AssetManager.ensureAssetsConfigured()) break;
 
-			// 🆕 فقط از داخل assets انتخاب کن
-			const picked = await AssetManager.pickImageFromAssets();
+			const picked = await AssetManager.pickImageFromAssets(ctx.document.uri);
 			if (!picked) break;
 
 			try {
@@ -170,18 +167,15 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "requestAddAtlas": {
 			const scene = host.getScene();
 			if (!scene) break;
-
-			// 🆕 چک کن assets تنظیم شده
 			if (!AssetManager.ensureAssetsConfigured()) break;
 
-			// 🆕 فقط از داخل assets انتخاب کن
-			const picked = await AssetManager.pickImageFromAssets();
+			const picked = await AssetManager.pickImageFromAssets(ctx.document.uri);
 			if (!picked) break;
 
 			const sourceUri = picked.uri;
 
 			try {
-				const { texturePath, atlas } = await AtlasImporter.importAtlas(sourceUri);
+				const { texturePath, atlas } = await AtlasImporter.importAtlas(sourceUri, ctx.document.uri);
 
 				const newObj = createEmptyGameObject(msg.x, msg.y);
 				newObj.name = `atlas_${newObj.id.slice(-4)}`;
@@ -311,8 +305,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 			const pasted = msg.pasteInPlace ? ClipboardStore.getPasteInPlace() : ClipboardStore.getNextPaste();
 			const texturePathMap = new Map<string, string>();
 
-			// 🆕 چون assets الان global هست، کپی بین صحنه‌ها لازم نیست
-			// فقط اگه مسیر texture در assets وجود نداشت، warning بده
 			if (isCrossScene) {
 				for (const obj of pasted) {
 					if (obj.components) {
@@ -408,7 +400,6 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 		case "updateConfig":
 			await config.set(msg.key as keyof LibGdxEditorConfig, msg.value as never);
 			break;
-		// 🆕 Asset path
 		case "pickAssetsFolder":
 			await handlePickAssetsFolder(host);
 			break;
@@ -586,20 +577,19 @@ export async function handleWebviewMessage(msg: WebviewToExtensionMessage, ctx: 
 }
 
 // ============================================================
-// 🆕 Asset handlers
+// Asset handlers
 // ============================================================
 
 async function handlePickAssetsFolder(host: SceneHost): Promise<void> {
-	const config = ConfigManager.getInstance();
-	const picked = await AssetManager.pickAssetsFolder();
+	const document = host.getDocument();
+	const picked = await AssetManager.pickAssetsFolder(document.uri);
 	if (!picked) return;
 
+	const config = ConfigManager.getInstance();
 	await config.set("assetsPath", picked);
 
-	// 🆕 همه‌ی texture ها رو دوباره لود کن
-	const document = host.getDocument();
 	const scene = host.getScene();
-	if (scene && document) {
+	if (scene) {
 		const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, scene);
 		host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 		const broken = await AssetManager.findBrokenAssets(document.uri, scene);
@@ -612,25 +602,16 @@ async function handlePickAssetsFolder(host: SceneHost): Promise<void> {
 async function handleSpriteTextureChange(host: SceneHost, objectId: string): Promise<void> {
 	if (!AssetManager.ensureAssetsConfigured()) return;
 
-	const picked = await AssetManager.pickImageFromAssets();
+	const document = host.getDocument();
+	const picked = await AssetManager.pickImageFromAssets(document.uri);
 	if (!picked) return;
 
 	const scene = host.getScene();
 	if (!scene) return;
 
-	// پیدا کردن آبجکت
-	let target: GameObject | null = null;
-	for (const layer of scene.layers) {
-		const found = layer.objects.find((o) => o.id === objectId);
-		if (found) {
-			target = found;
-			break;
-		}
-	}
-	if (!target) return;
-
-	// 🆕 آپدیت sprite component
 	const newScene = structuredClone(scene) as Scene;
+	let found = false;
+
 	for (const layer of newScene.layers) {
 		const obj = layer.objects.find((o) => o.id === objectId);
 		if (!obj) continue;
@@ -641,19 +622,23 @@ async function handleSpriteTextureChange(host: SceneHost, objectId: string): Pro
 			obj.components = obj.components.map((c) => (c.type === "sprite" ? { ...c, texture: picked.relativePath } : c));
 		}
 
-		// 🆕 ابعاد رو آپدیت کن
 		const dims = await AssetManager.getImageDimensions(picked.uri);
 		if (dims) {
 			obj.transform.width = dims.width;
 			obj.transform.height = dims.height;
 		}
 
+		found = true;
 		break;
+	}
+
+	if (!found) {
+		vscode.window.showWarningMessage("Object not found.");
+		return;
 	}
 
 	host.getHistory().commit(newScene, "change sprite texture");
 
-	const document = host.getDocument();
 	const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, newScene);
 	host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
@@ -663,27 +648,18 @@ async function handleSpriteTextureChange(host: SceneHost, objectId: string): Pro
 async function handleAtlasTextureChange(host: SceneHost, objectId: string): Promise<void> {
 	if (!AssetManager.ensureAssetsConfigured()) return;
 
-	const picked = await AssetManager.pickImageFromAssets();
+	const document = host.getDocument();
+	const picked = await AssetManager.pickImageFromAssets(document.uri);
 	if (!picked) return;
 
 	const scene = host.getScene();
 	if (!scene) return;
 
-	// پیدا کردن آبجکت
-	let target: GameObject | null = null;
-	for (const layer of scene.layers) {
-		const found = layer.objects.find((o) => o.id === objectId);
-		if (found) {
-			target = found;
-			break;
-		}
-	}
-	if (!target) return;
-
-	// 🆕 atlas رو دوباره parse کن
-	const result = await AtlasImporter.importAtlas(picked.uri);
+	const result = await AtlasImporter.importAtlas(picked.uri, document.uri);
 
 	const newScene = structuredClone(scene) as Scene;
+	let found = false;
+
 	for (const layer of newScene.layers) {
 		const obj = layer.objects.find((o) => o.id === objectId);
 		if (!obj) continue;
@@ -697,7 +673,6 @@ async function handleAtlasTextureChange(host: SceneHost, objectId: string): Prom
 			region: result.atlas && result.atlas.regions.length > 0 ? result.atlas.regions[0].name : undefined,
 		} as never);
 
-		// ابعاد
 		if (result.atlas && result.atlas.regions.length > 0) {
 			const r = result.atlas.regions[0];
 			obj.transform.width = r.width;
@@ -710,12 +685,17 @@ async function handleAtlasTextureChange(host: SceneHost, objectId: string): Prom
 			}
 		}
 
+		found = true;
 		break;
+	}
+
+	if (!found) {
+		vscode.window.showWarningMessage("Object not found.");
+		return;
 	}
 
 	host.getHistory().commit(newScene, "change atlas texture");
 
-	const document = host.getDocument();
 	const textures = await AssetManager.loadTexturesAsDataUrls(document.uri, newScene);
 	host.postToWebview({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
 
@@ -786,10 +766,22 @@ export async function sendScene(ctx: MessageHandlerContext): Promise<void> {
 	if (host.isActive()) SceneRegistry.emitSceneChange(host, scene);
 }
 
+/**
+ * 🆕 وقتی فایل از بیرون عوض شد، scene رو دوباره بخون.
+ * ولی اگه host تغییرات ذخیره‌نشده داره، نادیده بگیر.
+ */
 export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void> {
 	if (ctx.getIsProgrammaticChange()) return;
 
 	const host = ctx.host;
+
+	// 🆕 اگه تغییرات ذخیره‌نشده داره، فایل رو نادیده بگیر
+	// (چون کاربر داره توی webview کار می‌کنه و host.scene منبع حقیقته)
+	if (host.isDirty) {
+		log.debug("[sendSceneUpdate] host is dirty, skipping file reload");
+		return;
+	}
+
 	const fileScene = parseDocument(ctx.document);
 	const currentScene = host.getScene();
 	if (currentScene) {
@@ -809,15 +801,36 @@ export async function sendSceneUpdate(ctx: MessageHandlerContext): Promise<void>
 	if (host.isActive()) SceneRegistry.emitSceneChange(host, fileScene);
 }
 
+/**
+ * 🆕 ذخیره‌ی امن:
+ * - programmaticChange رو طولانی‌تر می‌کنه
+ * - از host.scene استفاده می‌کنه (نه msg.scene)
+ * - بعد از ذخیره، دوباره به webview می‌فرسته (تا مطمئن بشه sync هست)
+ */
 async function handleSave(msg: { scene: Scene }, ctx: MessageHandlerContext): Promise<void> {
+	// 🆕 programmaticChange رو برای ۲ ثانیه فعال کن (کافیه برای write + save)
 	ctx.setProgrammaticChange(true);
+	ctx.host.markProgrammaticChange(2000);
+
 	try {
-		ctx.host.setScene(msg.scene);
-		await writeDocument(ctx.document, msg.scene);
+		// 🆕 از host.scene استفاده کن (که آخرین تغییرات رو داره)
+		const sceneToSave = ctx.host.getScene() ?? msg.scene;
+		ctx.host.setScene(sceneToSave);
+
+		await writeDocument(ctx.document, sceneToSave);
 		await saveDocument(ctx.document);
 		ctx.markNotDirty();
+
+		// 🆕 بعد از ذخیره، دوباره scene رو به webview بفرست
+		// (تا مطمئن بشیم webview با host sync هست)
+		ctx.webviewPanel.webview.postMessage({ type: "load", scene: sceneToSave } satisfies ExtensionToWebviewMessage);
+		const textures = await AssetManager.loadTexturesAsDataUrls(ctx.document.uri, sceneToSave);
+		ctx.webviewPanel.webview.postMessage({ type: "texturesLoaded", textures } satisfies ExtensionToWebviewMessage);
+		const broken = await AssetManager.findBrokenAssets(ctx.document.uri, sceneToSave);
+		ctx.webviewPanel.webview.postMessage({ type: "brokenAssets", paths: broken } satisfies ExtensionToWebviewMessage);
+
 		ctx.host.broadcastHistoryState();
-		if (ctx.host.isActive()) SceneRegistry.emitSceneChange(ctx.host, msg.scene);
+		if (ctx.host.isActive()) SceneRegistry.emitSceneChange(ctx.host, sceneToSave);
 	} catch (err) {
 		log.error("[handleSave] failed:", err);
 	}
